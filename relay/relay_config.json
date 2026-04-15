@@ -1,0 +1,10 @@
+{
+  "supabase_url": "https://loarwnuyvfxiscjjsmiz.supabase.co",
+  "supabase_anon_key": "<YOUR_ANON_KEY>",
+  "z_drive_path": "Z:\\",
+  "sync_modules": ["sk", "sh", "k5", "h5"],
+  "interval_minutes": 5,
+  "use_odbc": true,
+  "odbc_dsn": "MagicSake",
+  "log_level": "INFO"
+}
