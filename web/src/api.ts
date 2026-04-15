@@ -1397,7 +1397,39 @@ export async function fetchRawMaterialStock(): Promise<RawMaterialStock[]> {
   return fetchJson("data/api/latest/raw-stock.json", mockRawStock);
 }
 
-// ─── 税務管理 ────────────────────────────────────────────────────────────────
+// ─── 税務管理（eTax連携対応） ───────────────────────────────────────────────
+
+export interface TaxRateCategory {
+  code: string;
+  name: string;
+  taxRatePerLiter: number;
+}
+
+export const TAX_RATE_CATEGORIES: TaxRateCategory[] = [
+  { code: "01", name: "清酒（普通酒）", taxRatePerLiter: 100 },
+  { code: "02", name: "清酒（純米酒）", taxRatePerLiter: 100 },
+  { code: "03", name: "清酒（吟醸酒）", taxRatePerLiter: 100 },
+  { code: "04", name: "清酒（大吟醸酒）", taxRatePerLiter: 100 },
+  { code: "05", name: "本格焼酎", taxRatePerLiter: 250 },
+  { code: "06", name: "リキュール", taxRatePerLiter: 200 },
+  { code: "07", name: "果実酒", taxRatePerLiter: 100 },
+  { code: "08", name: "その他醸造酒", taxRatePerLiter: 100 }
+];
+
+export interface TaxDeductionRow {
+  type: "export" | "sample" | "research" | "loss";
+  categoryCode: string;
+  volume: number;
+  reason: string;
+  documentNo?: string;
+}
+
+export const TAX_DEDUCTION_LABELS: Record<TaxDeductionRow["type"], string> = {
+  export: "輸出",
+  sample: "見本",
+  research: "試験醸造",
+  loss: "欠減"
+};
 
 export interface TaxDeclarationRow {
   taxCategory: string;
@@ -1406,6 +1438,13 @@ export interface TaxDeclarationRow {
   volume: number;
   taxRate: number;
   taxAmount: number;
+  // eTax連携用拡張フィールド
+  productionVolume: number;
+  previousBalance: number;
+  currentAdjustment: number;
+  exportDeduction: number;
+  sampleDeduction: number;
+  taxableVolume: number;
 }
 
 export interface TaxDeclaration {
@@ -1413,10 +1452,15 @@ export interface TaxDeclaration {
   targetMonth: number;
   companyName: string;
   companyNo: string;
+  companyAddress: string;
+  companyRepresentative: string;
+  taxOffice: string;
   rows: TaxDeclarationRow[];
+  deductions: TaxDeductionRow[];
   totalVolume: number;
   totalTax: number;
-  status: "draft" | "submitted";
+  status: "draft" | "submitted" | "accepted";
+  submittedAt: string | null;
 }
 
 const mockTaxDeclaration: TaxDeclaration = {
@@ -1424,18 +1468,216 @@ const mockTaxDeclaration: TaxDeclaration = {
   targetMonth: 3,
   companyName: "金井酒造店",
   companyNo: "1234567890123",
+  companyAddress: "神奈川県秦野市堀山下182",
+  companyRepresentative: "金井 和雄",
+  taxOffice: "小田原税務署",
   rows: [
-    { taxCategory: "01", taxCategoryName: "清酒（普通酒）", alcoholDegree: 15.5, volume: 3600, taxRate: 88, taxAmount: 316800 },
-    { taxCategory: "02", taxCategoryName: "清酒（純米酒）", alcoholDegree: 16.2, volume: 2850, taxRate: 88, taxAmount: 250800 },
-    { taxCategory: "03", taxCategoryName: "清酒（吟醸酒）", alcoholDegree: 16.5, volume: 1200, taxRate: 88, taxAmount: 105600 }
+    {
+      taxCategory: "01",
+      taxCategoryName: "清酒（普通酒）",
+      alcoholDegree: 15.5,
+      productionVolume: 3800,
+      previousBalance: 0,
+      currentAdjustment: 0,
+      exportDeduction: 100,
+      sampleDeduction: 100,
+      taxableVolume: 3600,
+      volume: 3600,
+      taxRate: 100,
+      taxAmount: 360000
+    },
+    {
+      taxCategory: "02",
+      taxCategoryName: "清酒（純米酒）",
+      alcoholDegree: 16.2,
+      productionVolume: 2900,
+      previousBalance: 0,
+      currentAdjustment: 0,
+      exportDeduction: 0,
+      sampleDeduction: 50,
+      taxableVolume: 2850,
+      volume: 2850,
+      taxRate: 100,
+      taxAmount: 285000
+    },
+    {
+      taxCategory: "03",
+      taxCategoryName: "清酒（吟醸酒）",
+      alcoholDegree: 16.5,
+      productionVolume: 1250,
+      previousBalance: 0,
+      currentAdjustment: 0,
+      exportDeduction: 0,
+      sampleDeduction: 50,
+      taxableVolume: 1200,
+      volume: 1200,
+      taxRate: 100,
+      taxAmount: 120000
+    }
+  ],
+  deductions: [
+    { type: "export", categoryCode: "01", volume: 100, reason: "シンガポール向け輸出", documentNo: "EX2026-003" },
+    { type: "sample", categoryCode: "01", volume: 100, reason: "展示会サンプル出荷" },
+    { type: "sample", categoryCode: "02", volume: 50, reason: "品評会出品" },
+    { type: "sample", categoryCode: "03", volume: 50, reason: "全国新酒鑑評会出品" }
   ],
   totalVolume: 7650,
-  totalTax: 673200,
-  status: "draft"
+  totalTax: 765000,
+  status: "draft",
+  submittedAt: null
 };
 
 export async function fetchTaxDeclaration(year: number, month: number): Promise<TaxDeclaration> {
-  return fetchJson(`data/api/latest/tax-${year}-${String(month).padStart(2, "0")}.json`, { ...mockTaxDeclaration, targetYear: year, targetMonth: month });
+  return fetchJson(`data/api/latest/tax-${year}-${String(month).padStart(2, "0")}.json`, {
+    ...mockTaxDeclaration,
+    targetYear: year,
+    targetMonth: month
+  });
+}
+
+// XMLエスケープ
+function xmlEscape(value: string | number): string {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+// eTax互換 XML生成
+export function generateTaxXML(decl: TaxDeclaration): string {
+  const rowsXml = decl.rows
+    .map(
+      (r) => `    <Category>
+      <Code>${xmlEscape(r.taxCategory)}</Code>
+      <Name>${xmlEscape(r.taxCategoryName)}</Name>
+      <AlcoholDegree>${r.alcoholDegree}</AlcoholDegree>
+      <ProductionVolume>${r.productionVolume}</ProductionVolume>
+      <PreviousBalance>${r.previousBalance}</PreviousBalance>
+      <CurrentAdjustment>${r.currentAdjustment}</CurrentAdjustment>
+      <ExportDeduction>${r.exportDeduction}</ExportDeduction>
+      <SampleDeduction>${r.sampleDeduction}</SampleDeduction>
+      <TaxableVolume>${r.taxableVolume}</TaxableVolume>
+      <TaxRate>${r.taxRate}</TaxRate>
+      <TaxAmount>${r.taxAmount}</TaxAmount>
+    </Category>`
+    )
+    .join("\n");
+
+  const dedXml = decl.deductions
+    .map(
+      (d) => `    <Deduction type="${xmlEscape(d.type)}">
+      <CategoryCode>${xmlEscape(d.categoryCode)}</CategoryCode>
+      <Volume>${d.volume}</Volume>
+      <Reason>${xmlEscape(d.reason)}</Reason>${d.documentNo ? `\n      <DocumentNo>${xmlEscape(d.documentNo)}</DocumentNo>` : ""}
+    </Deduction>`
+    )
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<TaxDeclaration>
+  <Header>
+    <TargetYear>${decl.targetYear}</TargetYear>
+    <TargetMonth>${String(decl.targetMonth).padStart(2, "0")}</TargetMonth>
+    <TaxpayerId>${xmlEscape(decl.companyNo)}</TaxpayerId>
+    <TaxpayerName>${xmlEscape(decl.companyName)}</TaxpayerName>
+    <TaxpayerAddress>${xmlEscape(decl.companyAddress)}</TaxpayerAddress>
+    <TaxpayerRepresentative>${xmlEscape(decl.companyRepresentative)}</TaxpayerRepresentative>
+    <TaxOffice>${xmlEscape(decl.taxOffice)}</TaxOffice>
+    <Status>${decl.status}</Status>
+  </Header>
+  <Categories>
+${rowsXml}
+  </Categories>
+  <Deductions>
+${dedXml}
+  </Deductions>
+  <Total>
+    <TotalVolume>${decl.totalVolume}</TotalVolume>
+    <TotalTax>${decl.totalTax}</TotalTax>
+  </Total>
+</TaxDeclaration>
+`;
+}
+
+// CSVエスケープ
+function csvEscape(value: string | number): string {
+  const s = String(value);
+  if (/[,"\n]/.test(s)) {
+    return `"${s.replaceAll('"', '""')}"`;
+  }
+  return s;
+}
+
+// eTax互換 CSV生成
+export function generateTaxCSV(decl: TaxDeclaration): string {
+  const bom = "\uFEFF";
+  const header = [
+    "酒類コード",
+    "区分名",
+    "アルコール度数",
+    "製造数量",
+    "前月繰越",
+    "当月調整",
+    "輸出控除",
+    "見本等控除",
+    "課税数量",
+    "税率(円/L)",
+    "税額(円)"
+  ].join(",");
+  const rows = decl.rows.map((r) =>
+    [
+      r.taxCategory,
+      r.taxCategoryName,
+      r.alcoholDegree,
+      r.productionVolume,
+      r.previousBalance,
+      r.currentAdjustment,
+      r.exportDeduction,
+      r.sampleDeduction,
+      r.taxableVolume,
+      r.taxRate,
+      r.taxAmount
+    ]
+      .map(csvEscape)
+      .join(",")
+  );
+  const footer = `,合計,,${decl.rows.reduce((s, r) => s + r.productionVolume, 0)},,,${decl.rows.reduce((s, r) => s + r.exportDeduction, 0)},${decl.rows.reduce((s, r) => s + r.sampleDeduction, 0)},${decl.totalVolume},,${decl.totalTax}`;
+  return bom + [header, ...rows, footer].join("\n") + "\n";
+}
+
+// 課税数量と税額を自動再計算（イミュータブル）
+export function recalculateTaxDeclaration(decl: TaxDeclaration): TaxDeclaration {
+  const rows = decl.rows.map((r) => {
+    const taxableVolume = Math.max(
+      0,
+      r.productionVolume + r.previousBalance + r.currentAdjustment - r.exportDeduction - r.sampleDeduction
+    );
+    const taxAmount = Math.round(taxableVolume * r.taxRate);
+    return { ...r, taxableVolume, volume: taxableVolume, taxAmount };
+  });
+  const totalVolume = rows.reduce((s, r) => s + r.taxableVolume, 0);
+  const totalTax = rows.reduce((s, r) => s + r.taxAmount, 0);
+  return { ...decl, rows, totalVolume, totalTax };
+}
+
+export async function saveTaxDeclaration(decl: TaxDeclaration): Promise<void> {
+  const { supabaseInsert } = await import("./supabase");
+  await supabaseInsert("tax_declarations", {
+    target_year: decl.targetYear,
+    target_month: decl.targetMonth,
+    company_name: decl.companyName,
+    company_no: decl.companyNo,
+    company_address: decl.companyAddress,
+    company_representative: decl.companyRepresentative,
+    tax_office: decl.taxOffice,
+    total_taxable_volume: decl.totalVolume,
+    total_tax_amount: decl.totalTax,
+    status: decl.status,
+    xml_data: generateTaxXML(decl),
+    submitted_at: decl.submittedAt
+  });
 }
 
 // ─── 店舗・直売所 ─────────────────────────────────────────────────────────────

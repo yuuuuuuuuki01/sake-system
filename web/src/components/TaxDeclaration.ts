@@ -108,11 +108,16 @@ export function renderTaxDeclaration(
         </table>
       </div>
       <div class="action-bar">
+        <button class="button secondary" data-action="tax-export-xml">📄 XMLダウンロード</button>
+        <button class="button secondary" data-action="tax-export-csv">📊 CSVダウンロード</button>
         <button class="button secondary" data-action="tax-save-draft">下書き保存</button>
         <button class="button primary" data-action="tax-submit" ${decl.status === "submitted" ? "disabled" : ""}>
           ${decl.status === "submitted" ? "申告済" : "申告する"}
         </button>
       </div>
+      <p class="form-hint" style="margin-top: 12px;">
+        XMLはeTax受付システム形式、CSVは会計ソフト・税理士向け。実際のeTax送信は国税庁のe-Taxソフトに取り込んでください。
+      </p>
     </section>
   `;
 }

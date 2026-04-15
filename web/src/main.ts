@@ -1634,6 +1634,43 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  root.querySelector<HTMLButtonElement>("[data-action='tax-export-xml']")?.addEventListener("click", async () => {
+    if (!state.taxDeclaration) return;
+    const { generateTaxXML } = await import("./api");
+    const xml = generateTaxXML(state.taxDeclaration);
+    const blob = new Blob([xml], { type: "application/xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `tax-${state.taxYear}-${String(state.taxMonth).padStart(2, "0")}.xml`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='tax-export-csv']")?.addEventListener("click", async () => {
+    if (!state.taxDeclaration) return;
+    const { generateTaxCSV } = await import("./api");
+    const csv = generateTaxCSV(state.taxDeclaration);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `tax-${state.taxYear}-${String(state.taxMonth).padStart(2, "0")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='tax-save-draft']")?.addEventListener("click", async () => {
+    if (!state.taxDeclaration) return;
+    const { saveTaxDeclaration } = await import("./api");
+    try {
+      await saveTaxDeclaration(state.taxDeclaration);
+      alert("下書き保存しました（Supabase tax_declarationsに保存）");
+    } catch (e) {
+      alert("保存に失敗: " + (e instanceof Error ? e.message : String(e)));
+    }
+  });
+
   root.querySelectorAll<HTMLButtonElement>("[data-store-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.storeTab = button.dataset.storeTab as "pos" | "orders";
