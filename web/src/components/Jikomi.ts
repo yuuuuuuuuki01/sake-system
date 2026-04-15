@@ -1,7 +1,7 @@
 import type { JikomiRecord } from "../api";
 import { JIKOMI_STATUS_LABELS } from "../api";
 
-export function renderJikomi(records: JikomiRecord[]): string {
+export function renderJikomi(records: JikomiRecord[], view: "list" | "calendar"): string {
   const statusClass: Record<JikomiRecord["status"], string> = {
     planned: "neutral",
     active: "warning",
@@ -63,9 +63,25 @@ export function renderJikomi(records: JikomiRecord[]): string {
     </section>
 
     <section class="panel">
+      <div class="panel-header tabs-header">
+        <div>
+          <h2>表示切替</h2>
+          <p class="panel-caption">一覧とカレンダーを切り替えます。</p>
+        </div>
+        <div class="tab-group">
+          <button class="tab-button ${view === "list" ? "active" : ""}" data-jikomi-tab="list">一覧</button>
+          <button class="tab-button ${view === "calendar" ? "active" : ""}" data-jikomi-tab="calendar">カレンダー</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
       <div class="panel-header">
-        <h2>仕込一覧</h2>
-        <p class="panel-caption">${records.length} 件</p>
+        <div>
+          <h2>仕込一覧</h2>
+          <p class="panel-caption">${records.length} 件</p>
+        </div>
+        <button class="button secondary" type="button" data-action="csv-export">CSV出力</button>
       </div>
       <div class="table-wrap">
         <table>

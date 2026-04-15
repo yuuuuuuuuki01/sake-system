@@ -21,6 +21,7 @@ export interface EmailCampaign {
   audienceMode: "all" | "area" | "history";
   audienceFilter: string;
   recipientCount: number;
+  recipients?: string[];
   status: EmailCampaignStatus;
   createdAt?: string;
   updatedAt?: string;
@@ -1499,7 +1500,9 @@ export async function saveEmailCampaign(campaign: EmailCampaign): Promise<EmailC
     audience_mode?: string;
     audience_filter?: string;
     recipient_count?: number;
+    sent_count?: number;
     status?: string;
+    sent_at?: string;
     created_at?: string;
     updated_at?: string;
   }>("email_campaigns", {
@@ -1509,7 +1512,9 @@ export async function saveEmailCampaign(campaign: EmailCampaign): Promise<EmailC
     audience_mode: campaign.audienceMode,
     audience_filter: campaign.audienceFilter,
     recipient_count: campaign.recipientCount,
-    status: campaign.status
+    sent_count: campaign.status === "sent" ? campaign.recipientCount : 0,
+    status: campaign.status,
+    sent_at: campaign.status === "sent" ? new Date().toISOString() : null
   });
 
   return {
@@ -1524,4 +1529,47 @@ export async function saveEmailCampaign(campaign: EmailCampaign): Promise<EmailC
     createdAt: row?.created_at ?? new Date().toISOString(),
     updatedAt: row?.updated_at ?? new Date().toISOString()
   };
+}
+
+export async function sendEmailCampaign(
+  campaign: EmailCampaign
+): Promise<{ sent: number; failed: number }> {
+  const apiKey = import.meta.env.VITE_RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error("VITE_RESEND_API_KEY is not configured");
+  }
+
+  const recipients = campaign.recipients ?? [];
+  let sent = 0;
+  let failed = 0;
+
+  await Promise.all(
+    recipients.map(async (recipient) => {
+      try {
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            from: "brewery@kaneishuzo.co.jp",
+            to: [recipient],
+            subject: campaign.subject,
+            text: campaign.body
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        sent += 1;
+      } catch (error) {
+        console.warn(`Failed to send email to ${recipient}`, error);
+        failed += 1;
+      }
+    })
+  );
+
+  return { sent, failed };
 }

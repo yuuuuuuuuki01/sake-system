@@ -18,6 +18,7 @@ export interface EmailBroadcastViewState {
   recipientCount: number;
   previewRecipients: EmailRecipientPreview[];
   saveMessage: string | null;
+  sending: boolean;
 }
 
 function escapeHtml(value: string): string {
@@ -171,7 +172,9 @@ export function renderEmailBroadcast(state: EmailBroadcastViewState): string {
         ${state.saveMessage ? `<p class="meta-note">${escapeHtml(state.saveMessage)}</p>` : ""}
         <div class="action-bar">
           <button class="button secondary" type="button" data-action="email-save">下書き保存</button>
-          <button class="button primary" type="button" data-action="email-send">送信</button>
+          <button class="button primary" type="button" data-action="email-send" ${state.sending ? "disabled" : ""}>
+            ${state.sending ? "送信中..." : "送信する"}
+          </button>
         </div>
       </article>
     </section>

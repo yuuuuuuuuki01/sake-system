@@ -1,4 +1,11 @@
 import {
+  currentUser,
+  getSession,
+  signIn,
+  signUp,
+  signOut
+} from "./auth";
+import {
   fetchBillingSummary,
   fetchBillList,
   fetchCustomerLedger,
@@ -21,6 +28,7 @@ import {
   fetchTankList,
   fetchTaxDeclaration,
   saveEmailCampaign,
+  sendEmailCampaign,
   saveInvoice,
   SEASONAL_TEMPLATES,
   type AnalyticsTab,
@@ -50,6 +58,7 @@ import {
   type TankRecord,
   type TaxDeclaration
 } from "./api";
+import { REQUIRE_AUTH } from "./config";
 import { renderBilling } from "./components/Billing";
 import { renderCategoryHome } from "./components/CategoryHome";
 import { renderCustomerLedger } from "./components/CustomerLedger";
@@ -61,11 +70,14 @@ import {
   type EmailBroadcastViewState,
   type EmailRecipientPreview
 } from "./components/EmailBroadcast";
+import { renderGlobalSearch } from "./components/GlobalSearch";
 import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
+import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
 import { renderKentei } from "./components/Kentei";
+import { renderLoginScreen } from "./components/LoginScreen";
 import { renderMasterStats } from "./components/MasterStats";
 import { renderMaterials } from "./components/Materials";
 import { renderPaymentStatus } from "./components/PaymentStatus";
@@ -81,6 +93,7 @@ import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase";
 import "./styles/main.css";
+import { downloadCSV, type CSVColumn } from "./utils/csv";
 
 type RoutePath =
   | "/"
@@ -120,6 +133,11 @@ interface EmailRecipientRecord extends EmailRecipientPreview {
   historySegment: "seasonal" | "premium" | "liqueur";
 }
 
+interface PageSearchItem {
+  path: RoutePath;
+  title: string;
+}
+
 const ALL_ROUTES: RoutePath[] = [
   "/",
   "/cat/sales",
@@ -157,6 +175,28 @@ const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
   { name: "南星リカー", email: "nansei@example.jp", area: "九州", historySegment: "seasonal" },
   { name: "山川酒店", email: "yamakawa@example.jp", area: "関西", historySegment: "premium" },
   { name: "瑞穂商店", email: "mizuho@example.jp", area: "中部", historySegment: "seasonal" }
+];
+
+const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
+  { path: "/sales", title: "売上一覧" },
+  { path: "/payment", title: "入金状況" },
+  { path: "/master", title: "マスタ" },
+  { path: "/invoice", title: "伝票照会" },
+  { path: "/ledger", title: "得意先台帳" },
+  { path: "/analytics", title: "売上分析" },
+  { path: "/invoice-entry", title: "伝票入力" },
+  { path: "/delivery", title: "納品書" },
+  { path: "/billing", title: "月次請求" },
+  { path: "/report", title: "集計帳票" },
+  { path: "/jikomi", title: "仕込管理" },
+  { path: "/tanks", title: "タンク管理" },
+  { path: "/kentei", title: "検定管理" },
+  { path: "/materials", title: "資材管理" },
+  { path: "/purchase", title: "仕入・買掛" },
+  { path: "/raw-material", title: "手形・原料" },
+  { path: "/tax", title: "酒税申告" },
+  { path: "/store", title: "店舗・直売所" },
+  { path: "/setup", title: "連動設定" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -218,6 +258,7 @@ interface AppState {
   billingYearMonth: string;
   salesReport: SalesReport | null;
   jikomiList: JikomiRecord[];
+  jikomiView: "list" | "calendar";
   tankList: TankRecord[];
   kenteiList: KenteiRecord[];
   materialList: MaterialRecord[];
@@ -247,6 +288,13 @@ interface AppState {
   emailSubject: string;
   emailBody: string;
   emailSaveMessage: string | null;
+  emailSending: boolean;
+  globalSearchOpen: boolean;
+  globalQuery: string;
+  authSkipped: boolean;
+  authSubmitting: boolean;
+  authError: string | null;
+  user: { email: string } | null;
   loading: boolean;
   actionLoading: boolean;
   error: string | null;
@@ -320,6 +368,7 @@ const state: AppState = {
   billingYearMonth: defaultYearMonth,
   salesReport: null,
   jikomiList: [],
+  jikomiView: "list",
   tankList: [],
   kenteiList: [],
   materialList: [],
@@ -349,6 +398,13 @@ const state: AppState = {
   emailSubject: defaultEmailState.subject,
   emailBody: defaultEmailState.body,
   emailSaveMessage: defaultEmailState.saveMessage,
+  emailSending: false,
+  globalSearchOpen: false,
+  globalQuery: "",
+  authSkipped: false,
+  authSubmitting: false,
+  authError: null,
+  user: null,
   loading: true,
   actionLoading: false,
   error: null
@@ -526,7 +582,8 @@ function buildEmailViewState(): EmailBroadcastViewState {
     body: state.emailBody,
     recipientCount: recipients.length,
     previewRecipients: recipients.slice(0, 5),
-    saveMessage: state.emailSaveMessage
+    saveMessage: state.emailSaveMessage,
+    sending: state.emailSending
   };
 }
 
@@ -546,8 +603,207 @@ function buildEmailCampaignPayload(status: EmailCampaign["status"]): EmailCampai
     audienceMode: state.emailAudienceMode,
     audienceFilter,
     recipientCount: recipients.length,
+    recipients: recipients.map((recipient) => recipient.email),
     status
   };
+}
+
+function shouldShowLogin(): boolean {
+  if (state.user) return false;
+  if (REQUIRE_AUTH) return true;
+  return !state.authSkipped;
+}
+
+function closeGlobalSearch(): void {
+  state.globalSearchOpen = false;
+  state.globalQuery = "";
+}
+
+function getGlobalSearchResults() {
+  const query = state.globalQuery.trim().toLowerCase();
+  if (!query) {
+    return {
+      customers: [] as { code: string; name: string }[],
+      products: [] as { code: string; name: string }[],
+      documents: [] as { documentNo: string; customerName: string; date: string }[],
+      pages: PAGE_SEARCH_ITEMS
+    };
+  }
+
+  return {
+    customers:
+      state.masterStats?.customers.filter(
+        (customer) =>
+          customer.code.toLowerCase().includes(query) || customer.name.toLowerCase().includes(query)
+      ) ?? [],
+    products:
+      state.masterStats?.products.filter(
+        (product) =>
+          product.code.toLowerCase().includes(query) || product.name.toLowerCase().includes(query)
+      ) ?? [],
+    documents: state.invoiceRecords.filter(
+      (record) =>
+        record.documentNo.toLowerCase().includes(query) ||
+        record.customerName.toLowerCase().includes(query) ||
+        record.date.toLowerCase().includes(query)
+    ),
+    pages: PAGE_SEARCH_ITEMS.filter(
+      (page) => page.path.toLowerCase().includes(query) || page.title.toLowerCase().includes(query)
+    )
+  };
+}
+
+function exportCurrentRouteCsv(): void {
+  let rows: Record<string, unknown>[] = [];
+  let columns: CSVColumn[] | undefined;
+  let filename = "export.csv";
+
+  switch (state.route) {
+    case "/sales":
+      rows = (state.salesSummary ? filterSalesRecords(state.salesSummary) : []).map((record) => ({
+        documentNo: record.documentNo,
+        date: record.date,
+        customerCode: record.customerCode,
+        customerName: record.customerName,
+        amount: record.amount
+      }));
+      columns = [
+        { key: "documentNo", label: "伝票番号" },
+        { key: "date", label: "日付" },
+        { key: "customerCode", label: "得意先コード" },
+        { key: "customerName", label: "得意先名" },
+        { key: "amount", label: "金額" }
+      ];
+      filename = "sales.csv";
+      break;
+    case "/payment":
+      rows = [...(state.paymentStatus?.records ?? [])]
+        .sort((left, right) => right.balanceAmount - left.balanceAmount)
+        .map((record) => ({ ...record }));
+      columns = [
+        { key: "customerCode", label: "得意先コード" },
+        { key: "customerName", label: "得意先名" },
+        { key: "billedAmount", label: "請求額" },
+        { key: "paymentAmount", label: "入金額" },
+        { key: "balanceAmount", label: "請求残" },
+        { key: "lastPaymentDate", label: "最終入金日" },
+        { key: "status", label: "状態" }
+      ];
+      filename = "payment-status.csv";
+      break;
+    case "/invoice":
+      rows = state.invoiceRecords.map((record) => ({ ...record }));
+      columns = [
+        { key: "documentNo", label: "伝票番号" },
+        { key: "date", label: "日付" },
+        { key: "customerCode", label: "得意先コード" },
+        { key: "customerName", label: "得意先名" },
+        { key: "itemCount", label: "明細数" },
+        { key: "amount", label: "金額" }
+      ];
+      filename = "invoices.csv";
+      break;
+    case "/purchase":
+      rows = state.purchaseList.map((record) => ({ ...record }));
+      columns = [
+        { key: "documentNo", label: "伝票番号" },
+        { key: "purchaseDate", label: "仕入日" },
+        { key: "supplierCode", label: "仕入先コード" },
+        { key: "supplierName", label: "仕入先名" },
+        { key: "itemName", label: "品目" },
+        { key: "quantity", label: "数量" },
+        { key: "unitPrice", label: "単価" },
+        { key: "amount", label: "金額" },
+        { key: "status", label: "状態" }
+      ];
+      filename = "purchase.csv";
+      break;
+    case "/jikomi":
+      rows = state.jikomiList.map((record) => ({ ...record }));
+      columns = [
+        { key: "jikomiNo", label: "仕込番号" },
+        { key: "productName", label: "銘柄" },
+        { key: "riceType", label: "原料米" },
+        { key: "plannedKg", label: "計画量" },
+        { key: "actualKg", label: "実績量" },
+        { key: "startDate", label: "開始日" },
+        { key: "expectedDoneDate", label: "完了予定日" },
+        { key: "tankNo", label: "タンク" },
+        { key: "status", label: "状態" },
+        { key: "note", label: "備考" }
+      ];
+      filename = "jikomi.csv";
+      break;
+    case "/tanks":
+      rows = state.tankList.map((record) => ({ ...record }));
+      columns = [
+        { key: "tankNo", label: "タンクNo." },
+        { key: "capacity", label: "容量" },
+        { key: "currentVolume", label: "現在量" },
+        { key: "productName", label: "銘柄" },
+        { key: "jikomiNo", label: "仕込番号" },
+        { key: "status", label: "状態" },
+        { key: "lastUpdated", label: "更新日" }
+      ];
+      filename = "tanks.csv";
+      break;
+    case "/kentei":
+      rows = state.kenteiList.map((record) => ({ ...record }));
+      columns = [
+        { key: "kenteiNo", label: "検定番号" },
+        { key: "jikomiNo", label: "仕込番号" },
+        { key: "productName", label: "銘柄" },
+        { key: "kenteiDate", label: "検定日" },
+        { key: "alcoholDegree", label: "アルコール度数" },
+        { key: "extractDegree", label: "エキス分" },
+        { key: "sakaMeterValue", label: "酒度" },
+        { key: "volume", label: "容量" },
+        { key: "taxCategory", label: "酒類区分" },
+        { key: "status", label: "状態" }
+      ];
+      filename = "kentei.csv";
+      break;
+    case "/materials":
+      rows = state.materialList.map((record) => ({ ...record }));
+      columns = [
+        { key: "code", label: "コード" },
+        { key: "name", label: "品名" },
+        { key: "unit", label: "単位" },
+        { key: "currentStock", label: "現在庫" },
+        { key: "minimumStock", label: "最低在庫" },
+        { key: "unitCost", label: "単価" },
+        { key: "lastUpdated", label: "更新日" }
+      ];
+      filename = "materials.csv";
+      break;
+    case "/master":
+      if (state.masterTab === "customers") {
+        rows = state.masterStats?.customers.map((record) => ({ ...record })) ?? [];
+        columns = [
+          { key: "code", label: "得意先コード" },
+          { key: "name", label: "得意先名" },
+          { key: "closingDay", label: "締日" },
+          { key: "paymentDay", label: "入金日" },
+          { key: "isActive", label: "有効" }
+        ];
+        filename = "master-customers.csv";
+      } else {
+        rows = state.masterStats?.products.map((record) => ({ ...record })) ?? [];
+        columns = [
+          { key: "code", label: "商品コード" },
+          { key: "janCode", label: "JAN" },
+          { key: "name", label: "商品名" },
+          { key: "category", label: "カテゴリ" },
+          { key: "isActive", label: "有効" }
+        ];
+        filename = "master-products.csv";
+      }
+      break;
+    default:
+      return;
+  }
+
+  downloadCSV(filename, rows, columns);
 }
 
 function navigate(path: RoutePath): void {
@@ -556,6 +812,7 @@ function navigate(path: RoutePath): void {
   state.route = path;
   state.currentCategory = inferCurrentCategory(path);
   state.sidebarOpen = false;
+  closeGlobalSearch();
   void loadRouteData(path);
 }
 
@@ -640,6 +897,10 @@ async function loadRouteData(route: RoutePath): Promise<void> {
 }
 
 function renderView(): string {
+  if (shouldShowLogin()) {
+    return renderLoginScreen(state.authError, state.authSubmitting);
+  }
+
   if (state.loading) {
     return `<section class="panel"><p>データを読み込んでいます。</p></section>`;
   }
@@ -685,7 +946,9 @@ function renderView(): string {
         ? renderSalesReport(state.salesReport)
         : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
     case "/jikomi":
-      return renderJikomi(state.jikomiList);
+      return state.jikomiView === "calendar"
+        ? `${renderJikomi(state.jikomiList, state.jikomiView)}${renderJikomiCalendar(state.jikomiList)}`
+        : renderJikomi(state.jikomiList, state.jikomiView);
     case "/tanks":
       return renderTankList(state.tankList);
     case "/kentei":
@@ -754,6 +1017,16 @@ function renderView(): string {
 }
 
 function renderShell(): string {
+  if (shouldShowLogin()) {
+    return `
+      <div class="shell auth-shell">
+        <main class="main auth-main">
+          <div class="view">${renderView()}</div>
+        </main>
+      </div>
+    `;
+  }
+
   const navGroups: Record<CategoryKey, NavGroup[]> = {
     dashboard: [
       {
@@ -879,6 +1152,21 @@ function renderShell(): string {
         : renderProductPicker(state.masterStats.products, state.pickerQuery)
       : "";
 
+  const globalSearchHtml = state.globalSearchOpen
+    ? renderGlobalSearch(state.globalQuery, getGlobalSearchResults())
+    : "";
+
+  const userHtml = state.user
+    ? `
+        <div class="user-badge">
+          <span>${state.user.email}</span>
+          <button class="button secondary" type="button" data-action="auth-logout">ログアウト</button>
+        </div>
+      `
+    : state.authSkipped
+      ? `<div class="user-badge demo">デモモード</div>`
+      : "";
+
   return `
     <div class="shell">
       <button
@@ -907,9 +1195,14 @@ function renderShell(): string {
         </nav>
       </aside>
       <main class="main">
+        <header class="topbar">
+          <button class="button secondary" type="button" data-action="global-search-open">検索 (Ctrl+K)</button>
+          ${userHtml}
+        </header>
         <div class="view ${state.actionLoading ? "is-busy" : ""}">${renderView()}</div>
       </main>
       ${pickerHtml}
+      ${globalSearchHtml}
     </div>
   `;
 }
@@ -1001,6 +1294,91 @@ function collectEmailFormFromDom(root: HTMLElement): void {
 }
 
 function bindEvents(root: HTMLElement): void {
+  root.querySelector<HTMLButtonElement>("[data-action='global-search-open']")?.addEventListener("click", () => {
+    state.globalSearchOpen = true;
+    renderApp();
+  });
+
+  root.querySelectorAll<HTMLElement>("[data-action='global-search-close']").forEach((element) => {
+    element.addEventListener("click", (event) => {
+      if (
+        element.classList.contains("global-search") &&
+        event.target instanceof HTMLElement &&
+        !event.target.classList.contains("global-search")
+      ) {
+        return;
+      }
+      closeGlobalSearch();
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLInputElement>("#global-search-input")?.addEventListener("input", (event) => {
+    state.globalQuery = (event.target as HTMLInputElement).value;
+    renderApp();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-action='global-nav']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const path = button.dataset.path as RoutePath | undefined;
+      if (!path) return;
+      closeGlobalSearch();
+      navigate(path);
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='csv-export']")?.addEventListener("click", () => {
+    exportCurrentRouteCsv();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-jikomi-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.jikomiView = button.dataset.jikomiTab as "list" | "calendar";
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='auth-login']")?.addEventListener("click", () => {
+    const email = root.querySelector<HTMLInputElement>("#auth-email")?.value.trim() ?? "";
+    const password = root.querySelector<HTMLInputElement>("#auth-password")?.value ?? "";
+    state.authSubmitting = true;
+    state.authError = null;
+    renderApp();
+    void signIn(email, password)
+      .then((user) => {
+        state.user = user;
+        state.authSkipped = false;
+        state.authSubmitting = false;
+        state.authError = null;
+        renderApp();
+      })
+      .catch(async (error) => {
+        try {
+          const user = await signUp(email, password);
+          state.user = user;
+          state.authSkipped = false;
+          state.authError = null;
+        } catch {
+          state.authError = error instanceof Error ? error.message : "ログインに失敗しました。";
+        } finally {
+          state.authSubmitting = false;
+          renderApp();
+        }
+      });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='auth-skip']")?.addEventListener("click", () => {
+    state.authSkipped = true;
+    state.authError = null;
+    renderApp();
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='auth-logout']")?.addEventListener("click", () => {
+    void signOut().finally(() => {
+      location.reload();
+    });
+  });
+
   root.querySelector<HTMLButtonElement>("[data-action='sidebar-open']")?.addEventListener("click", () => {
     state.sidebarOpen = true;
     renderApp();
@@ -1373,13 +1751,30 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>("[data-action='email-send']")?.addEventListener("click", () => {
     collectEmailFormFromDom(root);
     state.actionLoading = true;
+    state.emailSending = true;
     renderApp();
-    void saveEmailCampaign(buildEmailCampaignPayload("draft")).then((saved) => {
-      state.emailSaveMessage = `送信処理用の下書きを保存しました。${saved.recipientCount.toLocaleString("ja-JP")} 件`;
-      state.actionLoading = false;
-      renderApp();
-      window.confirm("送信しました（下書き保存）");
-    });
+    const campaign = buildEmailCampaignPayload("sent");
+
+    void sendEmailCampaign(campaign)
+      .then(async (result) => {
+        await saveEmailCampaign({
+          ...campaign,
+          recipientCount: result.sent
+        });
+        state.emailSaveMessage = `${result.sent.toLocaleString("ja-JP")} 件送信しました。`;
+        state.actionLoading = false;
+        state.emailSending = false;
+        renderApp();
+        window.alert(`${result.sent}件送信完了`);
+      })
+      .catch(async () => {
+        await saveEmailCampaign(buildEmailCampaignPayload("draft"));
+        state.emailSaveMessage = "APIキー未設定のため下書きを保存しました。";
+        state.actionLoading = false;
+        state.emailSending = false;
+        renderApp();
+        window.alert("APIキー未設定のため下書き保存しました");
+      });
   });
 }
 
@@ -1390,6 +1785,12 @@ function renderApp(): void {
   bindEvents(app);
   if (state.pickerMode) {
     app.querySelector<HTMLInputElement>("#modal-search")?.focus();
+  }
+  if (state.globalSearchOpen) {
+    app.querySelector<HTMLInputElement>("#global-search-input")?.focus();
+  }
+  if (shouldShowLogin()) {
+    app.querySelector<HTMLInputElement>("#auth-email")?.focus();
   }
 }
 
@@ -1460,11 +1861,24 @@ window.addEventListener("popstate", () => {
   state.route = normalizePath(location.pathname);
   state.currentCategory = inferCurrentCategory(state.route);
   state.sidebarOpen = false;
+  closeGlobalSearch();
   void loadRouteData(state.route);
 });
 
 window.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    state.globalSearchOpen = true;
+    renderApp();
+    return;
+  }
+
   if (event.key === "Escape") {
+    if (state.globalSearchOpen) {
+      closeGlobalSearch();
+      renderApp();
+      return;
+    }
     if (state.pickerMode) {
       closePicker();
       renderApp();
@@ -1490,5 +1904,7 @@ window.addEventListener("keydown", (event) => {
     }
   }
 });
+
+state.user = getSession() ? currentUser() : null;
 
 void loadData();

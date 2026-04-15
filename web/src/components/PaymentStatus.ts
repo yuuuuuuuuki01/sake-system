@@ -58,6 +58,7 @@ export function renderPaymentStatus(records: PaymentRecord[]): string {
           <h2>請求残一覧</h2>
           <p class="panel-caption">未入金・一部入金を優先表示</p>
         </div>
+        <button class="button secondary" type="button" data-action="csv-export">CSV出力</button>
       </div>
       <div class="table-wrap">
         <table>

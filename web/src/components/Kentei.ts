@@ -75,8 +75,11 @@ export function renderKentei(records: KenteiRecord[]): string {
 
     <section class="panel">
       <div class="panel-header">
-        <h2>検定一覧</h2>
-        <p class="panel-caption">承認済 ${approvedCount} 件 / 合計 ${records.length} 件</p>
+        <div>
+          <h2>検定一覧</h2>
+          <p class="panel-caption">承認済 ${approvedCount} 件 / 合計 ${records.length} 件</p>
+        </div>
+        <button class="button secondary" type="button" data-action="csv-export">CSV出力</button>
       </div>
       <div class="table-wrap">
         <table>

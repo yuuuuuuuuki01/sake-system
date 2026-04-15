@@ -60,9 +60,12 @@ export function renderMasterStats(summary: MasterStatsSummary, activeTab: Master
           <h2>マスタ一覧</h2>
           <p class="panel-caption">業務確認用の基本統計</p>
         </div>
-        <div class="tab-group">
-          <button class="tab-button ${activeTab === "customers" ? "active" : ""}" data-tab="customers">得意先一覧</button>
-          <button class="tab-button ${activeTab === "products" ? "active" : ""}" data-tab="products">商品一覧</button>
+        <div class="panel-header-actions">
+          <button class="button secondary" type="button" data-action="csv-export">CSV出力</button>
+          <div class="tab-group">
+            <button class="tab-button ${activeTab === "customers" ? "active" : ""}" data-tab="customers">得意先一覧</button>
+            <button class="tab-button ${activeTab === "products" ? "active" : ""}" data-tab="products">商品一覧</button>
+          </div>
         </div>
       </div>
       <div class="table-wrap">

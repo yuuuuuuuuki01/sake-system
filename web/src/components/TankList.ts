@@ -75,8 +75,11 @@ export function renderTankList(tanks: TankRecord[]): string {
 
     <section class="panel">
       <div class="panel-header">
-        <h2>タンク一覧</h2>
-        <p class="panel-caption">${tanks.length} 基</p>
+        <div>
+          <h2>タンク一覧</h2>
+          <p class="panel-caption">${tanks.length} 基</p>
+        </div>
+        <button class="button secondary" type="button" data-action="csv-export">CSV出力</button>
       </div>
       <div class="table-wrap">
         <table>

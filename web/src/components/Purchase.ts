@@ -104,8 +104,11 @@ export function renderPurchase(purchases: PurchaseRecord[], payables: PayableRec
 
     <section class="panel">
       <div class="panel-header">
-        <h2>仕入伝票一覧</h2>
-        <p class="panel-caption">${purchases.length} 件</p>
+        <div>
+          <h2>仕入伝票一覧</h2>
+          <p class="panel-caption">${purchases.length} 件</p>
+        </div>
+        <button class="button secondary" type="button" data-action="csv-export">CSV出力</button>
       </div>
       <div class="table-wrap">
         <table>

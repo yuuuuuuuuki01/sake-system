@@ -65,6 +65,7 @@ export function renderMaterials(materials: MaterialRecord[]): string {
     <section class="panel">
       <div class="panel-header">
         <h2>資材一覧</h2>
+        <button class="button secondary" type="button" data-action="csv-export">CSV出力</button>
       </div>
       <div class="table-wrap">
         <table>

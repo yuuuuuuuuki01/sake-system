@@ -73,6 +73,7 @@ export function renderSalesTable(
           <h2>伝票一覧</h2>
           <p class="panel-caption">${records.length.toLocaleString("ja-JP")} 件</p>
         </div>
+        <button class="button secondary" type="button" data-action="csv-export">CSV出力</button>
       </div>
       <div class="table-wrap">
         <table>
