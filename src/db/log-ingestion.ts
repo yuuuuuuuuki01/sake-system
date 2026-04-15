@@ -35,7 +35,6 @@ export async function logFileIngestion(
       file_size: candidate.fileSize,
       file_mtime: candidate.fileMtime,
       content_hash: candidate.contentHash ?? null,
-      ingested_at: new Date().toISOString(),
       status,
       error_message: error ?? null
     })
@@ -48,7 +47,6 @@ export async function logFileIngestion(
         file_size: eb.ref("excluded.file_size"),
         file_mtime: eb.ref("excluded.file_mtime"),
         content_hash: eb.ref("excluded.content_hash"),
-        ingested_at: eb.ref("excluded.ingested_at"),
         status: eb.ref("excluded.status"),
         error_message: eb.ref("excluded.error_message")
       }))
