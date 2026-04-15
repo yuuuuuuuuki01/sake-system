@@ -90,6 +90,15 @@ import { renderSalesReport } from "./components/SalesReport";
 import { renderSalesTable } from "./components/SalesTable";
 import { renderStorePOS } from "./components/StorePOS";
 import { renderDataImport } from "./components/DataImport";
+import { renderPrintCenter } from "./components/PrintCenter";
+import {
+  DEFAULT_COMPANY_INFO,
+  DEFAULT_PRINT_OPTIONS,
+  type PrintCompanyInfo,
+  type PrintDocumentData,
+  type PrintOptions,
+  type PrintTemplateKey
+} from "./templates/printTypes";
 import {
   generateTemplateCSV,
   importToSupabase,
@@ -130,7 +139,8 @@ type RoutePath =
   | "/store"
   | "/setup"
   | "/email"
-  | "/import";
+  | "/import"
+  | "/print";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -174,7 +184,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/store",
   "/setup",
   "/email",
-  "/import"
+  "/import",
+  "/print"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -208,7 +219,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/tax", title: "酒税申告" },
   { path: "/store", title: "店舗・直売所" },
   { path: "/setup", title: "連動設定" },
-  { path: "/import", title: "CSV/Excelインポート" }
+  { path: "/import", title: "CSV/Excelインポート" },
+  { path: "/print", title: "印刷センター" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -288,6 +300,10 @@ interface AppState {
   importPreview: ImportPreview | null;
   importing: boolean;
   importResult: string | null;
+  printTemplate: PrintTemplateKey;
+  printOptions: PrintOptions;
+  printCompany: PrintCompanyInfo;
+  printData: PrintDocumentData;
   storeSalesDate: string;
   route: RoutePath;
   currentCategory: CategoryKey;
@@ -402,6 +418,27 @@ const state: AppState = {
   importPreview: null,
   importing: false,
   importResult: null,
+  printTemplate: "chain_store",
+  printOptions: { ...DEFAULT_PRINT_OPTIONS },
+  printCompany: { ...DEFAULT_COMPANY_INFO },
+  printData: {
+    documentNo: "D" + new Date().toISOString().slice(0, 10).replaceAll("-", ""),
+    documentDate: new Date().toISOString().slice(0, 10),
+    customerName: "株式会社〇〇商事",
+    customerHonorific: "御中",
+    customerPostalCode: "100-0001",
+    customerAddress: "東京都千代田区〇〇1-2-3",
+    customerCode: "C0001",
+    title: "",
+    remarks: "",
+    lines: [
+      { productCode: "P00012", productName: "純米吟醸", spec: "720ml", quantity: 12, unit: "本", unitPrice: 1800, amount: 21600, janCode: "4901234567891" },
+      { productCode: "P00008", productName: "本醸造", spec: "1.8L", quantity: 6, unit: "本", unitPrice: 2400, amount: 14400, janCode: "4901234567908" }
+    ],
+    taxRate: 0.10,
+    previousBalance: 0,
+    paymentAmount: 0
+  },
   storeSalesDate: defaultStoreDate,
   route: initialRoute,
   currentCategory: inferCurrentCategory(initialRoute),
@@ -997,6 +1034,8 @@ function renderView(): string {
         : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
     case "/import":
       return renderDataImport(state.importEntity, state.importPreview, state.importing, state.importResult);
+    case "/print":
+      return renderPrintCenter(state.printTemplate, state.printOptions, state.printCompany, state.printData);
     default:
       break;
   }
@@ -1837,6 +1876,120 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
+  // ── 印刷センター ────────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-print-template]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.printTemplate = btn.dataset.printTemplate as PrintTemplateKey;
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("[data-print-field]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const field = input.dataset.printField as keyof PrintDocumentData;
+      let value: unknown = input.value;
+      if (field === "taxRate" || field === "previousBalance" || field === "paymentAmount") {
+        value = Number(input.value) || 0;
+      }
+      state.printData = { ...state.printData, [field]: value } as PrintDocumentData;
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-print-opt]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const field = input.dataset.printOpt as keyof PrintOptions;
+      let value: unknown;
+      if (input.type === "checkbox") {
+        value = (input as HTMLInputElement).checked;
+      } else if (field === "copies") {
+        value = Number(input.value) || 1;
+      } else {
+        value = input.value;
+      }
+      state.printOptions = { ...state.printOptions, [field]: value } as PrintOptions;
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLInputElement>("[data-print-line][data-print-lfield]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const idx = Number(input.dataset.printLine);
+      const field = input.dataset.printLfield as string;
+      const lines = [...state.printData.lines];
+      let v: unknown = input.value;
+      if (field === "quantity" || field === "unitPrice") {
+        v = Number(input.value) || 0;
+      }
+      lines[idx] = { ...lines[idx], [field]: v };
+      // 金額自動計算
+      lines[idx].amount = (Number(lines[idx].quantity) || 0) * (Number(lines[idx].unitPrice) || 0);
+      state.printData = { ...state.printData, lines };
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='print-add-line']")?.addEventListener("click", () => {
+    state.printData = {
+      ...state.printData,
+      lines: [
+        ...state.printData.lines,
+        { productCode: "", productName: "", spec: "", quantity: 0, unit: "本", unitPrice: 0, amount: 0 }
+      ]
+    };
+    renderApp();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-action='print-remove-line']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.printLine);
+      state.printData = {
+        ...state.printData,
+        lines: state.printData.lines.filter((_, i) => i !== idx)
+      };
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='print-save-settings']")?.addEventListener("click", () => {
+    try {
+      localStorage.setItem("sake_print_options", JSON.stringify(state.printOptions));
+      localStorage.setItem("sake_print_company", JSON.stringify(state.printCompany));
+      alert("印刷設定を保存しました（次回以降も使えます）");
+    } catch (e) {
+      alert("保存失敗: " + (e instanceof Error ? e.message : String(e)));
+    }
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='print-open-company']")?.addEventListener("click", () => {
+    const current = state.printCompany;
+    const name = prompt("会社名", current.name);
+    if (name === null) return;
+    const postal = prompt("郵便番号", current.postalCode) ?? current.postalCode;
+    const addr = prompt("住所", current.address1) ?? current.address1;
+    const tel = prompt("TEL", current.tel) ?? current.tel;
+    const fax = prompt("FAX", current.fax) ?? current.fax;
+    const reg = prompt("適格請求書登録番号 (T+13桁)", current.registrationNo) ?? current.registrationNo;
+    const bank = prompt("取引銀行名", current.bankName) ?? current.bankName;
+    const branch = prompt("支店名", current.bankBranch) ?? current.bankBranch;
+    const accNo = prompt("口座番号", current.bankAccountNo) ?? current.bankAccountNo;
+    const holder = prompt("口座名義", current.bankAccountHolder) ?? current.bankAccountHolder;
+    state.printCompany = {
+      ...current,
+      name,
+      postalCode: postal,
+      address1: addr,
+      tel,
+      fax,
+      registrationNo: reg,
+      bankName: bank,
+      bankBranch: branch,
+      bankAccountNo: accNo,
+      bankAccountHolder: holder
+    };
+    renderApp();
+  });
+
   root.querySelector<HTMLButtonElement>("[data-action='import-execute']")?.addEventListener("click", async () => {
     if (!state.importPreview) return;
     state.importing = true;
@@ -2141,5 +2294,16 @@ window.addEventListener("keydown", (event) => {
 });
 
 state.user = getSession() ? currentUser() : null;
+
+// localStorage から印刷設定を復元
+try {
+  const savedOpts = localStorage.getItem("sake_print_options");
+  if (savedOpts) state.printOptions = { ...state.printOptions, ...JSON.parse(savedOpts) };
+  const savedCompany = localStorage.getItem("sake_print_company");
+  if (savedCompany) state.printCompany = { ...state.printCompany, ...JSON.parse(savedCompany) };
+} catch {
+  // 無視して既定値を使う
+}
+
 
 void loadData();

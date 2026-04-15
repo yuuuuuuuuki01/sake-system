@@ -32,7 +32,8 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "マスタ", description: "得意先や商品マスタの登録状況を確認し、運用の整合性を保ちます。", path: "/master" },
     { title: "メール配信", description: "季節商品の案内メールを下書き保存し、顧客向け配信の準備を行います。", path: "/email" },
     { title: "連動設定", description: "WEB連動PC の設定手順と接続情報を確認して同期環境を整えます。", path: "/setup" },
-    { title: "CSV/Excelインポート", description: "Excelで作成したマスタデータをアップロードして一括登録できます。", path: "/import" }
+    { title: "CSV/Excelインポート", description: "Excelで作成したマスタデータをアップロードして一括登録できます。", path: "/import" },
+    { title: "印刷センター", description: "チェーンストア伝票・見積書・請求書をテンプレートから選んでカスタマイズ印刷。", path: "/print" }
   ]
 };
 

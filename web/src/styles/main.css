@@ -1710,3 +1710,175 @@ tbody tr:hover {
     margin-top: 10mm;
   }
 }
+
+/* ===== 印刷センター ===== */
+.print-preview-panel {
+  padding: 0;
+  overflow: hidden;
+}
+.print-preview {
+  background: #e8edf1;
+  padding: 24px;
+  min-height: 400px;
+  overflow: auto;
+}
+.print-preview.mono {
+  filter: grayscale(1);
+}
+
+/* 印刷可能な書類ページ - プレビューでも見やすく */
+.print-page {
+  background: white;
+  width: 210mm;
+  min-height: 297mm;
+  padding: 15mm 15mm 20mm;
+  margin: 0 auto;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  color: #1a202c;
+  font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif;
+  font-size: 11pt;
+  line-height: 1.5;
+}
+.print-page.small { font-size: 9pt; }
+.print-page.medium { font-size: 11pt; }
+.print-page.large { font-size: 13pt; }
+.print-page table { border-collapse: collapse; width: 100%; }
+.print-page th, .print-page td {
+  border: 1px solid #333;
+  padding: 4px 6px;
+  vertical-align: middle;
+}
+.print-page .mono { font-family: "Courier New", monospace; }
+.print-page .numeric { text-align: right; }
+
+/* チェーンストア伝票 */
+.chain-store h1 {
+  font-size: 1.8em;
+  text-align: center;
+  margin: 0 0 8px;
+  letter-spacing: 0.4em;
+}
+.cs-header {
+  display: flex; justify-content: space-between; margin-bottom: 12px;
+  border-bottom: 2px solid #000; padding-bottom: 8px;
+}
+.cs-sub { margin: 0; font-size: 0.9em; }
+.cs-date label { font-weight: 700; margin-right: 8px; }
+.cs-parties {
+  display: flex; justify-content: space-between; margin-bottom: 12px; gap: 16px;
+}
+.cs-to, .cs-from {
+  flex: 1; border: 1px solid #333; padding: 8px 12px;
+}
+.cs-to { background: #fafafa; }
+.cs-label { font-size: 0.8em; color: #555; margin: 0 0 4px; }
+.cs-to-name, .cs-from-name { font-size: 1.2em; font-weight: 700; margin: 4px 0; }
+.cs-table { margin-bottom: 12px; }
+.cs-table th { background: #e8e8e8; font-weight: 700; font-size: 0.9em; }
+.cs-filler td { height: 1.8em; }
+.cs-totals {
+  display: flex; justify-content: flex-end; flex-direction: column; align-items: flex-end; margin-bottom: 12px;
+}
+.cs-total-row {
+  display: flex; justify-content: space-between; gap: 32px; min-width: 240px;
+  padding: 4px 12px;
+}
+.cs-total-main { background: #000; color: white; font-weight: 700; font-size: 1.1em; }
+.cs-remarks { margin-bottom: 12px; border: 1px solid #333; padding: 8px; }
+.cs-footer {
+  display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;
+}
+.cs-sign-box {
+  width: 80px; height: 80px; border: 2px solid #333; display: flex; align-items: center; justify-content: center;
+  flex-direction: column; font-size: 0.85em;
+}
+.cs-sign-box label { color: #555; }
+.cs-seal, .q-seal, .inv-seal { width: 60px; height: 60px; object-fit: contain; }
+.cs-seal-placeholder, .q-seal-placeholder, .inv-seal-placeholder {
+  width: 60px; height: 60px; border: 2px solid #cc0000; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; color: #cc0000; font-weight: 700;
+}
+
+/* 見積書 */
+.quotation .q-masthead { text-align: center; margin-bottom: 24px; }
+.quotation h1 {
+  display: inline-block; font-size: 2.2em; margin: 0; padding: 4px 40px;
+  border-top: 3px double #333; border-bottom: 3px double #333; letter-spacing: 0.4em;
+}
+.q-header { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
+.q-to { flex: 1.2; }
+.q-to-name { font-size: 1.5em; font-weight: 700; border-bottom: 2px solid #333; padding-bottom: 6px; margin: 8px 0; }
+.q-title { margin-top: 12px; font-weight: 700; }
+.q-meta-table { font-size: 0.9em; }
+.q-meta-table th { background: #eee; width: 80px; }
+.q-total-box {
+  text-align: center; border: 3px double #333; padding: 12px;
+  background: #f5f5f5; margin-bottom: 16px;
+}
+.q-total-label { font-size: 1em; margin-bottom: 4px; }
+.q-total-value { font-size: 1.8em; font-weight: 700; letter-spacing: 0.05em; }
+.q-intro { margin-bottom: 12px; }
+.q-table th { background: #e8e8e8; font-weight: 700; }
+.q-filler td { height: 2em; }
+.q-right { text-align: right; background: #f5f5f5; }
+.q-grand th, .q-grand td { font-size: 1.2em; font-weight: 700; background: #000; color: white; }
+.q-footer {
+  display: flex; justify-content: space-between; align-items: flex-end; margin-top: 32px;
+}
+.q-from p { margin: 2px 0; font-size: 0.9em; }
+.q-from-name { font-size: 1.1em; font-weight: 700; }
+.q-remarks { margin-top: 16px; }
+.q-label { font-weight: 700; margin-bottom: 4px; }
+
+/* 請求書 */
+.invoice-doc .inv-masthead { text-align: center; margin-bottom: 24px; }
+.invoice-doc h1 {
+  display: inline-block; font-size: 2.4em; margin: 0; padding: 6px 40px;
+  border-top: 3px double #333; border-bottom: 3px double #333; letter-spacing: 0.5em;
+}
+.inv-sub { margin-top: 4px; }
+.inv-header { display: flex; justify-content: space-between; gap: 24px; margin-bottom: 16px; }
+.inv-to-name { font-size: 1.6em; font-weight: 700; border-bottom: 2px solid #333; padding-bottom: 6px; margin: 8px 0; }
+.inv-meta-table { font-size: 0.9em; }
+.inv-meta-table th { background: #eee; width: 100px; }
+.inv-amount-box {
+  text-align: center; border: 3px double #cc0000; padding: 16px; color: #cc0000;
+  background: #fffaf0; margin-bottom: 16px;
+}
+.inv-amount-label { font-size: 1em; margin-bottom: 4px; }
+.inv-amount-value { font-size: 2em; font-weight: 700; letter-spacing: 0.05em; }
+.inv-intro { margin-bottom: 12px; }
+.inv-table th { background: #e8e8e8; font-weight: 700; }
+.inv-filler td { height: 2em; }
+.inv-summary { display: flex; justify-content: flex-end; margin: 16px 0; }
+.inv-summary-table { min-width: 320px; font-size: 0.95em; }
+.inv-summary-table th { background: #f5f5f5; text-align: right; width: 180px; }
+.inv-grand th, .inv-grand td { font-size: 1.2em; font-weight: 700; background: #000; color: white; }
+.inv-bank {
+  background: #f5f5f5; border: 1px solid #333; padding: 12px 16px; margin-bottom: 16px;
+}
+.inv-bank h3 { margin: 0 0 8px; font-size: 1.1em; }
+.inv-bank p { margin: 2px 0; }
+.inv-note { font-size: 0.85em; color: #555; }
+.inv-remarks { margin: 16px 0; }
+.inv-remarks h3 { margin: 0 0 4px; font-size: 1em; }
+.inv-footer {
+  display: flex; justify-content: space-between; align-items: flex-end; margin-top: 32px;
+}
+.inv-from p { margin: 2px 0; font-size: 0.9em; }
+.inv-from-name { font-size: 1.1em; font-weight: 700; }
+
+/* 印刷時のみプレビュー背景を消す */
+@media print {
+  .print-preview {
+    background: white !important;
+    padding: 0 !important;
+  }
+  .print-page {
+    box-shadow: none !important;
+    margin: 0 !important;
+    width: 100% !important;
+    min-height: auto !important;
+    padding: 0 !important;
+  }
+}
