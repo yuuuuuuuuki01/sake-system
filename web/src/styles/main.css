@@ -1035,6 +1035,141 @@ tbody tr:hover {
   border-top: 1px solid var(--border);
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.52);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  padding: 20px;
+}
+
+.modal-panel {
+  background: var(--surface);
+  border-radius: 14px;
+  width: min(720px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.24);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.modal-close {
+  background: transparent;
+  border: 0;
+  font-size: 20px;
+  color: var(--text-secondary);
+}
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.modal-body input {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.picker-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 40px;
+  min-width: 36px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border-strong);
+  border-radius: 0 8px 8px 0;
+  margin-left: -1px;
+  color: var(--primary);
+  font-size: 16px;
+}
+
+.input-group {
+  display: flex;
+  align-items: stretch;
+}
+
+.input-group input:not(:last-child) {
+  border-radius: 8px 0 0 8px;
+}
+
+.has-error {
+  border-color: var(--danger) !important;
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.form-hint {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.shortcut-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-right: auto;
+  padding-top: 8px;
+}
+
+.picker-row {
+  cursor: pointer;
+}
+
+.picker-row:focus {
+  outline: 2px solid rgba(15, 91, 141, 0.3);
+  outline-offset: -2px;
+}
+
+.line-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.code-block-wrap {
+  position: relative;
+  margin-top: 12px;
+}
+
+.code-copy-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.setup-step-section {
+  margin-top: 14px;
+}
+
+.setup-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+
 @media (max-width: 1100px) {
   .shell {
     grid-template-columns: 1fr;

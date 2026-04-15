@@ -5,10 +5,28 @@ function toDateInputValue(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function fieldError(errors: Record<string, string>, key: string): string {
+  return errors[key] ? `<div class="field-error">${escapeHtml(errors[key])}</div>` : "";
+}
+
+function inputClass(errors: Record<string, string>, key: string, baseClass = ""): string {
+  return [baseClass, errors[key] ? "has-error" : ""].filter(Boolean).join(" ");
+}
+
 export function renderInvoiceEntry(
   form: InvoiceFormData,
   savedDocNo: string | null,
-  saving: boolean
+  saving: boolean,
+  errors: Record<string, string>
 ): string {
   const typeOptions = (Object.keys(INVOICE_TYPE_LABELS) as InvoiceType[])
     .map(
@@ -21,13 +39,33 @@ export function renderInvoiceEntry(
     .map(
       (line, i) => `
       <tr>
-        <td><input class="input-cell" type="text" data-line="${i}" data-field="productCode" value="${line.productCode}" placeholder="P00001" /></td>
-        <td><input class="input-cell" type="text" data-line="${i}" data-field="productName" value="${line.productName}" placeholder="商品名" /></td>
-        <td><input class="input-cell numeric" type="number" data-line="${i}" data-field="quantity" value="${line.quantity}" min="0" /></td>
+        <td>
+          <div class="input-group">
+            <input class="${inputClass(errors, `lines.${i}.productCode`, "input-cell")}" type="text" data-line="${i}" data-field="productCode" value="${escapeHtml(line.productCode)}" placeholder="P00001" />
+            <button class="picker-btn" type="button" data-action="open-product-picker" data-line="${i}" aria-label="商品検索">🔍</button>
+          </div>
+          ${fieldError(errors, `lines.${i}.productCode`)}
+        </td>
+        <td>
+          <input class="${inputClass(errors, `lines.${i}.productName`, "input-cell")}" type="text" data-line="${i}" data-field="productName" value="${escapeHtml(line.productName)}" placeholder="商品名" />
+          ${fieldError(errors, `lines.${i}.productName`)}
+        </td>
+        <td>
+          <input class="${inputClass(errors, `lines.${i}.quantity`, "input-cell numeric")}" type="number" data-line="${i}" data-field="quantity" value="${line.quantity}" min="0" />
+          ${fieldError(errors, `lines.${i}.quantity`)}
+        </td>
         <td><input class="input-cell" type="text" data-line="${i}" data-field="unit" value="${line.unit}" placeholder="本" /></td>
-        <td><input class="input-cell numeric" type="number" data-line="${i}" data-field="unitPrice" value="${line.unitPrice}" min="0" /></td>
+        <td>
+          <input class="${inputClass(errors, `lines.${i}.unitPrice`, "input-cell numeric")}" type="number" data-line="${i}" data-field="unitPrice" value="${line.unitPrice}" min="0" />
+          ${fieldError(errors, `lines.${i}.unitPrice`)}
+        </td>
         <td class="numeric">${line.amount > 0 ? line.amount.toLocaleString("ja-JP") : "―"}</td>
-        <td><button class="button-icon" data-action="remove-line" data-line="${i}" title="削除">✕</button></td>
+        <td>
+          <div class="line-actions">
+            <button class="button secondary" type="button" data-action="duplicate-line" data-line="${i}">コピー</button>
+            <button class="button-icon" type="button" data-action="remove-line" data-line="${i}" title="削除">✕</button>
+          </div>
+        </td>
       </tr>
     `
     )
@@ -52,6 +90,7 @@ export function renderInvoiceEntry(
     <section class="panel">
       <div class="panel-header">
         <h2>伝票基本情報</h2>
+        <button class="button secondary" type="button" data-action="copy-past-invoice">過去伝票から複製</button>
       </div>
       <div class="filter-grid filter-grid--wide">
         <label class="field">
@@ -60,21 +99,41 @@ export function renderInvoiceEntry(
         </label>
         <label class="field">
           <span>伝票日付</span>
-          <input id="inv-date" type="date" value="${form.invoiceDate || toDateInputValue(new Date())}" />
+          <input class="${inputClass(errors, "invoiceDate")}" id="inv-date" type="date" value="${form.invoiceDate || toDateInputValue(new Date())}" />
+          ${fieldError(errors, "invoiceDate")}
         </label>
         <label class="field">
           <span>得意先コード</span>
-          <input id="inv-customer-code" type="text" placeholder="C0011" value="${form.customerCode}" />
+          <div class="input-group">
+            <input
+              class="${inputClass(errors, "customerCode")}"
+              id="inv-customer-code"
+              data-autofill="customer"
+              type="text"
+              placeholder="C0011"
+              value="${escapeHtml(form.customerCode)}"
+            />
+            <button class="picker-btn" type="button" data-action="open-customer-picker" aria-label="得意先検索">🔍</button>
+          </div>
+          <div class="form-hint">得意先コードを入力すると名前が自動補完されます</div>
+          ${fieldError(errors, "customerCode")}
         </label>
         <label class="field">
           <span>得意先名</span>
-          <input id="inv-customer-name" type="text" placeholder="青葉商事" value="${form.customerName}" />
+          <input
+            id="inv-customer-name"
+            data-autofill="customer-name"
+            type="text"
+            placeholder="青葉商事"
+            value="${escapeHtml(form.customerName)}"
+          />
         </label>
         <label class="field">
           <span>担当者コード</span>
-          <input id="inv-staff" type="text" placeholder="S001" value="${form.staffCode}" />
+          <input id="inv-staff" type="text" placeholder="S001" value="${escapeHtml(form.staffCode)}" />
         </label>
       </div>
+      ${fieldError(errors, "lines")}
     </section>
 
     <section class="panel">
@@ -120,11 +179,12 @@ export function renderInvoiceEntry(
     <section class="panel">
       <label class="field">
         <span>備考</span>
-        <textarea id="inv-note" rows="2" placeholder="備考・特記事項">${form.note}</textarea>
+        <textarea id="inv-note" rows="2" placeholder="備考・特記事項">${escapeHtml(form.note)}</textarea>
       </label>
     </section>
 
     <div class="action-bar">
+      <span class="shortcut-hint">Ctrl+S で保存 / Esc でクリア</span>
       <button class="button secondary" data-action="invoice-clear">クリア</button>
       <button class="button primary" data-action="invoice-save" ${saving ? "disabled" : ""}>
         ${saving ? "保存中…" : "保存する"}

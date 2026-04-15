@@ -19,6 +19,61 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function renderCodeBlock(code: string): string {
+  return `
+    <div class="code-block-wrap">
+      <button
+        class="button secondary code-copy-button"
+        type="button"
+        data-action="copy-code"
+        data-code="${encodeURIComponent(code)}"
+      >
+        コピー
+      </button>
+      <pre class="code-block">${escapeHtml(code)}</pre>
+    </div>
+  `;
+}
+
+function renderSetupStep(config: {
+  step: number;
+  title: string;
+  purpose: string;
+  instructions: string[];
+  success: string[];
+  errors: string[];
+  code?: string;
+}): string {
+  return `
+    <div class="setup-step" data-step="${config.step}">
+      <h3>${escapeHtml(config.title)}</h3>
+      <div class="setup-step-section">
+        <p class="panel-title">目的</p>
+        <p>${escapeHtml(config.purpose)}</p>
+      </div>
+      <div class="setup-step-section">
+        <p class="panel-title">手順</p>
+        <ol class="setup-list">
+          ${config.instructions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ol>
+      </div>
+      ${config.code ? renderCodeBlock(config.code) : ""}
+      <div class="setup-step-section">
+        <p class="panel-title">成功の確認方法</p>
+        <ul class="setup-list">
+          ${config.success.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      </div>
+      <div class="setup-step-section">
+        <p class="panel-title">よくあるエラー</p>
+        <ul class="setup-list">
+          ${config.errors.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      </div>
+    </div>
+  `;
+}
+
 export function renderRelaySetup(
   pipeline: PipelineMeta,
   supabaseUrl: string,
@@ -62,35 +117,146 @@ export function renderRelaySetup(
     <section class="panel">
       <div class="panel-header">
         <div>
+          <h2>このページでできること</h2>
+        </div>
+      </div>
+      <div class="summary-list">
+        <div>
+          <dt>なぜ連動が必要か</dt>
+          <dd>酒仙iサーバーのデータを自動でWebに反映し、現場とWebUIの数字を揃えるためです。</dd>
+        </div>
+        <div>
+          <dt>何が起きるか</dt>
+          <dd>設定後は約5分ごとに同期が走り、売上・入金・マスタがWebUIへ反映されます。</dd>
+        </div>
+        <div>
+          <dt>準備するもの</dt>
+          <dd>WindowsのPC1台、酒仙iサーバーへのネットワークアクセス、インターネット接続が必要です。</dd>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
           <h2>WEB連動PC_A セットアップ手順</h2>
         </div>
       </div>
-      <div class="setup-step" data-step="1">
-        <h3>Python 3.10以上をインストール</h3>
-        <p>python.org からダウンロードしてインストールします。</p>
-      </div>
-      <div class="setup-step" data-step="2">
-        <h3>GitHubからファイル取得</h3>
-        <pre class="code-block">git clone https://github.com/yuuuuuuuuki01/sake-system.git
-cd sake-system\\relay</pre>
-      </div>
-      <div class="setup-step" data-step="3">
-        <h3>依存パッケージインストール</h3>
-        <pre class="code-block">pip install -r requirements.txt</pre>
-      </div>
-      <div class="setup-step" data-step="4">
-        <h3>relay_config.json を編集</h3>
-        <p>下の設定セクションを参照して必要な値を設定します。</p>
-      </div>
-      <div class="setup-step" data-step="5">
-        <h3>タスクスケジューラ登録</h3>
-        <p>管理者権限で <span class="mono">setup_scheduler.bat</span> を実行します。</p>
-      </div>
-      <div class="setup-step" data-step="6">
-        <h3>動作確認</h3>
-        <pre class="code-block">python relay_agent.py</pre>
-        <p><span class="mono">relay_log.txt</span> を確認します。</p>
-      </div>
+      ${renderSetupStep({
+        step: 1,
+        title: "Python 3.12 をインストール",
+        purpose: "Pythonというプログラミング言語をインストールします。自動同期の動作に必要です。",
+        instructions: [
+          "ブラウザで https://www.python.org/downloads/ を開きます。",
+          "大きな黄色ボタン『Download Python 3.12.x』をクリックします。",
+          "ダウンロードしたインストーラーを実行します。",
+          "最初の画面で『Add Python to PATH』に必ずチェックを入れます。",
+          "『Install Now』をクリックして完了まで待ちます。"
+        ],
+        success: [
+          "Windows のコマンドプロンプトを開いて python --version と入力します。",
+          "Python 3.12.1 のようなバージョン番号が表示されれば成功です。"
+        ],
+        errors: [
+          "『python が見つかりません』と出る場合は PATH のチェック漏れです。Python を再インストールしてください。",
+          "会社PCでインストール制限がある場合は管理者権限で実行するか、社内管理者へ依頼してください。"
+        ]
+      })}
+      ${renderSetupStep({
+        step: 2,
+        title: "GitHub から relay ファイルを取得",
+        purpose: "自動同期に必要なスクリプト一式を Windows PC に配置します。",
+        instructions: [
+          "作業用フォルダとして C:\\\\sake-relay\\\\ のような書き込み可能な場所を決めます。",
+          "コマンドプロンプトを開き、下のコマンドを1行ずつ実行します。",
+          "ダウンロード完了後、relay フォルダに移動できていることを確認します。"
+        ],
+        code: `git clone https://github.com/yuuuuuuuuki01/sake-system.git
+cd sake-system\\relay`,
+        success: [
+          "エクスプローラーで sake-system\\\\relay フォルダが見える状態になっていれば成功です。",
+          "cd を実行したあと、コマンドプロンプトの行頭が relay フォルダを指していれば問題ありません。"
+        ],
+        errors: [
+          "git コマンドが使えない場合は Git for Windows が未導入です。先に Git をインストールしてください。",
+          "アクセス拒否が出る場合は C:\\\\Program Files 配下ではなく C:\\\\sake-relay\\\\ などに配置してください。"
+        ]
+      })}
+      ${renderSetupStep({
+        step: 3,
+        title: "必要な部品をインストール",
+        purpose: "relay スクリプトが使うライブラリをまとめて準備します。",
+        instructions: [
+          "Step2 で開いた relay フォルダのまま、下のコマンドを実行します。",
+          "数分かかることがあるので、完了表示が出るまで待ちます。"
+        ],
+        code: "pip install -r requirements.txt",
+        success: [
+          "Successfully installed が表示されれば成功です。",
+          "赤いエラーがなくコマンド入力待ちに戻れば次へ進めます。"
+        ],
+        errors: [
+          "pip が見つからない場合は Python のインストール失敗が原因です。Step1 をやり直してください。",
+          "SSL やネットワーク関連のエラーは社内プロキシの影響があるため、ネットワーク管理者へ確認してください。"
+        ]
+      })}
+      ${renderSetupStep({
+        step: 4,
+        title: "relay_config.json を設定",
+        purpose: "どのサーバーのどのデータを、どこへ送るかを設定します。",
+        instructions: [
+          "relay フォルダ内の relay_config.json をメモ帳または VS Code で開きます。",
+          "下の設定表を見ながら、Supabase URL、Anon Key、Z ドライブ、ODBC 設定を入力します。",
+          "酒仙i サーバーに ODBC ドライバが入っていない場合は use_odbc を false にします。",
+          "編集後はファイルを上書き保存します。"
+        ],
+        success: [
+          "relay_config.json を開き直して、入力した内容が消えていなければ保存成功です。",
+          "Supabase URL と Anon Key が空欄でないことを確認してください。"
+        ],
+        errors: [
+          "JSON のカンマやダブルクォートが欠けると起動エラーになります。編集後に余計な文字が入っていないか確認してください。",
+          "Z: ドライブが見つからない場合は、酒仙i サーバー共有が接続されているか確認してください。"
+        ]
+      })}
+      ${renderSetupStep({
+        step: 5,
+        title: "タスクスケジューラへ登録",
+        purpose: "Windows が5分ごとに自動で relay を実行するようにします。",
+        instructions: [
+          "エクスプローラーで relay フォルダを開きます。",
+          "setup_scheduler.bat を右クリックし、『管理者として実行』を選びます。",
+          "Windows の確認ダイアログが出たら『はい』を押します。",
+          "タスクスケジューラを開き、SakeRelay という名前のタスクが追加されたか確認します。"
+        ],
+        success: [
+          "タスクスケジューラ ライブラリに SakeRelay が表示されれば成功です。",
+          "トリガーが 5 分おきになっていれば自動実行設定は完了です。"
+        ],
+        errors: [
+          "タスクが作成されない場合はバッチを管理者権限で実行しているか確認してください。",
+          "セキュリティソフトでブロックされる場合は社内管理者へ許可依頼が必要です。"
+        ]
+      })}
+      ${renderSetupStep({
+        step: 6,
+        title: "手動実行で動作確認",
+        purpose: "本番前に 1 回だけ手動で起動し、エラーなく同期できるか確認します。",
+        instructions: [
+          "relay フォルダで下のコマンドを実行します。",
+          "処理完了後、relay_log.txt を開いて最後の行を確認します。",
+          "Web UI 側の最終同期日時が更新されるかも確認します。"
+        ],
+        code: "python relay_agent.py",
+        success: [
+          "relay_log.txt に成功メッセージが追加され、エラー終了していなければ成功です。",
+          "この画面の『最終同期日時』が新しい時刻に変われば連動できています。"
+        ],
+        errors: [
+          "relay_log.txt が作られない場合は、フォルダの書き込み権限を確認してください。",
+          "Supabase 接続エラーの場合は URL と Anon Key の貼り間違いを見直してください。"
+        ]
+      })}
     </section>
 
     <section class="panel">
@@ -105,16 +271,16 @@ cd sake-system\\relay</pre>
       <div class="content-grid relay-odbc-grid">
         <div>
           <h3>ODBCあり</h3>
-          <pre class="code-block">{
+          ${renderCodeBlock(`{
   "use_odbc": true,
   "odbc_dsn": "MagicSake"
-}</pre>
+}`)}
         </div>
         <div>
           <h3>ODBCなし</h3>
-          <pre class="code-block">{
+          ${renderCodeBlock(`{
   "use_odbc": false
-}</pre>
+}`)}
         </div>
       </div>
     </section>
@@ -210,6 +376,53 @@ cd sake-system\\relay</pre>
             コピー
           </button>
         </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>よくある質問</h2>
+        </div>
+      </div>
+      <div class="summary-list">
+        <div>
+          <dt>Q. relay_log.txt が作られない</dt>
+          <dd>A. 権限エラーの可能性があります。フォルダを書き込み可能な場所（例: C:\\sake-relay\\）へ移動してください。</dd>
+        </div>
+        <div>
+          <dt>Q. Z: ドライブが見えない</dt>
+          <dd>A. 酒仙iサーバーの共有フォルダが正しく繋がっているか確認してください。</dd>
+        </div>
+        <div>
+          <dt>Q. ODBCドライバがない</dt>
+          <dd>A. use_odbc: false に設定し、バイナリ直読みモードで動かしてください。</dd>
+        </div>
+        <div>
+          <dt>Q. Supabase に接続できない</dt>
+          <dd>A. supabase_anon_key が正しいか、インターネット接続があるか確認してください。</dd>
+        </div>
+        <div>
+          <dt>Q. 同期が動かない</dt>
+          <dd>A. タスクスケジューラに SakeRelay があるか確認し、手動実行は python relay_agent.py を使ってログを確認してください。</dd>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>用語集</h2>
+        </div>
+      </div>
+      <div class="summary-list">
+        <div><dt>Python</dt><dd>今回の同期スクリプトを動かすプログラミング言語です。</dd></div>
+        <div><dt>ODBC</dt><dd>データベースに標準で繋ぐ仕組みです。Magic にこれがあれば高速かつ正確に同期できます。</dd></div>
+        <div><dt>DSN</dt><dd>ODBC の接続設定名です。</dd></div>
+        <div><dt>Supabase</dt><dd>クラウドデータベースです。WebUI が読むデータをここに保存します。</dd></div>
+        <div><dt>タスクスケジューラ</dt><dd>Windows 標準の定期実行機能です。</dd></div>
+        <div><dt>Anon Key</dt><dd>Supabase に接続するための暗号のようなパスワードです。</dd></div>
+        <div><dt>Z:ドライブ</dt><dd>酒仙i サーバーのデータ保管場所です。</dd></div>
       </div>
     </section>
   `;

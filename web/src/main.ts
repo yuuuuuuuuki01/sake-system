@@ -61,6 +61,7 @@ import {
   type EmailBroadcastViewState,
   type EmailRecipientPreview
 } from "./components/EmailBroadcast";
+import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { renderJikomi } from "./components/Jikomi";
@@ -68,6 +69,7 @@ import { renderKentei } from "./components/Kentei";
 import { renderMasterStats } from "./components/MasterStats";
 import { renderMaterials } from "./components/Materials";
 import { renderPaymentStatus } from "./components/PaymentStatus";
+import { renderProductPicker } from "./components/ProductPicker";
 import { renderPurchase } from "./components/Purchase";
 import { renderRawMaterial } from "./components/RawMaterial";
 import { renderRelaySetup } from "./components/RelaySetup";
@@ -206,6 +208,10 @@ interface AppState {
   invoiceForm: InvoiceFormData;
   invoiceSaving: boolean;
   invoiceSavedDocNo: string | null;
+  pickerMode: "customer" | "product" | null;
+  pickerQuery: string;
+  pickerTargetLine: number | null;
+  invoiceErrors: Record<string, string>;
   deliveryNote: DeliveryNote | null;
   deliverySearchDocNo: string;
   billingSummary: BillingSummary | null;
@@ -304,6 +310,10 @@ const state: AppState = {
   invoiceForm: makeDefaultInvoiceForm(),
   invoiceSaving: false,
   invoiceSavedDocNo: null,
+  pickerMode: null,
+  pickerQuery: "",
+  pickerTargetLine: null,
+  invoiceErrors: {},
   deliveryNote: null,
   deliverySearchDocNo: "",
   billingSummary: null,
@@ -346,6 +356,133 @@ const state: AppState = {
 
 function formatDateInput(value: string): string {
   return value.slice(0, 10);
+}
+
+function cloneInvoiceLine(line: InvoiceFormData["lines"][number]): InvoiceFormData["lines"][number] {
+  return { ...line };
+}
+
+function closePicker(): void {
+  state.pickerMode = null;
+  state.pickerQuery = "";
+  state.pickerTargetLine = null;
+}
+
+function clearInvoiceForm(): void {
+  state.invoiceForm = makeDefaultInvoiceForm();
+  state.invoiceSavedDocNo = null;
+  state.invoiceErrors = {};
+  closePicker();
+}
+
+function validateInvoice(form: InvoiceFormData): Record<string, string> {
+  const errors: Record<string, string> = {};
+
+  if (!form.invoiceDate.trim()) {
+    errors.invoiceDate = "伝票日付は必須です。";
+  }
+  if (!form.customerCode.trim()) {
+    errors.customerCode = "得意先コードは必須です。";
+  }
+  if (form.lines.length === 0) {
+    errors.lines = "明細を1行以上入力してください。";
+  }
+
+  form.lines.forEach((line, index) => {
+    if (!line.productCode.trim()) {
+      errors[`lines.${index}.productCode`] = "商品コードは必須です。";
+    }
+    if (!line.productName.trim()) {
+      errors[`lines.${index}.productName`] = "商品名は必須です。";
+    }
+    if (line.quantity <= 0) {
+      errors[`lines.${index}.quantity`] = "数量は1以上を入力してください。";
+    }
+    if (line.unitPrice < 0) {
+      errors[`lines.${index}.unitPrice`] = "単価は0円以上で入力してください。";
+    }
+  });
+
+  return errors;
+}
+
+function duplicateInvoiceLine(lineIndex: number): void {
+  const sourceLine = state.invoiceForm.lines[lineIndex];
+  if (!sourceLine) return;
+  state.invoiceForm.lines.splice(lineIndex + 1, 0, cloneInvoiceLine(sourceLine));
+}
+
+function copyPastInvoice(): void {
+  const latestInvoice = state.invoiceRecords[0];
+  const fallbackCustomer = state.masterStats?.customers[0];
+  const fallbackProducts = state.masterStats?.products.slice(0, 2) ?? [];
+
+  state.invoiceForm = {
+    invoiceType: "sales",
+    invoiceDate: new Date().toISOString().slice(0, 10),
+    customerCode: latestInvoice?.customerCode ?? fallbackCustomer?.code ?? "",
+    customerName: latestInvoice?.customerName ?? fallbackCustomer?.name ?? "",
+    staffCode: state.invoiceForm.staffCode || "S001",
+    lines: fallbackProducts.map((product, index) => {
+      const quantity = index === 0 ? 1 : 2;
+      const unitPrice = 1200 * (index + 1);
+      return {
+        productCode: product.code,
+        productName: product.name,
+        quantity,
+        unitPrice,
+        unit: "本",
+        amount: quantity * unitPrice
+      };
+    }),
+    note: latestInvoice
+      ? `過去伝票 ${latestInvoice.documentNo} をもとに複製`
+      : "直近のサンプル伝票をもとに複製"
+  };
+  state.invoiceSavedDocNo = null;
+  state.invoiceErrors = {};
+}
+
+function tryAutofillCustomerByCode(code: string): boolean {
+  const customer = state.masterStats?.customers.find(
+    (item) => item.code.toLowerCase() === code.trim().toLowerCase()
+  );
+  if (!customer) return false;
+  state.invoiceForm.customerCode = customer.code;
+  state.invoiceForm.customerName = customer.name;
+  return true;
+}
+
+function tryAutofillCustomerByName(name: string): boolean {
+  const customer = state.masterStats?.customers.find((item) => item.name === name.trim());
+  if (!customer) return false;
+  state.invoiceForm.customerCode = customer.code;
+  state.invoiceForm.customerName = customer.name;
+  return true;
+}
+
+function persistInvoice(root: HTMLElement): void {
+  collectInvoiceFormFromDom(root);
+  state.invoiceErrors = validateInvoice(state.invoiceForm);
+  if (Object.keys(state.invoiceErrors).length > 0) {
+    renderApp();
+    return;
+  }
+
+  state.invoiceSaving = true;
+  renderApp();
+  void saveInvoice(state.invoiceForm)
+    .then((saved) => {
+      state.invoiceSavedDocNo = saved.documentNo;
+      state.invoiceSaving = false;
+      state.invoiceErrors = {};
+      state.invoiceForm = makeDefaultInvoiceForm();
+      renderApp();
+    })
+    .catch(() => {
+      state.invoiceSaving = false;
+      renderApp();
+    });
 }
 
 function filterSalesRecords(summary: SalesSummary): SalesSummary["salesRecords"] {
@@ -527,7 +664,12 @@ function renderView(): string {
     case "/cat/more":
       return renderCategoryHome("more");
     case "/invoice-entry":
-      return renderInvoiceEntry(state.invoiceForm, state.invoiceSavedDocNo, state.invoiceSaving);
+      return renderInvoiceEntry(
+        state.invoiceForm,
+        state.invoiceSavedDocNo,
+        state.invoiceSaving,
+        state.invoiceErrors
+      );
     case "/email":
       return renderEmailBroadcast(buildEmailViewState());
     case "/delivery":
@@ -730,6 +872,13 @@ function renderShell(): string {
     )
     .join("");
 
+  const pickerHtml =
+    state.pickerMode && state.masterStats
+      ? state.pickerMode === "customer"
+        ? renderCustomerPicker(state.masterStats.customers, state.pickerQuery)
+        : renderProductPicker(state.masterStats.products, state.pickerQuery)
+      : "";
+
   return `
     <div class="shell">
       <button
@@ -760,6 +909,7 @@ function renderShell(): string {
       <main class="main">
         <div class="view ${state.actionLoading ? "is-busy" : ""}">${renderView()}</div>
       </main>
+      ${pickerHtml}
     </div>
   `;
 }
@@ -831,6 +981,8 @@ function collectInvoiceFormFromDom(root: HTMLElement): void {
     }),
     note: root.querySelector<HTMLTextAreaElement>("#inv-note")?.value ?? state.invoiceForm.note
   };
+  state.invoiceForm.customerCode = state.invoiceForm.customerCode.trim().toUpperCase();
+  state.invoiceForm.customerName = state.invoiceForm.customerName.trim();
 }
 
 function collectEmailFormFromDom(root: HTMLElement): void {
@@ -916,6 +1068,7 @@ function bindEvents(root: HTMLElement): void {
       unit: "本",
       amount: 0
     });
+    state.invoiceErrors = {};
     renderApp();
   });
 
@@ -924,26 +1077,135 @@ function bindEvents(root: HTMLElement): void {
       collectInvoiceFormFromDom(root);
       const idx = parseInt(button.dataset.line ?? "0", 10);
       state.invoiceForm.lines.splice(idx, 1);
+      state.invoiceErrors = validateInvoice(state.invoiceForm);
       renderApp();
     });
   });
 
+  root.querySelectorAll<HTMLButtonElement>("[data-action='duplicate-line']").forEach((button) => {
+    button.addEventListener("click", () => {
+      collectInvoiceFormFromDom(root);
+      duplicateInvoiceLine(parseInt(button.dataset.line ?? "0", 10));
+      state.invoiceErrors = {};
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='copy-past-invoice']")?.addEventListener("click", () => {
+    copyPastInvoice();
+    renderApp();
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='open-customer-picker']")?.addEventListener("click", () => {
+    collectInvoiceFormFromDom(root);
+    state.pickerMode = "customer";
+    state.pickerTargetLine = null;
+    state.pickerQuery = state.invoiceForm.customerCode || state.invoiceForm.customerName;
+    renderApp();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-action='open-product-picker']").forEach((button) => {
+    button.addEventListener("click", () => {
+      collectInvoiceFormFromDom(root);
+      const lineIndex = parseInt(button.dataset.line ?? "0", 10);
+      const line = state.invoiceForm.lines[lineIndex];
+      state.pickerMode = "product";
+      state.pickerTargetLine = lineIndex;
+      state.pickerQuery = line ? line.productCode || line.productName : "";
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLElement>("[data-action='modal-close']").forEach((element) => {
+    element.addEventListener("click", (event) => {
+      if (
+        element.classList.contains("modal-backdrop") &&
+        event.target instanceof HTMLElement &&
+        !event.target.classList.contains("modal-backdrop")
+      ) {
+        return;
+      }
+      closePicker();
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLElement>("[data-action='picker-select']").forEach((row) => {
+    const selectHandler = () => {
+      const code = row.dataset.code ?? "";
+      const name = row.dataset.name ?? "";
+
+      if (state.pickerMode === "customer") {
+        state.invoiceForm.customerCode = code;
+        state.invoiceForm.customerName = name;
+        delete state.invoiceErrors.customerCode;
+      } else if (state.pickerMode === "product" && state.pickerTargetLine !== null) {
+        const line = state.invoiceForm.lines[state.pickerTargetLine];
+        if (line) {
+          line.productCode = code;
+          line.productName = name;
+          line.amount = line.quantity * line.unitPrice;
+          delete state.invoiceErrors[`lines.${state.pickerTargetLine}.productCode`];
+          delete state.invoiceErrors[`lines.${state.pickerTargetLine}.productName`];
+        }
+      }
+
+      closePicker();
+      renderApp();
+    };
+
+    row.addEventListener("click", selectHandler);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        selectHandler();
+      }
+    });
+  });
+
+  root.querySelector<HTMLInputElement>("#modal-search")?.addEventListener("input", (event) => {
+    state.pickerQuery = (event.target as HTMLInputElement).value;
+    renderApp();
+  });
+
   root.querySelector<HTMLButtonElement>("[data-action='invoice-clear']")?.addEventListener("click", () => {
-    state.invoiceForm = makeDefaultInvoiceForm();
-    state.invoiceSavedDocNo = null;
+    clearInvoiceForm();
     renderApp();
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='invoice-save']")?.addEventListener("click", () => {
+    persistInvoice(root);
+  });
+
+  root.querySelector<HTMLInputElement>("#inv-customer-code")?.addEventListener("blur", () => {
     collectInvoiceFormFromDom(root);
-    state.invoiceSaving = true;
-    renderApp();
-    void saveInvoice(state.invoiceForm).then((saved) => {
-      state.invoiceSavedDocNo = saved.documentNo;
-      state.invoiceSaving = false;
-      state.invoiceForm = makeDefaultInvoiceForm();
+    if (tryAutofillCustomerByCode(state.invoiceForm.customerCode)) {
+      delete state.invoiceErrors.customerCode;
       renderApp();
+    }
+  });
+
+  root.querySelector<HTMLInputElement>("#inv-customer-name")?.addEventListener("blur", () => {
+    collectInvoiceFormFromDom(root);
+    if (tryAutofillCustomerByName(state.invoiceForm.customerName)) {
+      delete state.invoiceErrors.customerCode;
+      renderApp();
+    }
+  });
+
+  root
+    .querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+      "#inv-date, #inv-customer-code, #inv-customer-name, #inv-staff, #inv-note, [data-field], #inv-type"
+    )
+    .forEach((element) => {
+      element.addEventListener("input", () => {
+        collectInvoiceFormFromDom(root);
+        state.invoiceSavedDocNo = null;
+      });
     });
+
+  root.querySelector<HTMLSelectElement>("#inv-type")?.addEventListener("change", () => {
+    collectInvoiceFormFromDom(root);
+    state.invoiceSavedDocNo = null;
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='delivery-search']")?.addEventListener("click", () => {
@@ -1029,6 +1291,22 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  root.querySelectorAll<HTMLButtonElement>("[data-action='copy-code']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const encoded = button.dataset.code ?? "";
+      if (!encoded) return;
+      try {
+        await navigator.clipboard.writeText(decodeURIComponent(encoded));
+        button.textContent = "コピー済み";
+        window.setTimeout(() => {
+          button.textContent = "コピー";
+        }, 1600);
+      } catch (error) {
+        console.warn("Clipboard code copy failed", error);
+      }
+    });
+  });
+
   root.querySelectorAll<HTMLInputElement>("input[name='email-audience-mode']").forEach((input) => {
     input.addEventListener("change", () => {
       collectEmailFormFromDom(root);
@@ -1110,6 +1388,9 @@ function renderApp(): void {
   if (!app) return;
   app.innerHTML = renderShell();
   bindEvents(app);
+  if (state.pickerMode) {
+    app.querySelector<HTMLInputElement>("#modal-search")?.focus();
+  }
 }
 
 async function loadData(): Promise<void> {
@@ -1180,6 +1461,34 @@ window.addEventListener("popstate", () => {
   state.currentCategory = inferCurrentCategory(state.route);
   state.sidebarOpen = false;
   void loadRouteData(state.route);
+});
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    if (state.pickerMode) {
+      closePicker();
+      renderApp();
+      return;
+    }
+    if (state.route === "/invoice-entry" && !state.invoiceSaving) {
+      clearInvoiceForm();
+      renderApp();
+    }
+    return;
+  }
+
+  if (
+    state.route === "/invoice-entry" &&
+    !state.invoiceSaving &&
+    (event.ctrlKey || event.metaKey) &&
+    event.key.toLowerCase() === "s"
+  ) {
+    event.preventDefault();
+    const app = document.querySelector<HTMLElement>("#app");
+    if (app) {
+      persistInvoice(app);
+    }
+  }
 });
 
 void loadData();
