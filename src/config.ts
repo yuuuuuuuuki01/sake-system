@@ -22,10 +22,10 @@ function splitCsv(value: string | undefined, fallback: string[]): string[] {
 
 export function loadConfig(): PipelineConfig {
   const analysisDir = resolve(
-    process.env.SYUSEN_ANALYSIS_DIR ?? "C:/agent/codex/syusen_analysis/20260414_165347"
+    process.env.SYUSEN_ANALYSIS_DIR ?? "./references/analysis/current"
   );
-  const legacyRoot = resolve(process.env.SYUSEN_LEGACY_ROOT ?? "Z:/");
-  const workDir = resolve(process.env.SYUSEN_WORK_DIR ?? "C:/agent/codex/syusen-cloud/data");
+  const legacyRoot = resolve(process.env.SYUSEN_LEGACY_ROOT ?? "./references/legacy-root");
+  const workDir = resolve(process.env.SYUSEN_WORK_DIR ?? "./data");
   const primaryFileCodes = splitCsv(process.env.SYUSEN_PRIMARY_CODES, [
     "SHDEN",
     "SHTOR",

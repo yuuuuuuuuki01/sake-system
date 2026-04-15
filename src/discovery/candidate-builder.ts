@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import type { PipelineConfig } from "../config.js";
@@ -34,7 +35,7 @@ function resolveSourcePath(entry: AnalysisManifestEntry, legacyRoot: string): st
   const rawPath = entry.path ?? entry.fullPath ?? entry.FullName ?? "";
   const normalized = rawPath.replace(/\\/g, "/");
 
-  if (normalized.startsWith("Z:/")) {
+  if (existsSync(rawPath)) {
     return rawPath;
   }
 

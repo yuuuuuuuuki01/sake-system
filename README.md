@@ -17,6 +17,8 @@ external integrations without breaking the current office workflow.
 
 - `sql/001_initial_schema.sql`
   - Initial cloud database schema draft
+- `references/`
+  - Cross-machine handoff area for analysis snapshots and local legacy-root mapping
 - `src/domain/types.ts`
   - Core business types for the first migration slice
 - `src/config.ts`
@@ -54,6 +56,33 @@ external integrations without breaking the current office workflow.
 2. Loads raw ingestion, provisional master parser, and normalization plan artifacts
 3. Builds a static sales-dashboard prototype model
 4. Writes `dashboard/sales-dashboard-prototype.html` under the latest run
+
+## Cross-machine workflow
+
+This repository is now set up to keep code portable across machines.
+
+- Default analysis path: `./references/analysis/current`
+- Default legacy root: `./references/legacy-root`
+- Default work/output dir: `./data`
+
+That means a second machine can clone the repo and only needs to prepare local inputs
+under `references/` or override paths with environment variables.
+
+Recommended setup:
+
+1. Copy `.env.example` to `.env`
+2. Place the analysis export under `references/analysis/current/`
+3. Point `SYUSEN_LEGACY_ROOT` at a mounted or copied legacy root for that machine
+4. Run `npm run run:pipeline`
+
+Notes:
+
+- `data/runs/` is intentionally ignored by git. Generated artifacts stay local unless
+  you explicitly promote selected files into a tracked folder.
+- Analysis JSON can be tracked selectively if you want reproducible parser work across
+  environments, but raw legacy data should stay outside git.
+- Source paths in `file_manifest.json` are remapped through `SYUSEN_LEGACY_ROOT` when
+  the original absolute path does not exist on the current machine.
 
 ## Next implementation steps
 
