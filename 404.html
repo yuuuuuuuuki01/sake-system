@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>syusen-cloud</title>
+    <script>
+      // GitHub Pages SPA redirect
+      // サブルートへの直アクセス時にindex.htmlへリダイレクトし、
+      // sessionStorageにパスを保存してSPAルーターに渡す
+      (function () {
+        var base = "/sake-system";
+        var path = location.pathname.slice(base.length) || "/";
+        var search = location.search;
+        var hash = location.hash;
+        sessionStorage.setItem("spa-redirect", path + search + hash);
+        location.replace(base + "/");
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>
