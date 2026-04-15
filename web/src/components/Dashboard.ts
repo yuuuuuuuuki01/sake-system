@@ -208,38 +208,42 @@ export function renderDashboard(
       </article>
 
       <aside class="panel sync-panel">
-        <div class="panel-header">
-          <div>
-            <h2>パイプライン状況</h2>
-            <p class="panel-caption">データ同期の最新状態</p>
-          </div>
-        </div>
-        <dl class="meta-list">
-          <div>
-            <dt>ジョブ</dt>
-            <dd>${pipeline.jobName}</dd>
-          </div>
-          <div>
-            <dt>最終同期</dt>
-            <dd>${formatDateTime(pipeline.lastSyncAt)}</dd>
-          </div>
-          <div>
-            <dt>更新時刻</dt>
-            <dd>${formatDateTime(pipeline.generatedAt)}</dd>
-          </div>
-        </dl>
-        <p class="sync-message">${pipeline.message}</p>
-        <div class="quick-links">
+        <div>
           <div class="panel-header">
             <div>
-              <h2>クイックリンク</h2>
-              <p class="panel-caption">よく使う業務画面へ移動</p>
+              <h2>パイプライン状況</h2>
+              <p class="panel-caption">データ同期の最新状態</p>
             </div>
           </div>
-          <div class="quick-link-grid">
-            <button class="button secondary" type="button" data-link="/invoice-entry">伝票入力</button>
-            <button class="button secondary" type="button" data-link="/delivery">納品書</button>
-            <button class="button secondary" type="button" data-link="/billing">月次請求</button>
+          <dl class="meta-list">
+            <div>
+              <dt>ジョブ</dt>
+              <dd>${pipeline.jobName}</dd>
+            </div>
+            <div>
+              <dt>最終同期</dt>
+              <dd>${formatDateTime(pipeline.lastSyncAt)}</dd>
+            </div>
+            <div>
+              <dt>更新時刻</dt>
+              <dd>${formatDateTime(pipeline.generatedAt)}</dd>
+            </div>
+          </dl>
+        </div>
+        <div class="sync-panel-bottom">
+          <p class="sync-message">${pipeline.message}</p>
+          <div class="quick-links">
+            <div class="panel-header">
+              <div>
+                <h2>クイックリンク</h2>
+                <p class="panel-caption">よく使う業務画面へ移動</p>
+              </div>
+            </div>
+            <div class="quick-link-grid">
+              <button class="button secondary" type="button" data-link="/invoice-entry">伝票入力</button>
+              <button class="button secondary" type="button" data-link="/delivery">納品書</button>
+              <button class="button secondary" type="button" data-link="/billing">月次請求</button>
+            </div>
           </div>
         </div>
       </aside>

@@ -16,16 +16,19 @@ import {
   fetchSalesAnalytics,
   fetchSalesReport,
   fetchSalesSummary,
-  fetchStoreSales,
   fetchStoreOrders,
+  fetchStoreSales,
   fetchTankList,
   fetchTaxDeclaration,
+  saveEmailCampaign,
   saveInvoice,
+  SEASONAL_TEMPLATES,
   type AnalyticsTab,
   type BillingSummary,
   type BillRecord,
   type CustomerLedger,
   type DeliveryNote,
+  type EmailCampaign,
   type InvoiceFilter,
   type InvoiceFormData,
   type InvoiceRecord,
@@ -42,15 +45,22 @@ import {
   type SalesAnalytics,
   type SalesReport,
   type SalesSummary,
-  type StoreSale,
   type StoreOrder,
+  type StoreSale,
   type TankRecord,
   type TaxDeclaration
 } from "./api";
 import { renderBilling } from "./components/Billing";
+import { renderCategoryHome } from "./components/CategoryHome";
 import { renderCustomerLedger } from "./components/CustomerLedger";
 import { renderDashboard } from "./components/Dashboard";
 import { renderDeliveryNote } from "./components/DeliveryNote";
+import {
+  renderEmailBroadcast,
+  type EmailAudienceMode,
+  type EmailBroadcastViewState,
+  type EmailRecipientPreview
+} from "./components/EmailBroadcast";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { renderJikomi } from "./components/Jikomi";
@@ -72,6 +82,10 @@ import "./styles/main.css";
 
 type RoutePath =
   | "/"
+  | "/cat/sales"
+  | "/cat/brewery"
+  | "/cat/purchase"
+  | "/cat/more"
   | "/sales"
   | "/payment"
   | "/master"
@@ -90,10 +104,26 @@ type RoutePath =
   | "/raw-material"
   | "/tax"
   | "/store"
-  | "/setup";
+  | "/setup"
+  | "/email";
+
+type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
+
+type NavGroup = {
+  label: string;
+  items: Array<{ path: RoutePath; label: string; kicker: string }>;
+};
+
+interface EmailRecipientRecord extends EmailRecipientPreview {
+  historySegment: "seasonal" | "premium" | "liqueur";
+}
 
 const ALL_ROUTES: RoutePath[] = [
   "/",
+  "/cat/sales",
+  "/cat/brewery",
+  "/cat/purchase",
+  "/cat/more",
   "/sales",
   "/payment",
   "/master",
@@ -112,8 +142,25 @@ const ALL_ROUTES: RoutePath[] = [
   "/raw-material",
   "/tax",
   "/store",
-  "/setup"
+  "/setup",
+  "/email"
 ];
+
+const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
+  { name: "青葉商事", email: "aoba@example.jp", area: "関東", historySegment: "seasonal" },
+  { name: "北斗酒販", email: "hokuto@example.jp", area: "北海道", historySegment: "premium" },
+  { name: "中央フーズ", email: "chuo@example.jp", area: "関東", historySegment: "seasonal" },
+  { name: "東海酒店", email: "tokai@example.jp", area: "中部", historySegment: "premium" },
+  { name: "三和物産", email: "sanwa@example.jp", area: "関西", historySegment: "liqueur" },
+  { name: "南星リカー", email: "nansei@example.jp", area: "九州", historySegment: "seasonal" },
+  { name: "山川酒店", email: "yamakawa@example.jp", area: "関西", historySegment: "premium" },
+  { name: "瑞穂商店", email: "mizuho@example.jp", area: "中部", historySegment: "seasonal" }
+];
+
+function getTemplateContent(templateId: string): { subject: string; body: string } {
+  const template = SEASONAL_TEMPLATES[templateId as keyof typeof SEASONAL_TEMPLATES];
+  return template ? { subject: template.subject, body: template.body } : { subject: "", body: "" };
+}
 
 function makeDefaultInvoiceForm(): InvoiceFormData {
   return {
@@ -127,14 +174,28 @@ function makeDefaultInvoiceForm(): InvoiceFormData {
   };
 }
 
+function makeDefaultEmailState() {
+  const initial = getTemplateContent("spring");
+  return {
+    mode: "all" as EmailAudienceMode,
+    region: "all",
+    historySegment: "seasonal",
+    templateId: "spring",
+    subject: initial.subject,
+    body: initial.body,
+    saveMessage: null as string | null
+  };
+}
+
 const now = new Date();
 const defaultYearMonth = now.toISOString().slice(0, 7);
 const defaultTaxYear = now.getFullYear();
 const defaultTaxMonth = now.getMonth() + 1;
 const defaultStoreDate = now.toISOString().slice(0, 10);
+const defaultLedgerCustomerCode = "C0011";
+const defaultEmailState = makeDefaultEmailState();
 
 interface AppState {
-  // core data
   salesSummary: SalesSummary | null;
   paymentStatus: PaymentStatusSummary | null;
   masterStats: MasterStatsSummary | null;
@@ -142,7 +203,6 @@ interface AppState {
   invoiceRecords: InvoiceRecord[];
   customerLedger: CustomerLedger | null;
   salesAnalytics: SalesAnalytics | null;
-  // 販売
   invoiceForm: InvoiceFormData;
   invoiceSaving: boolean;
   invoiceSavedDocNo: string | null;
@@ -151,38 +211,87 @@ interface AppState {
   billingSummary: BillingSummary | null;
   billingYearMonth: string;
   salesReport: SalesReport | null;
-  // 蔵内
   jikomiList: JikomiRecord[];
   tankList: TankRecord[];
   kenteiList: KenteiRecord[];
   materialList: MaterialRecord[];
-  // 仕入
   purchaseList: PurchaseRecord[];
   payableList: PayableRecord[];
   billList: BillRecord[];
   rawStockList: RawMaterialStock[];
-  // 税務
   taxDeclaration: TaxDeclaration | null;
   taxYear: number;
   taxMonth: number;
-  // 店舗
   storeSales: StoreSale[];
   storeOrders: StoreOrder[];
   storeTab: "pos" | "orders";
   storeSalesDate: string;
-  // ui
   route: RoutePath;
+  currentCategory: CategoryKey;
+  sidebarOpen: boolean;
   salesFilter: { startDate: string; endDate: string };
   invoiceFilter: InvoiceFilter;
   ledgerCustomerCode: string;
   masterTab: MasterTab;
   analyticsTab: AnalyticsTab;
+  emailAudienceMode: EmailAudienceMode;
+  emailRegion: string;
+  emailHistorySegment: string;
+  emailTemplateId: string;
+  emailSubject: string;
+  emailBody: string;
+  emailSaveMessage: string | null;
   loading: boolean;
   actionLoading: boolean;
   error: string | null;
 }
 
-const defaultLedgerCustomerCode = "C0011";
+function normalizePath(pathname: string): RoutePath {
+  const base = import.meta.env.BASE_URL.endsWith("/")
+    ? import.meta.env.BASE_URL.slice(0, -1)
+    : import.meta.env.BASE_URL;
+  const normalized = pathname.startsWith(base) ? pathname.slice(base.length) || "/" : pathname;
+  if ((ALL_ROUTES as string[]).includes(normalized)) {
+    return normalized as RoutePath;
+  }
+  return "/";
+}
+
+function inferCurrentCategory(route: RoutePath): CategoryKey {
+  switch (route) {
+    case "/cat/sales":
+    case "/invoice":
+    case "/ledger":
+    case "/invoice-entry":
+    case "/delivery":
+    case "/billing":
+    case "/report":
+      return "sales";
+    case "/cat/brewery":
+    case "/jikomi":
+    case "/tanks":
+    case "/kentei":
+    case "/materials":
+      return "brewery";
+    case "/cat/purchase":
+    case "/purchase":
+    case "/raw-material":
+      return "purchase";
+    case "/cat/more":
+    case "/master":
+    case "/analytics":
+    case "/tax":
+    case "/store":
+    case "/setup":
+      return "more";
+    case "/email":
+      return "email";
+    default:
+      return "dashboard";
+  }
+}
+
+const initialRoute = normalizePath(location.pathname);
 
 const state: AppState = {
   salesSummary: null,
@@ -215,27 +324,25 @@ const state: AppState = {
   storeOrders: [],
   storeTab: "pos",
   storeSalesDate: defaultStoreDate,
-  route: normalizePath(location.pathname),
+  route: initialRoute,
+  currentCategory: inferCurrentCategory(initialRoute),
+  sidebarOpen: false,
   salesFilter: { startDate: "", endDate: "" },
   invoiceFilter: { documentNo: "", startDate: "", endDate: "", customerCode: "" },
   ledgerCustomerCode: defaultLedgerCustomerCode,
   masterTab: "customers",
   analyticsTab: "products",
+  emailAudienceMode: defaultEmailState.mode,
+  emailRegion: defaultEmailState.region,
+  emailHistorySegment: defaultEmailState.historySegment,
+  emailTemplateId: defaultEmailState.templateId,
+  emailSubject: defaultEmailState.subject,
+  emailBody: defaultEmailState.body,
+  emailSaveMessage: defaultEmailState.saveMessage,
   loading: true,
   actionLoading: false,
   error: null
 };
-
-function normalizePath(pathname: string): RoutePath {
-  const base = import.meta.env.BASE_URL.endsWith("/")
-    ? import.meta.env.BASE_URL.slice(0, -1)
-    : import.meta.env.BASE_URL;
-  const normalized = pathname.startsWith(base) ? pathname.slice(base.length) || "/" : pathname;
-  if ((ALL_ROUTES as string[]).includes(normalized)) {
-    return normalized as RoutePath;
-  }
-  return "/";
-}
 
 function formatDateInput(value: string): string {
   return value.slice(0, 10);
@@ -255,10 +362,63 @@ function filterSalesRecords(summary: SalesSummary): SalesSummary["salesRecords"]
     });
 }
 
+function getFilteredEmailRecipients(): EmailRecipientRecord[] {
+  switch (state.emailAudienceMode) {
+    case "area":
+      return state.emailRegion === "all"
+        ? EMAIL_RECIPIENTS
+        : EMAIL_RECIPIENTS.filter((recipient) => recipient.area === state.emailRegion);
+    case "history":
+      return EMAIL_RECIPIENTS.filter(
+        (recipient) => recipient.historySegment === state.emailHistorySegment
+      );
+    case "all":
+    default:
+      return EMAIL_RECIPIENTS;
+  }
+}
+
+function buildEmailViewState(): EmailBroadcastViewState {
+  const recipients = getFilteredEmailRecipients();
+  return {
+    audienceMode: state.emailAudienceMode,
+    region: state.emailRegion,
+    historySegment: state.emailHistorySegment,
+    selectedTemplateId: state.emailTemplateId,
+    subject: state.emailSubject,
+    body: state.emailBody,
+    recipientCount: recipients.length,
+    previewRecipients: recipients.slice(0, 5),
+    saveMessage: state.emailSaveMessage
+  };
+}
+
+function buildEmailCampaignPayload(status: EmailCampaign["status"]): EmailCampaign {
+  const recipients = getFilteredEmailRecipients();
+  const audienceFilter =
+    state.emailAudienceMode === "area"
+      ? state.emailRegion
+      : state.emailAudienceMode === "history"
+        ? state.emailHistorySegment
+        : "all";
+
+  return {
+    subject: state.emailSubject.trim(),
+    body: state.emailBody.trim(),
+    templateId: state.emailTemplateId,
+    audienceMode: state.emailAudienceMode,
+    audienceFilter,
+    recipientCount: recipients.length,
+    status
+  };
+}
+
 function navigate(path: RoutePath): void {
   const target = `${import.meta.env.BASE_URL.replace(/\/$/, "")}${path === "/" ? "/" : path}`;
   history.pushState(null, "", target);
   state.route = path;
+  state.currentCategory = inferCurrentCategory(path);
+  state.sidebarOpen = false;
   void loadRouteData(path);
 }
 
@@ -357,10 +517,19 @@ function renderView(): string {
     `;
   }
 
-  // New screens that don't need core data
   switch (state.route) {
+    case "/cat/sales":
+      return renderCategoryHome("sales");
+    case "/cat/brewery":
+      return renderCategoryHome("brewery");
+    case "/cat/purchase":
+      return renderCategoryHome("purchase");
+    case "/cat/more":
+      return renderCategoryHome("more");
     case "/invoice-entry":
       return renderInvoiceEntry(state.invoiceForm, state.invoiceSavedDocNo, state.invoiceSaving);
+    case "/email":
+      return renderEmailBroadcast(buildEmailViewState());
     case "/delivery":
       return state.deliveryNote
         ? renderDeliveryNote(state.deliveryNote, state.deliverySearchDocNo)
@@ -442,94 +611,150 @@ function renderView(): string {
   }
 }
 
-type NavGroup = {
-  label: string;
-  items: Array<{ path: RoutePath; label: string; kicker: string }>;
-};
-
 function renderShell(): string {
-  const navGroups: NavGroup[] = [
-    {
-      label: "概要",
-      items: [
-        { path: "/", label: "ダッシュボード", kicker: "Home" },
-        { path: "/sales", label: "売上一覧", kicker: "Sales" },
-        { path: "/payment", label: "入金状況", kicker: "Payment" },
-        { path: "/master", label: "マスタ", kicker: "Master" },
-        { path: "/invoice", label: "伝票照会", kicker: "Invoice" },
-        { path: "/ledger", label: "得意先台帳", kicker: "Ledger" },
-        { path: "/analytics", label: "売上分析", kicker: "Analytics" }
-      ]
-    },
-    {
-      label: "販売管理",
-      items: [
-        { path: "/invoice-entry", label: "伝票入力", kicker: "Entry" },
-        { path: "/delivery", label: "納品書", kicker: "Delivery" },
-        { path: "/billing", label: "月次請求", kicker: "Billing" },
-        { path: "/report", label: "集計帳票", kicker: "Report" }
-      ]
-    },
-    {
-      label: "蔵内管理",
-      items: [
-        { path: "/jikomi", label: "仕込管理", kicker: "Jikomi" },
-        { path: "/tanks", label: "タンク管理", kicker: "Tank" },
-        { path: "/kentei", label: "検定管理", kicker: "Kentei" },
-        { path: "/materials", label: "資材管理", kicker: "Material" }
-      ]
-    },
-    {
-      label: "仕入管理",
-      items: [
-        { path: "/purchase", label: "仕入・買掛", kicker: "Purchase" },
-        { path: "/raw-material", label: "手形・原料", kicker: "RawMat" }
-      ]
-    },
-    {
-      label: "その他",
-      items: [
-        { path: "/tax", label: "酒税申告", kicker: "Tax" },
-        { path: "/store", label: "店舗・直売所", kicker: "Store" },
-        { path: "/setup", label: "連動設定", kicker: "Setup" }
-      ]
-    }
+  const navGroups: Record<CategoryKey, NavGroup[]> = {
+    dashboard: [
+      {
+        label: "概要",
+        items: [
+          { path: "/", label: "ダッシュボード", kicker: "Home" },
+          { path: "/sales", label: "売上一覧", kicker: "Sales" },
+          { path: "/payment", label: "入金状況", kicker: "Payment" }
+        ]
+      }
+    ],
+    sales: [
+      {
+        label: "販売管理",
+        items: [
+          { path: "/cat/sales", label: "販売管理トップ", kicker: "Category" },
+          { path: "/invoice-entry", label: "伝票入力", kicker: "Entry" },
+          { path: "/delivery", label: "納品書", kicker: "Delivery" },
+          { path: "/billing", label: "月次請求", kicker: "Billing" },
+          { path: "/report", label: "集計帳票", kicker: "Report" },
+          { path: "/invoice", label: "伝票照会", kicker: "Invoice" },
+          { path: "/ledger", label: "得意先台帳", kicker: "Ledger" }
+        ]
+      }
+    ],
+    brewery: [
+      {
+        label: "蔵内管理",
+        items: [
+          { path: "/cat/brewery", label: "蔵内管理トップ", kicker: "Category" },
+          { path: "/jikomi", label: "仕込管理", kicker: "Jikomi" },
+          { path: "/tanks", label: "タンク管理", kicker: "Tank" },
+          { path: "/kentei", label: "検定管理", kicker: "Kentei" },
+          { path: "/materials", label: "資材管理", kicker: "Material" }
+        ]
+      }
+    ],
+    purchase: [
+      {
+        label: "仕入管理",
+        items: [
+          { path: "/cat/purchase", label: "仕入管理トップ", kicker: "Category" },
+          { path: "/purchase", label: "仕入・買掛", kicker: "Purchase" },
+          { path: "/raw-material", label: "手形・原料", kicker: "RawMat" }
+        ]
+      }
+    ],
+    more: [
+      {
+        label: "その他",
+        items: [
+          { path: "/cat/more", label: "その他トップ", kicker: "Category" },
+          { path: "/tax", label: "酒税申告", kicker: "Tax" },
+          { path: "/store", label: "店舗・直売所", kicker: "Store" },
+          { path: "/analytics", label: "売上分析", kicker: "Analytics" },
+          { path: "/master", label: "マスタ", kicker: "Master" },
+          { path: "/email", label: "メール配信", kicker: "Mail" },
+          { path: "/setup", label: "連動設定", kicker: "Setup" }
+        ]
+      }
+    ],
+    email: [
+      {
+        label: "メール配信",
+        items: [{ path: "/email", label: "季節商品案内", kicker: "Mail" }]
+      }
+    ]
+  };
+
+  const topLevelItems: Array<{ category: CategoryKey; path: RoutePath; label: string }> = [
+    { category: "dashboard", path: "/", label: "ダッシュボード" },
+    { category: "sales", path: "/cat/sales", label: "販売管理" },
+    { category: "brewery", path: "/cat/brewery", label: "蔵内管理" },
+    { category: "purchase", path: "/cat/purchase", label: "仕入管理" },
+    { category: "more", path: "/cat/more", label: "その他" },
+    { category: "email", path: "/email", label: "メール配信" }
   ];
 
-  const navHtml = navGroups
+  const navHtml = navGroups[state.currentCategory]
     .map(
       (group) => `
-      <div class="nav-group">
-        <p class="nav-group-label">${group.label}</p>
-        ${group.items
-          .map(
-            (item) => `
-          <a href="${import.meta.env.BASE_URL.replace(/\/$/, "")}${item.path === "/" ? "/" : item.path}"
-             class="nav-link ${state.route === item.path ? "active" : ""}"
-             data-link="${item.path}">
-            <div>
-              <div class="nav-kicker">${item.kicker}</div>
-              <div class="nav-label">${item.label}</div>
-            </div>
-          </a>
-        `
-          )
-          .join("")}
-      </div>
-    `
+        <div class="nav-group">
+          <p class="nav-group-label">${group.label}</p>
+          ${group.items
+            .map(
+              (item) => `
+                <a
+                  href="${import.meta.env.BASE_URL.replace(/\/$/, "")}${item.path === "/" ? "/" : item.path}"
+                  class="nav-link ${state.route === item.path ? "active" : ""}"
+                  data-link="${item.path}"
+                >
+                  <div>
+                    <div class="nav-kicker">${item.kicker}</div>
+                    <div class="nav-label">${item.label}</div>
+                  </div>
+                </a>
+              `
+            )
+            .join("")}
+        </div>
+      `
+    )
+    .join("");
+
+  const topLevelHtml = topLevelItems
+    .map(
+      (item) => `
+        <a
+          href="${import.meta.env.BASE_URL.replace(/\/$/, "")}${item.path === "/" ? "/" : item.path}"
+          class="category-link ${state.currentCategory === item.category ? "active" : ""}"
+          data-link="${item.path}"
+        >
+          ${item.label}
+        </a>
+      `
     )
     .join("");
 
   return `
     <div class="shell">
-      <aside class="sidebar">
+      <button
+        class="menu-toggle"
+        type="button"
+        aria-label="メニューを開く"
+        data-action="${state.sidebarOpen ? "sidebar-close" : "sidebar-open"}"
+      >
+        ☰
+      </button>
+      <button
+        class="sidebar-backdrop ${state.sidebarOpen ? "open" : ""}"
+        type="button"
+        aria-label="メニューを閉じる"
+        data-action="sidebar-close"
+      ></button>
+      <aside class="sidebar ${state.sidebarOpen ? "open" : ""}">
         <div class="brand">
           <span class="brand-mark">syusen-cloud</span>
           <h1>業務Web UI</h1>
           <p>酒仙i 次世代版</p>
         </div>
         <nav class="nav" aria-label="主要ナビゲーション">
-          ${navHtml}
+          <div class="category-nav">${topLevelHtml}</div>
+          <div class="subnav">${navHtml}</div>
         </nav>
       </aside>
       <main class="main">
@@ -566,7 +791,8 @@ function collectInvoiceFormFromDom(root: HTMLElement): void {
     invoiceType:
       (root.querySelector<HTMLSelectElement>("#inv-type")?.value as InvoiceFormData["invoiceType"]) ??
       state.invoiceForm.invoiceType,
-    invoiceDate: root.querySelector<HTMLInputElement>("#inv-date")?.value ?? state.invoiceForm.invoiceDate,
+    invoiceDate:
+      root.querySelector<HTMLInputElement>("#inv-date")?.value ?? state.invoiceForm.invoiceDate,
     customerCode:
       root.querySelector<HTMLInputElement>("#inv-customer-code")?.value ??
       state.invoiceForm.customerCode,
@@ -586,6 +812,7 @@ function collectInvoiceFormFromDom(root: HTMLElement): void {
           root.querySelector<HTMLInputElement>(`[data-line="${i}"][data-field="unitPrice"]`)?.value ??
             ""
         ) || 0;
+
       return {
         ...line,
         productCode:
@@ -606,7 +833,34 @@ function collectInvoiceFormFromDom(root: HTMLElement): void {
   };
 }
 
+function collectEmailFormFromDom(root: HTMLElement): void {
+  const selectedAudience =
+    root.querySelector<HTMLInputElement>("input[name='email-audience-mode']:checked")?.value ??
+    state.emailAudienceMode;
+
+  state.emailAudienceMode = selectedAudience as EmailAudienceMode;
+  state.emailRegion = root.querySelector<HTMLSelectElement>("#email-region")?.value ?? state.emailRegion;
+  state.emailHistorySegment =
+    root.querySelector<HTMLSelectElement>("#email-history-segment")?.value ??
+    state.emailHistorySegment;
+  state.emailSubject =
+    root.querySelector<HTMLInputElement>("#email-subject")?.value ?? state.emailSubject;
+  state.emailBody = root.querySelector<HTMLTextAreaElement>("#email-body")?.value ?? state.emailBody;
+}
+
 function bindEvents(root: HTMLElement): void {
+  root.querySelector<HTMLButtonElement>("[data-action='sidebar-open']")?.addEventListener("click", () => {
+    state.sidebarOpen = true;
+    renderApp();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-action='sidebar-close']").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.sidebarOpen = false;
+      renderApp();
+    });
+  });
+
   root.querySelectorAll<HTMLElement>("[data-link]").forEach((element) => {
     element.addEventListener("click", (event) => {
       event.preventDefault();
@@ -614,7 +868,6 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // ── 売上一覧フィルタ ─────────────────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='sales-filter']")?.addEventListener("click", () => {
     const start = root.querySelector<HTMLInputElement>("#sales-start")?.value ?? "";
     const end = root.querySelector<HTMLInputElement>("#sales-end")?.value ?? "";
@@ -622,7 +875,6 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
-  // ── 伝票照会フィルタ ─────────────────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='invoice-filter']")?.addEventListener("click", () => {
     const nextFilter: InvoiceFilter = {
       documentNo: root.querySelector<HTMLInputElement>("#invoice-document-no")?.value ?? "",
@@ -634,14 +886,12 @@ function bindEvents(root: HTMLElement): void {
     void reloadInvoices(nextFilter);
   });
 
-  // ── 得意先台帳検索 ─────────────────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='ledger-search']")?.addEventListener("click", () => {
     const customerCode = root.querySelector<HTMLInputElement>("#ledger-customer-code")?.value ?? "";
     state.ledgerCustomerCode = customerCode.trim().toUpperCase();
     void reloadCustomerLedger(state.ledgerCustomerCode);
   });
 
-  // ── マスタ・分析タブ ─────────────────────────────────
   root.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.masterTab = button.dataset.tab as MasterTab;
@@ -656,7 +906,6 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // ── 伝票入力 ─────────────────────────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='add-line']")?.addEventListener("click", () => {
     collectInvoiceFormFromDom(root);
     state.invoiceForm.lines.push({
@@ -697,7 +946,6 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // ── 納品書 ───────────────────────────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='delivery-search']")?.addEventListener("click", () => {
     const docNo = root.querySelector<HTMLInputElement>("#delivery-docno")?.value ?? "";
     state.deliverySearchDocNo = docNo.trim();
@@ -711,7 +959,6 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // ── 月次請求 ─────────────────────────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='billing-load']")?.addEventListener("click", () => {
     const ym = root.querySelector<HTMLInputElement>("#billing-month")?.value ?? state.billingYearMonth;
     state.billingYearMonth = ym;
@@ -725,10 +972,15 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // ── 税務申告 ─────────────────────────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='tax-load']")?.addEventListener("click", () => {
-    const year = parseInt(root.querySelector<HTMLSelectElement>("#tax-year")?.value ?? String(state.taxYear), 10);
-    const month = parseInt(root.querySelector<HTMLSelectElement>("#tax-month")?.value ?? String(state.taxMonth), 10);
+    const year = parseInt(
+      root.querySelector<HTMLSelectElement>("#tax-year")?.value ?? String(state.taxYear),
+      10
+    );
+    const month = parseInt(
+      root.querySelector<HTMLSelectElement>("#tax-month")?.value ?? String(state.taxMonth),
+      10
+    );
     state.taxYear = year;
     state.taxMonth = month;
     state.taxDeclaration = null;
@@ -741,7 +993,6 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // ── 店舗タブ ─────────────────────────────────────────
   root.querySelectorAll<HTMLButtonElement>("[data-store-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.storeTab = button.dataset.storeTab as "pos" | "orders";
@@ -777,6 +1028,81 @@ function bindEvents(root: HTMLElement): void {
       }
     });
   });
+
+  root.querySelectorAll<HTMLInputElement>("input[name='email-audience-mode']").forEach((input) => {
+    input.addEventListener("change", () => {
+      collectEmailFormFromDom(root);
+      state.emailSaveMessage = null;
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLSelectElement>("#email-region, #email-history-segment").forEach((select) => {
+    select.addEventListener("change", () => {
+      collectEmailFormFromDom(root);
+      state.emailSaveMessage = null;
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLInputElement>("#email-subject")?.addEventListener("input", () => {
+    collectEmailFormFromDom(root);
+    state.emailSaveMessage = null;
+  });
+
+  root.querySelector<HTMLTextAreaElement>("#email-body")?.addEventListener("input", () => {
+    collectEmailFormFromDom(root);
+    state.emailSaveMessage = null;
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-action='template-select']").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.emailTemplateId = button.dataset.templateId ?? "custom";
+      const selected = getTemplateContent(state.emailTemplateId);
+      state.emailSubject = selected.subject;
+      state.emailBody = selected.body;
+      state.emailSaveMessage = null;
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='email-insert-link']")?.addEventListener("click", () => {
+    collectEmailFormFromDom(root);
+    const linkLine = "\n\n商品詳細はこちら: https://example.jp/products/seasonal";
+    if (!state.emailBody.includes("https://example.jp/products/seasonal")) {
+      state.emailBody = `${state.emailBody.trimEnd()}${linkLine}`;
+    }
+    state.emailSaveMessage = null;
+    renderApp();
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='email-save']")?.addEventListener("click", () => {
+    collectEmailFormFromDom(root);
+    state.actionLoading = true;
+    renderApp();
+    void saveEmailCampaign(buildEmailCampaignPayload("draft")).then((saved) => {
+      state.emailSaveMessage = `下書きを保存しました。${new Intl.DateTimeFormat("ja-JP", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      }).format(new Date(saved.updatedAt ?? new Date().toISOString()))}`;
+      state.actionLoading = false;
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='email-send']")?.addEventListener("click", () => {
+    collectEmailFormFromDom(root);
+    state.actionLoading = true;
+    renderApp();
+    void saveEmailCampaign(buildEmailCampaignPayload("draft")).then((saved) => {
+      state.emailSaveMessage = `送信処理用の下書きを保存しました。${saved.recipientCount.toLocaleString("ja-JP")} 件`;
+      state.actionLoading = false;
+      renderApp();
+      window.confirm("送信しました（下書き保存）");
+    });
+  });
 }
 
 function renderApp(): void {
@@ -807,6 +1133,7 @@ async function loadData(): Promise<void> {
       fetchCustomerLedger(state.ledgerCustomerCode),
       fetchSalesAnalytics()
     ]);
+
     state.salesSummary = salesSummary;
     state.paymentStatus = paymentStatus;
     state.masterStats = masterStats;
@@ -828,6 +1155,7 @@ async function loadData(): Promise<void> {
         endDate: formatDateInput(latest.toISOString())
       };
     }
+
     if (!state.invoiceFilter.startDate || !state.invoiceFilter.endDate) {
       state.invoiceFilter = {
         ...state.invoiceFilter,
@@ -836,19 +1164,21 @@ async function loadData(): Promise<void> {
       };
       state.invoiceRecords = await fetchInvoices(state.invoiceFilter);
     }
+
     state.error = null;
   } catch (error) {
     state.error = error instanceof Error ? error.message : "データの取得に失敗しました。";
   } finally {
     state.loading = false;
     renderApp();
-    // Eagerly load data for initial route if it's a new-screen route
     void loadRouteData(state.route);
   }
 }
 
 window.addEventListener("popstate", () => {
   state.route = normalizePath(location.pathname);
+  state.currentCategory = inferCurrentCategory(state.route);
+  state.sidebarOpen = false;
   void loadRouteData(state.route);
 });
 

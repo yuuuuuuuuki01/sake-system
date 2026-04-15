@@ -4,6 +4,54 @@ export type PipelineStatus = "success" | "warning" | "error" | "running";
 export type PaymentState = "unpaid" | "partial" | "paid";
 export type MasterTab = "customers" | "products";
 export type AnalyticsTab = "products" | "customers";
+export type EmailCampaignStatus = "draft" | "sent";
+
+export interface EmailTemplate {
+  id: "spring" | "summer" | "autumn" | "winter";
+  season: string;
+  subject: string;
+  body: string;
+}
+
+export interface EmailCampaign {
+  id?: string;
+  subject: string;
+  body: string;
+  templateId: string;
+  audienceMode: "all" | "area" | "history";
+  audienceFilter: string;
+  recipientCount: number;
+  status: EmailCampaignStatus;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const SEASONAL_TEMPLATES: Record<EmailTemplate["id"], EmailTemplate> = {
+  spring: {
+    id: "spring",
+    season: "春",
+    subject: "新酒のご案内",
+    body: `いつもお世話になっております。\n\n今年の新酒が揃いました。軽やかな香りとみずみずしい味わいを、この時期だけの限定商品としてご案内いたします。\n\nご注文やご相談がございましたら、本メールへのご返信にてお知らせください。\n\n今後ともよろしくお願いいたします。`
+  },
+  summer: {
+    id: "summer",
+    season: "夏",
+    subject: "夏の冷酒・リキュールのご案内",
+    body: `いつもお世話になっております。\n\n夏向けの冷酒とリキュールのご案内です。売り場で動きやすい商品を中心に、季節提案向けのラインアップをまとめました。\n\nご希望の商品がございましたら、必要本数とあわせてご連絡ください。`
+  },
+  autumn: {
+    id: "autumn",
+    season: "秋",
+    subject: "ひやおろしのご案内",
+    body: `いつもお世話になっております。\n\n秋の定番商品「ひやおろし」のご案内です。熟成によるまろやかさと、季節感のある売り場演出に適した商品をご用意しました。\n\n導入をご検討の際は、お気軽にお問い合わせください。`
+  },
+  winter: {
+    id: "winter",
+    season: "冬",
+    subject: "しぼりたて・にごり酒のご案内",
+    body: `いつもお世話になっております。\n\n冬季限定のしぼりたて・にごり酒のご案内です。年末年始商戦に合わせて、動きの早い商品を中心にご提案いたします。\n\nご注文締切や納品希望日がございましたら、あわせてお知らせください。`
+  }
+};
 
 export interface SalesDayPoint {
   date: string;
@@ -1440,4 +1488,40 @@ export async function fetchStoreSales(date: string): Promise<StoreSale[]> {
 
 export async function fetchStoreOrders(): Promise<StoreOrder[]> {
   return fetchJson("data/api/latest/store-orders.json", mockStoreOrders);
+}
+
+export async function saveEmailCampaign(campaign: EmailCampaign): Promise<EmailCampaign> {
+  const row = await supabaseInsert<{
+    id?: string;
+    subject?: string;
+    body?: string;
+    template_id?: string;
+    audience_mode?: string;
+    audience_filter?: string;
+    recipient_count?: number;
+    status?: string;
+    created_at?: string;
+    updated_at?: string;
+  }>("email_campaigns", {
+    subject: campaign.subject,
+    body: campaign.body,
+    template_id: campaign.templateId,
+    audience_mode: campaign.audienceMode,
+    audience_filter: campaign.audienceFilter,
+    recipient_count: campaign.recipientCount,
+    status: campaign.status
+  });
+
+  return {
+    id: row?.id ?? `local-email-${Date.now()}`,
+    subject: row?.subject ?? campaign.subject,
+    body: row?.body ?? campaign.body,
+    templateId: row?.template_id ?? campaign.templateId,
+    audienceMode: (row?.audience_mode as EmailCampaign["audienceMode"] | undefined) ?? campaign.audienceMode,
+    audienceFilter: row?.audience_filter ?? campaign.audienceFilter,
+    recipientCount: row?.recipient_count ?? campaign.recipientCount,
+    status: (row?.status as EmailCampaignStatus | undefined) ?? campaign.status,
+    createdAt: row?.created_at ?? new Date().toISOString(),
+    updatedAt: row?.updated_at ?? new Date().toISOString()
+  };
 }
