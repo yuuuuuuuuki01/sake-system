@@ -9,10 +9,11 @@
       // sessionStorageにパスを保存してSPAルーターに渡す
       (function () {
         var base = "/sake-system";
-        var path = location.pathname.slice(base.length) || "/";
-        var search = location.search;
-        var hash = location.hash;
-        sessionStorage.setItem("spa-redirect", path + search + hash);
+        // フルパス（baseを含む）を保存しておく
+        sessionStorage.setItem(
+          "spa-redirect",
+          location.pathname + location.search + location.hash
+        );
         location.replace(base + "/");
       })();
     </script>

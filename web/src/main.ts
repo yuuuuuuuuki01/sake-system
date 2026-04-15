@@ -610,7 +610,8 @@ function buildEmailCampaignPayload(status: EmailCampaign["status"]): EmailCampai
 
 function shouldShowLogin(): boolean {
   if (state.user) return false;
-  if (REQUIRE_AUTH) return true;
+  // REQUIRE_AUTH=false のときはログイン画面をスキップして即座にアプリ表示
+  if (!REQUIRE_AUTH) return false;
   return !state.authSkipped;
 }
 
