@@ -1,33 +1,50 @@
 import {
+  fetchCustomerLedger,
+  fetchInvoices,
   fetchMasterStats,
   fetchPaymentStatus,
   fetchPipelineMeta,
+  fetchSalesAnalytics,
   fetchSalesSummary,
+  type AnalyticsTab,
+  type CustomerLedgerSummary,
+  type InvoiceFilter,
+  type InvoiceRecord,
   type MasterStatsSummary,
   type MasterTab,
   type PaymentStatusSummary,
   type PipelineMeta,
+  type SalesAnalytics,
   type SalesSummary
 } from "./api";
+import { renderCustomerLedger } from "./components/CustomerLedger";
 import { renderDashboard } from "./components/Dashboard";
+import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { renderMasterStats } from "./components/MasterStats";
 import { renderPaymentStatus } from "./components/PaymentStatus";
+import { renderSalesAnalytics } from "./components/SalesAnalytics";
 import { renderSalesTable } from "./components/SalesTable";
 import "./styles/main.css";
 
-type RoutePath = "/" | "/sales" | "/payment" | "/master";
+type RoutePath = "/" | "/sales" | "/payment" | "/master" | "/invoice" | "/ledger" | "/analytics";
 
 interface AppState {
   salesSummary: SalesSummary | null;
   paymentStatus: PaymentStatusSummary | null;
   masterStats: MasterStatsSummary | null;
   pipelineMeta: PipelineMeta | null;
+  invoiceRecords: InvoiceRecord[];
+  ledgerSummary: CustomerLedgerSummary | null;
+  salesAnalytics: SalesAnalytics | null;
   route: RoutePath;
   salesFilter: {
     startDate: string;
     endDate: string;
   };
+  invoiceFilter: InvoiceFilter;
+  ledgerCode: string;
   masterTab: MasterTab;
+  analyticsTab: AnalyticsTab;
   loading: boolean;
   error: string | null;
 }
@@ -37,12 +54,23 @@ const state: AppState = {
   paymentStatus: null,
   masterStats: null,
   pipelineMeta: null,
+  invoiceRecords: [],
+  ledgerSummary: null,
+  salesAnalytics: null,
   route: normalizePath(location.pathname),
   salesFilter: {
     startDate: "",
     endDate: ""
   },
+  invoiceFilter: {
+    docNo: "",
+    customerCode: "",
+    startDate: "",
+    endDate: ""
+  },
+  ledgerCode: "",
   masterTab: "customers",
+  analyticsTab: "products",
   loading: true,
   error: null
 };
@@ -52,7 +80,14 @@ function normalizePath(pathname: string): RoutePath {
     ? import.meta.env.BASE_URL.slice(0, -1)
     : import.meta.env.BASE_URL;
   const normalized = pathname.startsWith(base) ? pathname.slice(base.length) || "/" : pathname;
-  if (normalized === "/sales" || normalized === "/payment" || normalized === "/master") {
+  if (
+    normalized === "/sales" ||
+    normalized === "/payment" ||
+    normalized === "/master" ||
+    normalized === "/invoice" ||
+    normalized === "/ledger" ||
+    normalized === "/analytics"
+  ) {
     return normalized;
   }
   return "/";
@@ -102,11 +137,23 @@ function renderView(): string {
     `;
   }
 
-  if (!state.salesSummary || !state.paymentStatus || !state.masterStats || !state.pipelineMeta) {
+  if (
+    !state.salesSummary ||
+    !state.paymentStatus ||
+    !state.masterStats ||
+    !state.pipelineMeta ||
+    !state.salesAnalytics
+  ) {
     return "";
   }
 
   switch (state.route) {
+    case "/invoice":
+      return renderInvoiceSearch(state.invoiceRecords, state.invoiceFilter);
+    case "/ledger":
+      return renderCustomerLedger(state.ledgerSummary, state.ledgerCode);
+    case "/analytics":
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab);
     case "/sales":
       return renderSalesTable(
         filterSalesRecords(state.salesSummary),
@@ -132,7 +179,10 @@ function renderShell(): string {
     { path: "/", label: "ダッシュボード", kicker: "Summary" },
     { path: "/sales", label: "売上一覧", kicker: "Sales" },
     { path: "/payment", label: "入金状況", kicker: "Payment" },
-    { path: "/master", label: "マスタ", kicker: "Master" }
+    { path: "/master", label: "マスタ", kicker: "Master" },
+    { path: "/invoice", label: "伝票照会", kicker: "Invoice" },
+    { path: "/ledger", label: "得意先台帳", kicker: "Ledger" },
+    { path: "/analytics", label: "売上分析", kicker: "Analytics" }
   ];
 
   return `
@@ -174,6 +224,48 @@ function bindEvents(root: HTMLElement): void {
   });
 
   root
+    .querySelector<HTMLButtonElement>("[data-action='invoice-filter']")
+    ?.addEventListener("click", async () => {
+      const nextFilter: InvoiceFilter = {
+        docNo: root.querySelector<HTMLInputElement>("#invoice-docno")?.value ?? "",
+        customerCode: root.querySelector<HTMLInputElement>("#invoice-customer")?.value ?? "",
+        startDate: root.querySelector<HTMLInputElement>("#invoice-start")?.value ?? "",
+        endDate: root.querySelector<HTMLInputElement>("#invoice-end")?.value ?? ""
+      };
+      state.invoiceFilter = nextFilter;
+      state.loading = true;
+      renderApp();
+      try {
+        state.invoiceRecords = await fetchInvoices(nextFilter);
+        state.error = null;
+      } catch (error) {
+        state.error = error instanceof Error ? error.message : "伝票データの取得に失敗しました。";
+      } finally {
+        state.loading = false;
+        renderApp();
+      }
+    });
+
+  root
+    .querySelector<HTMLButtonElement>("[data-action='ledger-search']")
+    ?.addEventListener("click", async () => {
+      const code = root.querySelector<HTMLInputElement>("#ledger-code")?.value ?? "";
+      state.ledgerCode = code;
+      state.loading = true;
+      renderApp();
+      try {
+        state.ledgerSummary = await fetchCustomerLedger(code);
+        state.error = null;
+      } catch (error) {
+        state.error =
+          error instanceof Error ? error.message : "得意先台帳データの取得に失敗しました。";
+      } finally {
+        state.loading = false;
+        renderApp();
+      }
+    });
+
+  root
     .querySelector<HTMLButtonElement>("[data-action='sales-filter']")
     ?.addEventListener("click", () => {
       const start = root.querySelector<HTMLInputElement>("#sales-start")?.value ?? "";
@@ -185,6 +277,13 @@ function bindEvents(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.masterTab = button.dataset.tab as MasterTab;
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-analytics-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.analyticsTab = button.dataset.analyticsTab as AnalyticsTab;
       renderApp();
     });
   });
@@ -203,16 +302,21 @@ async function loadData(): Promise<void> {
   state.loading = true;
   renderApp();
   try {
-    const [salesSummary, paymentStatus, masterStats, pipelineMeta] = await Promise.all([
+    const [salesSummary, paymentStatus, masterStats, pipelineMeta, invoiceRecords, salesAnalytics] =
+      await Promise.all([
       fetchSalesSummary(),
       fetchPaymentStatus(),
       fetchMasterStats(),
-      fetchPipelineMeta()
+      fetchPipelineMeta(),
+      fetchInvoices(state.invoiceFilter),
+      fetchSalesAnalytics()
     ]);
     state.salesSummary = salesSummary;
     state.paymentStatus = paymentStatus;
     state.masterStats = masterStats;
     state.pipelineMeta = pipelineMeta;
+    state.invoiceRecords = invoiceRecords;
+    state.salesAnalytics = salesAnalytics;
     if (!state.salesFilter.startDate || !state.salesFilter.endDate) {
       const sortedRecords = [...salesSummary.salesRecords].sort(
         (left, right) => new Date(right.date).getTime() - new Date(left.date).getTime()
