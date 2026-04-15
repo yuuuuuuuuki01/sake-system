@@ -1,8 +1,9 @@
+import { FREEE_DRY_RUN } from "../../env.js";
 import type { CreateInvoiceParams, ExportResult, InvoiceCandidate } from "./types.js";
 import { createFreeeClientFromEnv } from "./client.js";
 
 function isDryRunEnabled(): boolean {
-  return process.env.FREEE_DRY_RUN === "true";
+  return FREEE_DRY_RUN;
 }
 
 function toCreateInvoiceParams(

@@ -1,6 +1,7 @@
 import { loadConfig } from "../config.js";
 import { buildCandidates } from "../discovery/candidate-builder.js";
 import { persistRawSnapshot } from "../ingestion/raw-snapshot.js";
+import { createLogger, logger } from "../logger.js";
 import { writeApiCache } from "./api-cache.js";
 import { writeMasterSnapshot } from "../normalization/master-snapshot.js";
 import {
@@ -23,6 +24,7 @@ import { writeProvisionalSalesParser } from "../parsers/provisional-sales-parser
 import { writeTransactionRecordInspection } from "../parsers/transaction-record-inspection.js";
 import { runFreeeExport } from "./freee-export.js";
 import { refreshSalesMarts } from "./sales-mart.js";
+import { notifyPipelineComplete, notifyPipelineError } from "../notifications/index.js";
 import type { JobContext, JobName, JobResult } from "./job-types.js";
 
 const orderedJobs: JobName[] = [
@@ -48,6 +50,10 @@ const orderedJobs: JobName[] = [
   "freeeExport",
   "publishApiCache"
 ];
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
 
 function createContext(): JobContext {
   const config = loadConfig();
@@ -286,38 +292,74 @@ async function executeJob(jobName: JobName, context: JobContext): Promise<JobRes
 
 async function main(): Promise<void> {
   const context = createContext();
-  console.log(`[pipeline] start ${context.runId}`);
+  const startedAtMs = Date.now();
+  const pipelineLogger = createLogger({ scope: "pipeline", runId: context.runId });
+  pipelineLogger.info({ startedAt: context.startedAt }, "pipeline start");
 
   for (const note of context.notes) {
-    console.log(`[pipeline] note: ${note}`);
+    pipelineLogger.info({ note }, "pipeline note");
   }
 
   for (const jobName of orderedJobs) {
-    const result = await executeJob(jobName, context);
-    context.jobResults.push(result);
-    console.log(`[pipeline] ${result.jobName}: ${result.ok ? "ok" : "ng"} - ${result.detail}`);
+    const jobLogger = createLogger({ scope: "pipeline", runId: context.runId, jobName });
+    const jobStartedAtMs = Date.now();
+    jobLogger.info({ jobName, runId: context.runId }, "job start");
 
-    if (jobName === "discoverChangedFiles") {
-      for (const candidate of context.candidates) {
-        console.log(
-          `[pipeline] candidate ${candidate.fileCode} role=${candidate.sourceRole} score=${candidate.score} ${candidate.sourcePath} size=${candidate.fileSize} mtime=${candidate.fileMtime}`
-        );
+    try {
+      const result = await executeJob(jobName, context);
+      const durationMs = Date.now() - jobStartedAtMs;
+      context.jobResults.push(result);
+
+      if (jobName === "discoverChangedFiles") {
+        for (const candidate of context.candidates) {
+          pipelineLogger.info({ candidate }, "pipeline candidate");
+        }
       }
-    }
 
-    if (!result.ok) {
-      process.exitCode = 1;
-      break;
+      if (!result.ok) {
+        const err = new Error(result.detail);
+        jobLogger.error({ jobName, runId: context.runId, durationMs, detail: result.detail, err }, "job failed");
+
+        try {
+          await notifyPipelineError(context.runId, result.jobName, err);
+        } catch (notificationError) {
+          pipelineLogger.error({ err: toError(notificationError) }, "slack notification failed");
+        }
+        process.exitCode = 1;
+        break;
+      }
+
+      jobLogger.info({ jobName, runId: context.runId, durationMs, detail: result.detail }, "job end");
+    } catch (error) {
+      const err = toError(error);
+      const durationMs = Date.now() - jobStartedAtMs;
+      jobLogger.error({ jobName, runId: context.runId, durationMs, err }, "job failed");
+
+      try {
+        await notifyPipelineError(context.runId, jobName, err);
+      } catch (notificationError) {
+        pipelineLogger.error({ err: toError(notificationError) }, "slack notification failed");
+      }
+
+      throw err;
     }
   }
 
-  console.log(`[pipeline] done ${context.runId}`);
+  pipelineLogger.info({ runId: context.runId, durationMs: Date.now() - startedAtMs }, "pipeline done");
   if (context.artifactsDir) {
-    console.log(`[pipeline] artifacts ${context.artifactsDir}`);
+    pipelineLogger.info({ artifactsDir: context.artifactsDir }, "pipeline artifacts");
+  }
+
+  if (process.exitCode !== 1) {
+    try {
+      await notifyPipelineComplete(context.runId, context.jobResults.length, Date.now() - startedAtMs);
+    } catch (notificationError) {
+      pipelineLogger.error({ err: toError(notificationError) }, "slack notification failed");
+    }
   }
 }
 
 main().catch((error) => {
-  console.error("[pipeline] fatal", error);
+  logger.error({ err: toError(error) }, "pipeline fatal");
   process.exitCode = 1;
 });

@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 import { copyFile, mkdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 
@@ -12,8 +14,7 @@ const SELECTED_FILES = [
 
 function resolveSourceDir(): string {
   const cliArg = process.argv[2];
-  const envValue = process.env.SYUSEN_ANALYSIS_IMPORT_DIR;
-  const sourceDir = cliArg ?? envValue;
+  const sourceDir = cliArg ?? process.env.SYUSEN_ANALYSIS_IMPORT_DIR;
 
   if (!sourceDir) {
     throw new Error(

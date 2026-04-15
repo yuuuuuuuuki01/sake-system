@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Detect available scripts
+        id: root-scripts
+        run: |
+          echo "check=$(node -p "Boolean(require('./package.json').scripts?.check)")" >> "$GITHUB_OUTPUT"
+          echo "lint=$(node -p "Boolean(require('./package.json').scripts?.lint)")" >> "$GITHUB_OUTPUT"
+          echo "format_check=$(node -p "Boolean(require('./package.json').scripts?.['format:check'])")" >> "$GITHUB_OUTPUT"
+          echo "test=$(node -p "Boolean(require('./package.json').scripts?.test)")" >> "$GITHUB_OUTPUT"
+
+      - name: Type check
+        if: ${{ success() && steps.root-scripts.outputs.check == 'true' }}
+        run: npm run check
+
+      - name: Lint
+        if: ${{ success() && steps.root-scripts.outputs.lint == 'true' }}
+        run: npm run lint
+
+      - name: Format check
+        if: ${{ success() && steps.root-scripts.outputs.format_check == 'true' }}
+        run: npm run format:check
+
+      - name: Test
+        if: ${{ success() && steps.root-scripts.outputs.test == 'true' }}
+        run: npm test
+
+  web-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Confirm success
+        run: echo 'Web build succeeded'

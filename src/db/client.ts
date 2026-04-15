@@ -1,27 +1,37 @@
 import { Kysely, PgDialect } from "kysely";
 import pg from "pg";
 
+import { DATABASE_URL } from "../env.js";
+import { createLogger } from "../logger.js";
 import type { Database } from "./schema.js";
 
 const { Pool } = pg;
+const dbLogger = createLogger({ scope: "db" });
 
 declare global {
   var __syusenDb__: Kysely<Database> | undefined;
 }
 
 function createClient(): Kysely<Database> {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is not set.");
-  }
+  try {
+    const pool = new Pool({
+      connectionString: DATABASE_URL
+    });
 
-  return new Kysely<Database>({
-    dialect: new PgDialect({
-      pool: new Pool({
-        connectionString
+    pool.on("error", (error) => {
+      dbLogger.error({ err: error }, "database connection error");
+    });
+
+    return new Kysely<Database>({
+      dialect: new PgDialect({
+        pool
       })
-    })
-  });
+    });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    dbLogger.error({ err }, "failed to initialize database client");
+    throw err;
+  }
 }
 
 export function getDb(): Kysely<Database> {

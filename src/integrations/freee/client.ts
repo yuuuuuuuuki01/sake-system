@@ -1,3 +1,4 @@
+import { FREEE_ACCESS_TOKEN, FREEE_COMPANY_ID } from "../../env.js";
 import type {
   CreateInvoiceParams,
   FreeeApiError,
@@ -140,8 +141,5 @@ export class FreeeClient {
 }
 
 export function createFreeeClientFromEnv(): FreeeClient {
-  return new FreeeClient(
-    process.env.FREEE_ACCESS_TOKEN ?? "",
-    parseCompanyId(process.env.FREEE_COMPANY_ID)
-  );
+  return new FreeeClient(FREEE_ACCESS_TOKEN ?? "", parseCompanyId(FREEE_COMPANY_ID?.toString()));
 }
