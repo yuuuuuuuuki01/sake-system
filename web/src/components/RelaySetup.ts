@@ -35,6 +35,28 @@ function renderCodeBlock(code: string): string {
   `;
 }
 
+function renderCopyButton(code: string): string {
+  return `
+    <button
+      class="button secondary copy-btn"
+      type="button"
+      data-action="copy-code"
+      data-code="${encodeURIComponent(code)}"
+    >
+      コピー
+    </button>
+  `;
+}
+
+function renderInlineCommand(command: string): string {
+  return `
+    <div class="setup-command-row">
+      <code class="inline-code">${escapeHtml(command)}</code>
+      ${renderCopyButton(command)}
+    </div>
+  `;
+}
+
 function renderSetupStep(config: {
   step: number;
   title: string;
@@ -69,6 +91,26 @@ function renderSetupStep(config: {
         <ul class="setup-list">
           ${config.errors.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
         </ul>
+      </div>
+    </div>
+  `;
+}
+
+function renderPrepStep(config: {
+  stepLabel: string;
+  title: string;
+  purpose: string;
+  body: string;
+}): string {
+  return `
+    <div class="setup-step setup-step-compact" data-step="${escapeHtml(config.stepLabel)}">
+      <h3>${escapeHtml(config.title)}</h3>
+      <div class="setup-step-section">
+        <p class="panel-title">目的</p>
+        <p>${escapeHtml(config.purpose)}</p>
+      </div>
+      <div class="setup-step-section">
+        ${config.body}
       </div>
     </div>
   `;
@@ -142,6 +184,86 @@ export function renderRelaySetup(
           <h2>WEB連動PC_A セットアップ手順</h2>
         </div>
       </div>
+      <div class="setup-step setup-step-compact" data-step="準備">
+        <h3>事前準備 — 必要なソフトウェアの確認</h3>
+        <p>以下のソフトウェアがPCにインストールされているか確認します。入っていない場合は指示に従ってインストールしてください。</p>
+      </div>
+      <div class="setup-step setup-step-compact" data-step="補足">
+        <h3>コマンドプロンプトの開き方</h3>
+        <ol class="setup-list">
+          <li>Windowsキー + R を押す</li>
+          <li>表示されたウィンドウに「cmd」と入力してEnter</li>
+          <li>黒い画面が開く（これがコマンドプロンプト）</li>
+        </ol>
+      </div>
+      ${renderPrepStep({
+        stepLabel: "準備1",
+        title: "Git（ソースコード取得に使用）",
+        purpose: "GitHubからファイルをダウンロードするためのツール",
+        body: `
+          <p class="panel-title">確認方法</p>
+          <p>コマンドプロンプトを開いて「git --version」と入力します。</p>
+          ${renderInlineCommand("git --version")}
+          <ul class="setup-list">
+            <li>バージョン番号が表示されればOKです。</li>
+            <li>「認識されていません」等のエラーが出れば未インストールです。</li>
+          </ul>
+          <p class="panel-title">未インストールの場合</p>
+          <p>方法A（推奨）: <a href="https://git-scm.com/download/win" target="_blank" rel="noreferrer">https://git-scm.com/download/win</a> にアクセスし、64bit Gitをダウンロードしてインストーラーを「次へ」のまま進めて完了します。</p>
+          <p>方法B（Gitを入れたくない場合）:</p>
+          <ol class="setup-list">
+            <li><a href="https://github.com/yuuuuuuuuki01/sake-system" target="_blank" rel="noreferrer">https://github.com/yuuuuuuuuki01/sake-system</a> にアクセス</li>
+            <li>緑の「Code」ボタン→「Download ZIP」をクリック</li>
+            <li>ダウンロードしたZIPを C:\\sake-relay\\ に解凍</li>
+            <li>Step2の「git clone」はスキップしてOK</li>
+          </ol>
+        `
+      })}
+      ${renderPrepStep({
+        stepLabel: "準備2",
+        title: "Python（同期スクリプトの実行環境）",
+        purpose: "リレースクリプトを動かす",
+        body: `
+          <p class="panel-title">確認方法</p>
+          <p>コマンドプロンプトで「python --version」と入力します。</p>
+          ${renderInlineCommand("python --version")}
+          <ul class="setup-list">
+            <li>「Python 3.10」以上ならOKです。</li>
+            <li>エラーまたは 3.9 以下なら未インストールまたは旧版です。</li>
+          </ul>
+          <p class="panel-title">未インストールの場合</p>
+          <p>このまま下の Step1 の手順に進んでください。</p>
+        `
+      })}
+      ${renderPrepStep({
+        stepLabel: "準備3",
+        title: "pip（Pythonのパッケージ管理ツール）",
+        purpose: "requests, pyodbc などのライブラリを入れる",
+        body: `
+          <p class="panel-title">確認方法</p>
+          <p>コマンドプロンプトで「pip --version」と入力します。</p>
+          ${renderInlineCommand("pip --version")}
+          <ul class="setup-list">
+            <li>バージョン番号が表示されればOKです。</li>
+            <li>エラーが出る場合はPythonインストール時にpipが含まれていません。</li>
+          </ul>
+          <p class="panel-title">未インストールの場合</p>
+          <ol class="setup-list">
+            <li><a href="https://bootstrap.pypa.io/get-pip.py" target="_blank" rel="noreferrer">https://bootstrap.pypa.io/get-pip.py</a> を右クリックして「名前を付けて保存」</li>
+            <li>コマンドプロンプトで「python get-pip.py」を実行</li>
+          </ol>
+          ${renderInlineCommand("python get-pip.py")}
+        `
+      })}
+      ${renderPrepStep({
+        stepLabel: "準備4",
+        title: "テキストエディタ（設定ファイル編集用）",
+        purpose: "relay_config.json を編集するため",
+        body: `
+          <p>メモ帳でも可能ですが、<a href="https://code.visualstudio.com/" target="_blank" rel="noreferrer">Visual Studio Code</a> が見やすくおすすめです。</p>
+          <p>メモ帳を使う場合は文字コードを UTF-8 にしてください。</p>
+        `
+      })}
       ${renderSetupStep({
         step: 1,
         title: "Python 3.12 をインストール",
@@ -169,6 +291,7 @@ export function renderRelaySetup(
         instructions: [
           "作業用フォルダとして C:\\\\sake-relay\\\\ のような書き込み可能な場所を決めます。",
           "コマンドプロンプトを開き、下のコマンドを1行ずつ実行します。",
+          "Gitを入れたくない場合は、上の準備1の方法Bでダウンロードしたフォルダを使ってください。",
           "ダウンロード完了後、relay フォルダに移動できていることを確認します。"
         ],
         code: `git clone https://github.com/yuuuuuuuuki01/sake-system.git

@@ -409,6 +409,43 @@ a {
   margin: 8px 0 0;
 }
 
+.setup-step-compact {
+  padding: 14px 16px 16px 60px;
+  background: #fff;
+}
+
+.setup-step-compact::before {
+  top: 14px;
+  left: 14px;
+  width: 32px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.setup-command-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.inline-code {
+  display: inline-block;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-alt);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.copy-btn {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
 .code-block {
   margin: 10px 0 0;
   padding: 14px 16px;
@@ -1283,6 +1320,10 @@ tbody tr:hover {
 
   .setup-step {
     padding: 60px 14px 14px;
+  }
+
+  .setup-step-compact {
+    padding: 56px 14px 14px;
   }
 
   .setup-step::before {
