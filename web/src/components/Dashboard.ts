@@ -1,4 +1,4 @@
-import type { PipelineMeta, SalesSummary } from "../api";
+import type { PipelineMeta, SalesSummary, SalesAnalytics } from "../api";
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", {
@@ -16,6 +16,77 @@ function formatDateTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function readNumericValue(source: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+}
+
+function formatMonthlyGrossMargin(analytics: SalesAnalytics | null): string {
+  const rows = analytics?.productTotals;
+  if (!rows || rows.length === 0) {
+    return "―";
+  }
+
+  const weightedMargin = rows.reduce(
+    (accumulator, row) => {
+      const amount = readNumericValue(row as unknown as Record<string, unknown>, ["amount", "salesAmount"]);
+      const marginRate = readNumericValue(row as unknown as Record<string, unknown>, ["marginRate", "grossMarginRate"]);
+
+      if (amount === null || amount <= 0 || marginRate === null) {
+        return accumulator;
+      }
+
+      return {
+        weightedAmount: accumulator.weightedAmount + amount,
+        weightedRate: accumulator.weightedRate + amount * marginRate
+      };
+    },
+    { weightedAmount: 0, weightedRate: 0 }
+  );
+
+  if (weightedMargin.weightedAmount > 0) {
+    return `${(weightedMargin.weightedRate / weightedMargin.weightedAmount).toFixed(1)}%`;
+  }
+
+  const totals = rows.reduce(
+    (accumulator, row) => {
+      const values = row as unknown as Record<string, unknown>;
+      const amount = readNumericValue(values, ["amount", "salesAmount"]);
+      const directGross = readNumericValue(values, ["grossProfit", "grossAmount", "margin"]);
+      const cost = readNumericValue(values, ["costAmount", "cost", "costPrice"]);
+
+      if (amount === null || amount <= 0) {
+        return accumulator;
+      }
+
+      const gross = directGross ?? (cost !== null ? amount - cost : null);
+      if (gross === null) {
+        return accumulator;
+      }
+
+      return {
+        sales: accumulator.sales + amount,
+        gross: accumulator.gross + gross
+      };
+    },
+    { sales: 0, gross: 0 }
+  );
+
+  return totals.sales > 0 ? `${((totals.gross / totals.sales) * 100).toFixed(1)}%` : "―";
 }
 
 function buildBars(dailySales: SalesSummary["dailySales"]): string {
@@ -65,13 +136,30 @@ function buildBars(dailySales: SalesSummary["dailySales"]): string {
   `;
 }
 
-export function renderDashboard(summary: SalesSummary, pipeline: PipelineMeta): string {
+export function renderDashboard(
+  summary: SalesSummary,
+  pipeline: PipelineMeta,
+  analytics: SalesAnalytics | null
+): string {
   const statusLabelMap = {
     success: "正常",
     warning: "注意",
     error: "異常",
     running: "実行中"
   };
+  const recentSalesRows = summary.salesRecords
+    .slice(0, 10)
+    .map(
+      (record) => `
+            <tr>
+              <td class="mono">${record.documentNo}</td>
+              <td>${formatDateTime(record.date)}</td>
+              <td>${record.customerName}</td>
+              <td class="numeric">${formatCurrency(record.amount)}</td>
+            </tr>
+          `
+    )
+    .join("");
 
   return `
     <section class="page-head">
@@ -100,6 +188,11 @@ export function renderDashboard(summary: SalesSummary, pipeline: PipelineMeta): 
         <p class="panel-title">未入金件数</p>
         <p class="kpi-value">${summary.kpis.unpaidCount.toLocaleString("ja-JP")} 件</p>
         <p class="kpi-sub">残高 ${formatCurrency(summary.kpis.unpaidAmount)}</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">月次粗利率</p>
+        <p class="kpi-value">${formatMonthlyGrossMargin(analytics)}</p>
+        <p class="kpi-sub">売上分析データから集計</p>
       </article>
     </section>
 
@@ -136,7 +229,42 @@ export function renderDashboard(summary: SalesSummary, pipeline: PipelineMeta): 
           </div>
         </dl>
         <p class="sync-message">${pipeline.message}</p>
+        <div class="quick-links">
+          <div class="panel-header">
+            <div>
+              <h2>クイックリンク</h2>
+              <p class="panel-caption">よく使う業務画面へ移動</p>
+            </div>
+          </div>
+          <div class="quick-link-grid">
+            <button class="button secondary" type="button" data-link="/invoice-entry">伝票入力</button>
+            <button class="button secondary" type="button" data-link="/delivery">納品書</button>
+            <button class="button secondary" type="button" data-link="/billing">月次請求</button>
+          </div>
+        </div>
       </aside>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>直近の取引</h2>
+          <p class="panel-caption">最新10件の売上伝票</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>伝票番号</th>
+              <th>日付</th>
+              <th>得意先</th>
+              <th class="numeric">金額</th>
+            </tr>
+          </thead>
+          <tbody>${recentSalesRows}</tbody>
+        </table>
+      </div>
     </section>
   `;
 }

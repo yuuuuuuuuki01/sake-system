@@ -1,5 +1,5 @@
-const SUPABASE_URL = "https://loarwnuyvfxiscjjsmiz.supabase.co";
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+export const SUPABASE_URL = "https://loarwnuyvfxiscjjsmiz.supabase.co";
+export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
 
 export async function supabaseInsert<T>(
   table: string,

@@ -60,12 +60,14 @@ import { renderMaterials } from "./components/Materials";
 import { renderPaymentStatus } from "./components/PaymentStatus";
 import { renderPurchase } from "./components/Purchase";
 import { renderRawMaterial } from "./components/RawMaterial";
+import { renderRelaySetup } from "./components/RelaySetup";
 import { renderSalesAnalytics } from "./components/SalesAnalytics";
 import { renderSalesReport } from "./components/SalesReport";
 import { renderSalesTable } from "./components/SalesTable";
 import { renderStorePOS } from "./components/StorePOS";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase";
 import "./styles/main.css";
 
 type RoutePath =
@@ -87,7 +89,8 @@ type RoutePath =
   | "/purchase"
   | "/raw-material"
   | "/tax"
-  | "/store";
+  | "/store"
+  | "/setup";
 
 const ALL_ROUTES: RoutePath[] = [
   "/",
@@ -108,7 +111,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/purchase",
   "/raw-material",
   "/tax",
-  "/store"
+  "/store",
+  "/setup"
 ];
 
 function makeDefaultInvoiceForm(): InvoiceFormData {
@@ -392,6 +396,10 @@ function renderView(): string {
         state.storeTab,
         state.storeSalesDate
       );
+    case "/setup":
+      return state.pipelineMeta
+        ? renderRelaySetup(state.pipelineMeta, SUPABASE_URL, SUPABASE_ANON_KEY)
+        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
     default:
       break;
   }
@@ -430,7 +438,7 @@ function renderView(): string {
       return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab);
     case "/":
     default:
-      return renderDashboard(state.salesSummary, state.pipelineMeta);
+      return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics);
   }
 }
 
@@ -482,7 +490,8 @@ function renderShell(): string {
       label: "その他",
       items: [
         { path: "/tax", label: "酒税申告", kicker: "Tax" },
-        { path: "/store", label: "店舗・直売所", kicker: "Store" }
+        { path: "/store", label: "店舗・直売所", kicker: "Store" },
+        { path: "/setup", label: "連動設定", kicker: "Setup" }
       ]
     }
   ];
@@ -750,6 +759,22 @@ function bindEvents(root: HTMLElement): void {
       state.storeSales = sales;
       state.actionLoading = false;
       renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-action='copy-config']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const value = button.dataset.configValue ?? "";
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        button.textContent = "コピー済み";
+        window.setTimeout(() => {
+          button.textContent = "コピー";
+        }, 1600);
+      } catch (error) {
+        console.warn("Clipboard copy failed", error);
+      }
     });
   });
 }
