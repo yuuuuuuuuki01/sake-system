@@ -1,8 +1,9 @@
-import { supabaseQuery } from "./supabase";
+import { supabaseInsert, supabaseQuery } from "./supabase";
 
 export type PipelineStatus = "success" | "warning" | "error" | "running";
 export type PaymentState = "unpaid" | "partial" | "paid";
 export type MasterTab = "customers" | "products";
+export type AnalyticsTab = "products" | "customers";
 
 export interface SalesDayPoint {
   date: string;
@@ -15,6 +16,23 @@ export interface SalesRecord {
   date: string;
   customerCode: string;
   customerName: string;
+  amount: number;
+}
+
+export interface InvoiceFilter {
+  documentNo: string;
+  startDate: string;
+  endDate: string;
+  customerCode: string;
+}
+
+export interface InvoiceRecord {
+  id: string;
+  documentNo: string;
+  date: string;
+  customerCode: string;
+  customerName: string;
+  itemCount: number;
   amount: number;
 }
 
@@ -85,6 +103,104 @@ export interface PipelineMeta {
   jobName: string;
   message: string;
 }
+
+export interface LedgerSalesEntry {
+  id: string;
+  date: string;
+  documentNo: string;
+  amount: number;
+}
+
+export interface LedgerPaymentEntry {
+  id: string;
+  date: string;
+  amount: number;
+  method: string;
+}
+
+export interface CustomerLedger {
+  customerCode: string;
+  customerName: string;
+  balanceAmount: number;
+  salesTotal: number;
+  paymentTotal: number;
+  salesHistory: LedgerSalesEntry[];
+  paymentHistory: LedgerPaymentEntry[];
+}
+
+export interface AnalyticsMonthlyPoint {
+  month: string;
+  amount: number;
+}
+
+export interface AnalyticsBreakdownRow {
+  code: string;
+  name: string;
+  amount: number;
+  quantity: number;
+  documents: number;
+}
+
+export interface SalesAnalytics {
+  generatedAt: string;
+  monthlySales: AnalyticsMonthlyPoint[];
+  productTotals: AnalyticsBreakdownRow[];
+  customerTotals: AnalyticsBreakdownRow[];
+}
+
+interface DailySalesFactRow {
+  sales_date: string;
+  sales_amount: number | string | null;
+  document_count: number | string | null;
+}
+
+interface CustomerPaymentStatusRow {
+  legacy_customer_code: string | null;
+  billed_amount: number | string | null;
+  paid_amount: number | string | null;
+  balance_amount: number | string | null;
+  payment_status: string | null;
+}
+
+interface SalesDocumentHeaderRow {
+  id?: string | number | null;
+  document_no?: string | null;
+  legacy_document_no?: string | null;
+  sales_date?: string | null;
+  document_date?: string | null;
+  customer_code?: string | null;
+  legacy_customer_code?: string | null;
+  customer_name?: string | null;
+  billed_amount?: number | string | null;
+  total_amount?: number | string | null;
+}
+
+interface SalesDocumentLineRow {
+  id?: string | number | null;
+  header_id?: string | number | null;
+  document_header_id?: string | number | null;
+  document_no?: string | null;
+  product_code?: string | null;
+  legacy_product_code?: string | null;
+  product_name?: string | null;
+  quantity?: number | string | null;
+  amount?: number | string | null;
+  line_amount?: number | string | null;
+}
+
+interface CustomerPaymentRow {
+  id?: string | number | null;
+  customer_code?: string | null;
+  legacy_customer_code?: string | null;
+  payment_date?: string | null;
+  received_date?: string | null;
+  amount?: number | string | null;
+  payment_amount?: number | string | null;
+  method?: string | null;
+  payment_method?: string | null;
+}
+
+type LooseRow = Record<string, unknown>;
 
 const mockSalesSummary: SalesSummary = {
   generatedAt: "2026-04-15T09:15:00+09:00",
@@ -198,21 +314,119 @@ const mockPipelineMeta: PipelineMeta = {
   message: "同期完了。売上・入金・マスタを最新化しました。"
 };
 
-interface DailySalesFactRow {
-  sales_date: string;
-  sales_amount: number | string | null;
-  document_count: number | string | null;
-}
+const mockInvoiceRecords: InvoiceRecord[] = mockSalesSummary.salesRecords.map((record, index) => ({
+  ...record,
+  itemCount: (index % 4) + 1
+}));
 
-interface CustomerPaymentStatusRow {
-  legacy_customer_code: string | null;
-  billed_amount: number | string | null;
-  paid_amount: number | string | null;
-  balance_amount: number | string | null;
-  payment_status: string | null;
-}
+const mockLedgerData: Record<string, CustomerLedger> = {
+  C0011: {
+    customerCode: "C0011",
+    customerName: "青葉商事",
+    balanceAmount: 540000,
+    salesTotal: 1140000,
+    paymentTotal: 600000,
+    salesHistory: [
+      {
+        id: "ledger-sale-1",
+        date: "2026-04-15T00:00:00+09:00",
+        documentNo: "D240100",
+        amount: 420000
+      },
+      {
+        id: "ledger-sale-2",
+        date: "2026-04-08T00:00:00+09:00",
+        documentNo: "D240087",
+        amount: 390000
+      },
+      {
+        id: "ledger-sale-3",
+        date: "2026-03-28T00:00:00+09:00",
+        documentNo: "D240059",
+        amount: 330000
+      }
+    ],
+    paymentHistory: [
+      {
+        id: "ledger-payment-1",
+        date: "2026-04-10T00:00:00+09:00",
+        amount: 300000,
+        method: "振込"
+      },
+      {
+        id: "ledger-payment-2",
+        date: "2026-03-31T00:00:00+09:00",
+        amount: 300000,
+        method: "振込"
+      }
+    ]
+  },
+  C0012: {
+    customerCode: "C0012",
+    customerName: "北斗酒販",
+    balanceAmount: 420000,
+    salesTotal: 1020000,
+    paymentTotal: 600000,
+    salesHistory: [
+      {
+        id: "ledger-sale-4",
+        date: "2026-04-14T00:00:00+09:00",
+        documentNo: "D240101",
+        amount: 360000
+      },
+      {
+        id: "ledger-sale-5",
+        date: "2026-04-05T00:00:00+09:00",
+        documentNo: "D240082",
+        amount: 320000
+      },
+      {
+        id: "ledger-sale-6",
+        date: "2026-03-25T00:00:00+09:00",
+        documentNo: "D240054",
+        amount: 340000
+      }
+    ],
+    paymentHistory: [
+      {
+        id: "ledger-payment-3",
+        date: "2026-04-11T00:00:00+09:00",
+        amount: 300000,
+        method: "振込"
+      },
+      {
+        id: "ledger-payment-4",
+        date: "2026-03-30T00:00:00+09:00",
+        amount: 300000,
+        method: "現金"
+      }
+    ]
+  }
+};
 
-type LooseRow = Record<string, unknown>;
+const mockSalesAnalytics: SalesAnalytics = {
+  generatedAt: "2026-04-15T09:15:00+09:00",
+  monthlySales: [
+    { month: "2025-11", amount: 12840000 },
+    { month: "2025-12", amount: 13620000 },
+    { month: "2026-01", amount: 14110000 },
+    { month: "2026-02", amount: 13380000 },
+    { month: "2026-03", amount: 15860000 },
+    { month: "2026-04", amount: 18245000 }
+  ],
+  productTotals: [
+    { code: "P00001", name: "純米吟醸 720ml", amount: 5840000, quantity: 820, documents: 148 },
+    { code: "P00002", name: "本醸造 1.8L", amount: 4980000, quantity: 610, documents: 131 },
+    { code: "P00003", name: "特別純米 300ml", amount: 3560000, quantity: 1240, documents: 112 },
+    { code: "P00004", name: "梅酒 500ml", amount: 2870000, quantity: 540, documents: 89 }
+  ],
+  customerTotals: [
+    { code: "C0011", name: "青葉商事", amount: 4620000, quantity: 320, documents: 54 },
+    { code: "C0012", name: "北斗酒販", amount: 4380000, quantity: 294, documents: 49 },
+    { code: "C0013", name: "中央フーズ", amount: 3910000, quantity: 276, documents: 45 },
+    { code: "C0014", name: "東海酒店", amount: 3240000, quantity: 221, documents: 37 }
+  ]
+};
 
 function toNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -279,6 +493,140 @@ function getBoolean(row: LooseRow, keys: string[], fallback = true): boolean {
     }
   }
   return fallback;
+}
+
+function getDateString(row: LooseRow, keys: string[], fallback: string): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value !== "string" || value.length === 0) {
+      continue;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return new Date(`${value}T00:00:00Z`).toISOString();
+    }
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  return fallback;
+}
+
+function formatMonthKey(value: string): string {
+  return value.slice(0, 7);
+}
+
+function createInvoiceRecordFromHeader(row: SalesDocumentHeaderRow, index: number): InvoiceRecord {
+  return {
+    id: String(row.id ?? `invoice-${index + 1}`),
+    documentNo:
+      row.document_no ?? row.legacy_document_no ?? `D${String(240100 + index).padStart(6, "0")}`,
+    date: getDateString(row as LooseRow, ["sales_date", "document_date"], new Date().toISOString()),
+    customerCode:
+      row.customer_code ?? row.legacy_customer_code ?? `C${String(index + 1).padStart(4, "0")}`,
+    customerName: row.customer_name ?? row.customer_code ?? row.legacy_customer_code ?? "不明",
+    itemCount: 0,
+    amount: toNumber(row.total_amount ?? row.billed_amount)
+  };
+}
+
+function applyInvoiceFilter(records: InvoiceRecord[], filter: InvoiceFilter): InvoiceRecord[] {
+  const start = filter.startDate ? new Date(`${filter.startDate}T00:00:00`) : null;
+  const end = filter.endDate ? new Date(`${filter.endDate}T23:59:59`) : null;
+  const documentNo = filter.documentNo.trim().toLowerCase();
+  const customerCode = filter.customerCode.trim().toLowerCase();
+
+  return records
+    .filter((record) => {
+      const recordDate = new Date(record.date);
+      if (start && recordDate < start) {
+        return false;
+      }
+      if (end && recordDate > end) {
+        return false;
+      }
+      if (documentNo && !record.documentNo.toLowerCase().includes(documentNo)) {
+        return false;
+      }
+      if (customerCode && !record.customerCode.toLowerCase().includes(customerCode)) {
+        return false;
+      }
+      return true;
+    })
+    .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime());
+}
+
+function buildMockLedger(code: string): CustomerLedger {
+  const normalizedCode = code.trim().toUpperCase();
+  const directLedger = mockLedgerData[normalizedCode];
+  if (directLedger) {
+    return directLedger;
+  }
+
+  const record = mockSalesSummary.salesRecords.find(
+    (item) => item.customerCode.toUpperCase() === normalizedCode
+  );
+
+  return {
+    customerCode: normalizedCode || "未指定",
+    customerName: record?.customerName ?? "該当得意先なし",
+    balanceAmount: 0,
+    salesTotal: 0,
+    paymentTotal: 0,
+    salesHistory: [],
+    paymentHistory: []
+  };
+}
+
+function aggregateMockAnalytics(): SalesAnalytics {
+  const monthlyMap = new Map<string, number>();
+  const customerMap = new Map<string, AnalyticsBreakdownRow>();
+  const productMap = new Map<string, AnalyticsBreakdownRow>();
+
+  mockInvoiceRecords.forEach((record, index) => {
+    const month = formatMonthKey(record.date);
+    monthlyMap.set(month, (monthlyMap.get(month) ?? 0) + record.amount);
+
+    const customerEntry = customerMap.get(record.customerCode) ?? {
+      code: record.customerCode,
+      name: record.customerName,
+      amount: 0,
+      quantity: 0,
+      documents: 0
+    };
+    customerEntry.amount += record.amount;
+    customerEntry.quantity += record.itemCount;
+    customerEntry.documents += 1;
+    customerMap.set(record.customerCode, customerEntry);
+
+    const productCode = `P${String((index % 4) + 1).padStart(5, "0")}`;
+    const defaultProduct =
+      mockSalesAnalytics.productTotals[index % mockSalesAnalytics.productTotals.length];
+    const productEntry = productMap.get(productCode) ?? {
+      code: productCode,
+      name: defaultProduct?.name ?? `商品${index + 1}`,
+      amount: 0,
+      quantity: 0,
+      documents: 0
+    };
+    productEntry.amount += record.amount;
+    productEntry.quantity += record.itemCount * 12;
+    productEntry.documents += 1;
+    productMap.set(productCode, productEntry);
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    monthlySales: Array.from(monthlyMap.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([month, amount]) => ({ month, amount })),
+    productTotals: Array.from(productMap.values()).sort(
+      (left, right) => right.amount - left.amount
+    ),
+    customerTotals: Array.from(customerMap.values()).sort(
+      (left, right) => right.amount - left.amount
+    )
+  };
 }
 
 async function fetchJson<T>(path: string, fallback: T): Promise<T> {
@@ -382,7 +730,11 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
     const customers = customerRows.length
       ? customerRows.map((row, index) => ({
           id: getString(row, ["id", "customer_id", "code"], `customer-${index + 1}`),
-          code: getString(row, ["code", "customer_code", "legacy_customer_code"], `C${String(index + 1).padStart(4, "0")}`),
+          code: getString(
+            row,
+            ["code", "customer_code", "legacy_customer_code"],
+            `C${String(index + 1).padStart(4, "0")}`
+          ),
           name: getString(row, ["name", "customer_name", "display_name"], `Customer ${index + 1}`),
           closingDay: getNumber(row, ["closing_day", "close_day"], 31),
           paymentDay: getNumber(row, ["payment_day", "due_day"], 15),
@@ -425,234 +777,667 @@ export function fetchPipelineMeta(): Promise<PipelineMeta> {
   return fetchJson("data/api/latest/pipeline-meta.json", mockPipelineMeta);
 }
 
-export interface InvoiceRecord {
-  id: string;
-  documentNo: string;
-  date: string;
-  customerCode: string;
-  customerName: string;
-  lineCount: number;
-  totalAmount: number;
-  status: string;
-}
-
-export interface InvoiceFilter {
-  docNo: string;
-  customerCode: string;
-  startDate: string;
-  endDate: string;
-}
-
-export interface LedgerSalesRecord {
-  date: string;
-  documentNo: string;
-  amount: number;
-}
-
-export interface LedgerPaymentRecord {
-  date: string;
-  amount: number;
-}
-
-export interface CustomerLedgerSummary {
-  customerCode: string;
-  customerName: string;
-  totalSales: number;
-  totalPayments: number;
-  balance: number;
-  salesHistory: LedgerSalesRecord[];
-  paymentHistory: LedgerPaymentRecord[];
-}
-
-export type AnalyticsTab = "products" | "customers";
-
-export interface AnalyticsRankRow {
-  rank: number;
-  code: string;
-  name: string;
-  totalAmount: number;
-  share: number;
-}
-
-export interface MonthlyPoint {
-  month: string;
-  amount: number;
-}
-
-export interface SalesAnalytics {
-  generatedAt: string;
-  monthlyTrend: MonthlyPoint[];
-  byProduct: AnalyticsRankRow[];
-  byCustomer: AnalyticsRankRow[];
-}
-
-const mockInvoices: InvoiceRecord[] = Array.from({ length: 12 }, (_, index) => {
-  const day = new Date("2026-04-15T00:00:00+09:00");
-  day.setDate(day.getDate() - index);
-  return {
-    id: `invoice-${index + 1}`,
-    documentNo: `INV-${String(240001 + index).padStart(6, "0")}`,
-    date: day.toISOString(),
-    customerCode: `C${String((index % 6) + 11).padStart(4, "0")}`,
-    customerName: ["青葉商事", "北斗酒販", "中央フーズ", "東海酒店", "三和物産", "南星リカー"][index % 6],
-    lineCount: 2 + (index % 5),
-    totalAmount: 78000 + index * 18200,
-    status: ["確定", "保留", "処理中"][index % 3]
-  };
-});
-
-const mockCustomerLedgers: CustomerLedgerSummary[] = [
-  {
-    customerCode: "C0011",
-    customerName: "青葉商事",
-    totalSales: 2480000,
-    totalPayments: 1930000,
-    balance: 550000,
-    salesHistory: [
-      { date: "2026-04-14T00:00:00+09:00", documentNo: "D240122", amount: 420000 },
-      { date: "2026-04-08T00:00:00+09:00", documentNo: "D240097", amount: 380000 },
-      { date: "2026-03-28T00:00:00+09:00", documentNo: "D240051", amount: 610000 }
-    ],
-    paymentHistory: [
-      { date: "2026-04-10T00:00:00+09:00", amount: 300000 },
-      { date: "2026-03-31T00:00:00+09:00", amount: 520000 },
-      { date: "2026-03-15T00:00:00+09:00", amount: 1110000 }
-    ]
-  },
-  {
-    customerCode: "C0012",
-    customerName: "北斗酒販",
-    totalSales: 3120000,
-    totalPayments: 2980000,
-    balance: 140000,
-    salesHistory: [
-      { date: "2026-04-12T00:00:00+09:00", documentNo: "D240115", amount: 540000 },
-      { date: "2026-04-06T00:00:00+09:00", documentNo: "D240086", amount: 460000 },
-      { date: "2026-03-21T00:00:00+09:00", documentNo: "D240033", amount: 720000 }
-    ],
-    paymentHistory: [
-      { date: "2026-04-11T00:00:00+09:00", amount: 300000 },
-      { date: "2026-03-29T00:00:00+09:00", amount: 1180000 },
-      { date: "2026-03-12T00:00:00+09:00", amount: 1500000 }
-    ]
-  }
-];
-
-const mockSalesAnalytics: SalesAnalytics = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  monthlyTrend: Array.from({ length: 12 }, (_, index) => ({
-    month: `${index + 5}月`,
-    amount: 8200000 + ((index + 3) * 913000) % 4600000
-  })),
-  byProduct: [
-    { rank: 1, code: "P00012", name: "純米吟醸 720ml", totalAmount: 4220000, share: 18.4 },
-    { rank: 2, code: "P00008", name: "本醸造 1.8L", totalAmount: 3650000, share: 15.9 },
-    { rank: 3, code: "P00021", name: "梅酒 500ml", totalAmount: 3080000, share: 13.5 },
-    { rank: 4, code: "P00031", name: "特別純米 300ml", totalAmount: 2540000, share: 11.1 },
-    { rank: 5, code: "P00044", name: "麦焼酎 900ml", totalAmount: 1990000, share: 8.7 }
-  ],
-  byCustomer: [
-    { rank: 1, code: "C0012", name: "北斗酒販", totalAmount: 5840000, share: 21.6 },
-    { rank: 2, code: "C0011", name: "青葉商事", totalAmount: 4980000, share: 18.4 },
-    { rank: 3, code: "C0014", name: "東海酒店", totalAmount: 4620000, share: 17.1 },
-    { rank: 4, code: "C0013", name: "中央フーズ", totalAmount: 3870000, share: 14.3 },
-    { rank: 5, code: "C0016", name: "南星リカー", totalAmount: 2960000, share: 10.9 }
-  ]
-};
-
 export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecord[]> {
-  const rows = await supabaseQuery<LooseRow>("invoices");
+  const [headerRows, lineRows] = await Promise.all([
+    supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
+      select:
+        "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
+      order: "sales_date.desc",
+      limit: "200"
+    }),
+    supabaseQuery<SalesDocumentLineRow>("sales_document_lines", {
+      select: "id,header_id,document_header_id,document_no,amount,line_amount"
+    })
+  ]);
 
-  const source = rows.length
-    ? rows.map((row, index) => ({
-        id: getString(row, ["id", "invoice_id", "document_no"], `invoice-${index + 1}`),
-        documentNo: getString(row, ["document_no", "invoice_no", "slip_no"], `INV-${String(index + 1).padStart(6, "0")}`),
-        date: getString(row, ["invoice_date", "date", "sales_date"], new Date().toISOString()),
-        customerCode: getString(row, ["customer_code", "legacy_customer_code"], `C${String(index + 1).padStart(4, "0")}`),
-        customerName: getString(row, ["customer_name", "display_name"], ""),
-        lineCount: getNumber(row, ["line_count", "item_count", "detail_count"], 0),
-        totalAmount: getNumber(row, ["total_amount", "amount", "sales_amount"], 0),
-        status: getString(row, ["status", "invoice_status"], "処理中")
-      }))
-    : mockInvoices;
-
-  return source.filter((record) => {
-    if (filter.docNo && !record.documentNo.toLowerCase().includes(filter.docNo.toLowerCase())) {
-      return false;
-    }
-    if (
-      filter.customerCode &&
-      !record.customerCode.toLowerCase().includes(filter.customerCode.toLowerCase())
-    ) {
-      return false;
-    }
-    if (filter.startDate && new Date(record.date) < new Date(filter.startDate)) {
-      return false;
-    }
-    if (filter.endDate && new Date(record.date) > new Date(`${filter.endDate}T23:59:59`)) {
-      return false;
-    }
-    return true;
-  });
-}
-
-export async function fetchCustomerLedger(code: string): Promise<CustomerLedgerSummary | null> {
-  const normalizedCode = code.trim().toLowerCase();
-  if (!normalizedCode) {
-    return null;
-  }
-
-  const rows = await supabaseQuery<LooseRow>("customer_payment_status");
-  if (rows.length > 0) {
-    const matched = rows.find((row) =>
-      getString(row, ["legacy_customer_code", "customer_code"]).toLowerCase() === normalizedCode
-    );
-
-    if (matched) {
-      const customerCode = getString(matched, ["legacy_customer_code", "customer_code"], code);
-      return {
-        customerCode,
-        customerName: getString(matched, ["customer_name", "display_name"], customerCode),
-        totalSales: getNumber(matched, ["billed_amount", "total_sales"], 0),
-        totalPayments: getNumber(matched, ["paid_amount", "total_payments"], 0),
-        balance: getNumber(matched, ["balance_amount", "balance"], 0),
-        salesHistory: [],
-        paymentHistory: []
-      };
-    }
-  }
-
-  return (
-    mockCustomerLedgers.find((ledger) => ledger.customerCode.toLowerCase() === normalizedCode) ?? null
-  );
-}
-
-export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
-  const rows = await supabaseQuery<DailySalesFactRow>("daily_sales_fact", {
-    select: "sales_date,sales_amount",
-    order: "sales_date.asc",
-    limit: "365"
-  });
-
-  if (rows.length > 0) {
-    const byMonth = new Map<string, number>();
-    rows.forEach((row) => {
-      const month = row.sales_date.slice(0, 7);
-      byMonth.set(month, (byMonth.get(month) ?? 0) + toNumber(row.sales_amount));
+  if (headerRows.length > 0) {
+    const lineCountByHeader = new Map<string, number>();
+    lineRows.forEach((row) => {
+      const key = String(
+        row.header_id ?? row.document_header_id ?? row.document_no ?? row.id ?? ""
+      );
+      if (!key) {
+        return;
+      }
+      lineCountByHeader.set(key, (lineCountByHeader.get(key) ?? 0) + 1);
     });
 
-    const monthlyTrend = [...byMonth.entries()].slice(-12).map(([month, amount]) => ({
-      month: `${Number(month.slice(5, 7))}月`,
-      amount
+    const records = headerRows.map((row, index) => {
+      const invoice = createInvoiceRecordFromHeader(row, index);
+      const lineKey = String(row.id ?? row.document_no ?? row.legacy_document_no ?? "");
+      return {
+        ...invoice,
+        itemCount: lineCountByHeader.get(lineKey) ?? invoice.itemCount
+      };
+    });
+    return applyInvoiceFilter(records, filter);
+  }
+
+  return applyInvoiceFilter(mockInvoiceRecords, filter);
+}
+
+export async function fetchCustomerLedger(code: string): Promise<CustomerLedger> {
+  const normalizedCode = code.trim().toUpperCase();
+  if (!normalizedCode) {
+    return buildMockLedger("");
+  }
+
+  const [invoiceRows, paymentRows, balanceRows] = await Promise.all([
+    supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
+      select:
+        "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
+      or: `customer_code.eq.${normalizedCode},legacy_customer_code.eq.${normalizedCode}`,
+      order: "sales_date.desc",
+      limit: "50"
+    }),
+    supabaseQuery<CustomerPaymentRow>("customer_payments", {
+      select:
+        "id,customer_code,legacy_customer_code,payment_date,received_date,amount,payment_amount,method,payment_method",
+      or: `customer_code.eq.${normalizedCode},legacy_customer_code.eq.${normalizedCode}`,
+      order: "payment_date.desc",
+      limit: "50"
+    }),
+    supabaseQuery<CustomerPaymentStatusRow>("customer_payment_status", {
+      select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
+    })
+  ]);
+
+  if (invoiceRows.length > 0 || paymentRows.length > 0) {
+    const salesHistory = invoiceRows.map((row, index) => {
+      const invoice = createInvoiceRecordFromHeader(row, index);
+      return {
+        id: invoice.id,
+        date: invoice.date,
+        documentNo: invoice.documentNo,
+        amount: invoice.amount
+      };
+    });
+    const paymentHistory = paymentRows.map((row, index) => ({
+      id: String(row.id ?? `payment-${index + 1}`),
+      date: getDateString(
+        row as LooseRow,
+        ["payment_date", "received_date"],
+        new Date().toISOString()
+      ),
+      amount: toNumber(row.payment_amount ?? row.amount),
+      method: row.payment_method ?? row.method ?? "入金"
     }));
+    const balanceRow = balanceRows.find(
+      (row) => (row.legacy_customer_code ?? "").toUpperCase() === normalizedCode
+    );
 
     return {
-      generatedAt: new Date().toISOString(),
-      monthlyTrend,
-      byProduct: mockSalesAnalytics.byProduct,
-      byCustomer: mockSalesAnalytics.byCustomer
+      customerCode: normalizedCode,
+      customerName:
+        invoiceRows[0]?.customer_name ??
+        invoiceRows[0]?.customer_code ??
+        invoiceRows[0]?.legacy_customer_code ??
+        normalizedCode,
+      balanceAmount: toNumber(balanceRow?.balance_amount),
+      salesTotal: salesHistory.reduce((sum, entry) => sum + entry.amount, 0),
+      paymentTotal: paymentHistory.reduce((sum, entry) => sum + entry.amount, 0),
+      salesHistory,
+      paymentHistory
     };
   }
 
-  return mockSalesAnalytics;
+  return buildMockLedger(normalizedCode);
+}
+
+export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
+  const [dailyRows, invoiceRows, lineRows] = await Promise.all([
+    supabaseQuery<DailySalesFactRow>("daily_sales_fact", {
+      select: "sales_date,sales_amount",
+      order: "sales_date.asc",
+      limit: "365"
+    }),
+    supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
+      select:
+        "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
+      limit: "500"
+    }),
+    supabaseQuery<SalesDocumentLineRow>("sales_document_lines", {
+      select:
+        "id,header_id,document_header_id,document_no,product_code,legacy_product_code,product_name,quantity,amount,line_amount",
+      limit: "1000"
+    })
+  ]);
+
+  if (dailyRows.length > 0) {
+    const monthlyMap = new Map<string, number>();
+    dailyRows.forEach((row) => {
+      const month = formatMonthKey(row.sales_date);
+      monthlyMap.set(month, (monthlyMap.get(month) ?? 0) + toNumber(row.sales_amount));
+    });
+
+    const customerMap = new Map<string, AnalyticsBreakdownRow>();
+    invoiceRows.forEach((row, index) => {
+      const invoice = createInvoiceRecordFromHeader(row, index);
+      const entry = customerMap.get(invoice.customerCode) ?? {
+        code: invoice.customerCode,
+        name: invoice.customerName,
+        amount: 0,
+        quantity: 0,
+        documents: 0
+      };
+      entry.amount += invoice.amount;
+      entry.documents += 1;
+      customerMap.set(invoice.customerCode, entry);
+    });
+
+    const productMap = new Map<string, AnalyticsBreakdownRow>();
+    lineRows.forEach((row, index) => {
+      const productCode =
+        row.product_code ?? row.legacy_product_code ?? `P${String(index + 1).padStart(5, "0")}`;
+      const entry = productMap.get(productCode) ?? {
+        code: productCode,
+        name: row.product_name ?? productCode,
+        amount: 0,
+        quantity: 0,
+        documents: 0
+      };
+      entry.amount += toNumber(row.line_amount ?? row.amount);
+      entry.quantity += toNumber(row.quantity);
+      entry.documents += 1;
+      productMap.set(productCode, entry);
+    });
+
+    return {
+      generatedAt: new Date().toISOString(),
+      monthlySales: Array.from(monthlyMap.entries())
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([month, amount]) => ({ month, amount }))
+        .slice(-12),
+      productTotals:
+        productMap.size > 0
+          ? Array.from(productMap.values()).sort((left, right) => right.amount - left.amount)
+          : mockSalesAnalytics.productTotals,
+      customerTotals:
+        customerMap.size > 0
+          ? Array.from(customerMap.values()).sort((left, right) => right.amount - left.amount)
+          : mockSalesAnalytics.customerTotals
+    };
+  }
+
+  return aggregateMockAnalytics();
+}
+
+// ─── 伝票入力 ────────────────────────────────────────────────────────────────
+
+export type InvoiceType = "sales" | "return" | "export_return";
+
+export const INVOICE_TYPE_LABELS: Record<InvoiceType, string> = {
+  sales: "売上",
+  return: "返品",
+  export_return: "輸出戻入"
+};
+
+export interface NewInvoiceLine {
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  unit: string;
+  amount: number;
+}
+
+export interface InvoiceFormData {
+  invoiceType: InvoiceType;
+  invoiceDate: string;
+  customerCode: string;
+  customerName: string;
+  staffCode: string;
+  lines: NewInvoiceLine[];
+  note: string;
+}
+
+export interface SavedInvoice {
+  id: string;
+  documentNo: string;
+  totalAmount: number;
+  status: string;
+  createdAt: string;
+}
+
+export async function saveInvoice(form: InvoiceFormData): Promise<SavedInvoice> {
+  const totalAmount = form.lines.reduce((sum, l) => sum + l.amount, 0);
+  const docNo = `D${Date.now().toString().slice(-6)}`;
+  const row = await supabaseInsert<{ id: string }>("sales_document_headers", {
+    legacy_document_no: docNo,
+    legacy_customer_code: form.customerCode,
+    sales_date: form.invoiceDate,
+    document_type: form.invoiceType,
+    staff_code: form.staffCode,
+    total_amount: totalAmount,
+    status: "confirmed"
+  });
+  return {
+    id: row?.id ?? `local-${docNo}`,
+    documentNo: docNo,
+    totalAmount,
+    status: "confirmed",
+    createdAt: new Date().toISOString()
+  };
+}
+
+// ─── 納品書 ──────────────────────────────────────────────────────────────────
+
+export interface DeliveryNote {
+  documentNo: string;
+  invoiceDate: string;
+  customerCode: string;
+  customerName: string;
+  customerAddress: string;
+  lines: NewInvoiceLine[];
+  totalAmount: number;
+  taxAmount: number;
+  note: string;
+}
+
+const mockDeliveryNote: DeliveryNote = {
+  documentNo: "D240122",
+  invoiceDate: "2026-04-14",
+  customerCode: "C0011",
+  customerName: "青葉商事 株式会社",
+  customerAddress: "〒123-4567 東京都千代田区〇〇 1-2-3",
+  lines: [
+    { productCode: "P00012", productName: "純米吟醸 720ml", quantity: 6, unitPrice: 12000, unit: "本", amount: 72000 },
+    { productCode: "P00008", productName: "本醸造 1.8L", quantity: 4, unitPrice: 8500, unit: "本", amount: 34000 },
+    { productCode: "P00021", productName: "梅酒 500ml", quantity: 12, unitPrice: 5800, unit: "本", amount: 69600 }
+  ],
+  totalAmount: 175600,
+  taxAmount: 15960,
+  note: ""
+};
+
+export async function fetchDeliveryNote(documentNo: string): Promise<DeliveryNote> {
+  const rows = await supabaseQuery<LooseRow>("sales_document_headers", {
+    select: "*",
+    legacy_document_no: `eq.${documentNo}`
+  });
+  if (rows.length > 0) {
+    const row = rows[0];
+    const total = toNumber(row["total_amount"]);
+    return {
+      documentNo,
+      invoiceDate: getString(row, ["sales_date", "document_date"], ""),
+      customerCode: getString(row, ["legacy_customer_code", "customer_code"], ""),
+      customerName: getString(row, ["customer_name", "legacy_customer_code"], ""),
+      customerAddress: "",
+      lines: [],
+      totalAmount: total,
+      taxAmount: Math.floor((total * 10) / 110),
+      note: ""
+    };
+  }
+  return { ...mockDeliveryNote, documentNo: documentNo || mockDeliveryNote.documentNo };
+}
+
+// ─── 月次請求締め ─────────────────────────────────────────────────────────────
+
+export interface BillingCustomer {
+  customerCode: string;
+  customerName: string;
+  closingDay: number;
+  salesAmount: number;
+  taxAmount: number;
+  prevBalance: number;
+  paymentAmount: number;
+  billingAmount: number;
+  status: "open" | "closed";
+}
+
+export interface BillingSummary {
+  targetYearMonth: string;
+  closingDay: number;
+  totalBilling: number;
+  customers: BillingCustomer[];
+}
+
+const mockBilling: BillingSummary = {
+  targetYearMonth: "2026-04",
+  closingDay: 15,
+  totalBilling: 4820000,
+  customers: [
+    { customerCode: "C0011", customerName: "青葉商事", closingDay: 15, salesAmount: 540000, taxAmount: 54000, prevBalance: 280000, paymentAmount: 280000, billingAmount: 594000, status: "open" },
+    { customerCode: "C0012", customerName: "北斗酒販", closingDay: 15, salesAmount: 720000, taxAmount: 72000, prevBalance: 140000, paymentAmount: 140000, billingAmount: 792000, status: "closed" },
+    { customerCode: "C0013", customerName: "中央フーズ", closingDay: 15, salesAmount: 380000, taxAmount: 38000, prevBalance: 0, paymentAmount: 0, billingAmount: 418000, status: "open" },
+    { customerCode: "C0014", customerName: "東海酒店", closingDay: 15, salesAmount: 610000, taxAmount: 61000, prevBalance: 230000, paymentAmount: 150000, billingAmount: 751000, status: "open" }
+  ]
+};
+
+export async function fetchBillingSummary(yearMonth: string): Promise<BillingSummary> {
+  return fetchJson(`data/api/latest/billing-${yearMonth}.json`, { ...mockBilling, targetYearMonth: yearMonth });
+}
+
+// ─── 集計帳票・原価シミュレーション ───────────────────────────────────────────
+
+export interface CostSimRow {
+  productCode: string;
+  productName: string;
+  costPrice: number;
+  sellPrice: number;
+  margin: number;
+  marginRate: number;
+}
+
+export interface SalesReport {
+  generatedAt: string;
+  months: string[];
+  salesByProduct: { label: string; values: number[] }[];
+  salesByCustomer: { label: string; values: number[] }[];
+  costSimulation: CostSimRow[];
+}
+
+const MONTHS = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+
+const mockReport: SalesReport = {
+  generatedAt: new Date().toISOString(),
+  months: MONTHS,
+  salesByProduct: [
+    { label: "純米吟醸 720ml", values: [380,410,520,480,390,320,450,480,510,420,380,350].map(v => v * 10000) },
+    { label: "本醸造 1.8L", values: [290,310,380,340,280,250,320,360,390,310,280,260].map(v => v * 10000) },
+    { label: "梅酒 500ml", values: [210,240,310,290,230,180,260,300,320,250,200,190].map(v => v * 10000) }
+  ],
+  salesByCustomer: [
+    { label: "青葉商事", values: [480,510,620,590,480,390,540,580,610,510,460,430].map(v => v * 10000) },
+    { label: "北斗酒販", values: [390,420,520,490,400,330,460,500,530,430,380,360].map(v => v * 10000) }
+  ],
+  costSimulation: [
+    { productCode: "P00012", productName: "純米吟醸 720ml", costPrice: 7200, sellPrice: 12000, margin: 4800, marginRate: 40.0 },
+    { productCode: "P00008", productName: "本醸造 1.8L", costPrice: 4800, sellPrice: 8500, margin: 3700, marginRate: 43.5 },
+    { productCode: "P00021", productName: "梅酒 500ml", costPrice: 3200, sellPrice: 5800, margin: 2600, marginRate: 44.8 }
+  ]
+};
+
+export async function fetchSalesReport(): Promise<SalesReport> {
+  return fetchJson("data/api/latest/sales-report.json", mockReport);
+}
+
+// ─── 蔵内管理 ────────────────────────────────────────────────────────────────
+
+export type JikomiStatus = "planned" | "active" | "done";
+
+export const JIKOMI_STATUS_LABELS: Record<JikomiStatus, string> = {
+  planned: "計画中",
+  active: "仕込中",
+  done: "完了"
+};
+
+export interface JikomiRecord {
+  id: string;
+  jikomiNo: string;
+  productName: string;
+  riceType: string;
+  plannedKg: number;
+  actualKg: number;
+  startDate: string;
+  expectedDoneDate: string;
+  status: JikomiStatus;
+  tankNo: string;
+  note: string;
+}
+
+const mockJikomi: JikomiRecord[] = [
+  { id: "j1", jikomiNo: "J2026-01", productName: "純米吟醸", riceType: "山田錦", plannedKg: 400, actualKg: 400, startDate: "2026-01-10", expectedDoneDate: "2026-02-20", status: "done", tankNo: "T01", note: "" },
+  { id: "j2", jikomiNo: "J2026-02", productName: "本醸造", riceType: "日本晴", plannedKg: 600, actualKg: 600, startDate: "2026-02-01", expectedDoneDate: "2026-03-15", status: "done", tankNo: "T02", note: "" },
+  { id: "j3", jikomiNo: "J2026-03", productName: "特別純米", riceType: "五百万石", plannedKg: 500, actualKg: 480, startDate: "2026-03-05", expectedDoneDate: "2026-04-20", status: "active", tankNo: "T03", note: "経過良好" },
+  { id: "j4", jikomiNo: "J2026-04", productName: "純米大吟醸", riceType: "山田錦", plannedKg: 300, actualKg: 0, startDate: "2026-04-15", expectedDoneDate: "2026-06-01", status: "planned", tankNo: "T04", note: "" }
+];
+
+export async function fetchJikomiList(): Promise<JikomiRecord[]> {
+  return fetchJson("data/api/latest/jikomi.json", mockJikomi);
+}
+
+export interface TankRecord {
+  id: string;
+  tankNo: string;
+  capacity: number;
+  currentVolume: number;
+  productName: string;
+  jikomiNo: string;
+  status: "empty" | "in_use" | "aging";
+  lastUpdated: string;
+}
+
+const mockTanks: TankRecord[] = [
+  { id: "t1", tankNo: "T01", capacity: 3000, currentVolume: 0, productName: "", jikomiNo: "", status: "empty", lastUpdated: "2026-03-01" },
+  { id: "t2", tankNo: "T02", capacity: 4000, currentVolume: 0, productName: "", jikomiNo: "", status: "empty", lastUpdated: "2026-03-20" },
+  { id: "t3", tankNo: "T03", capacity: 3500, currentVolume: 2800, productName: "特別純米", jikomiNo: "J2026-03", status: "in_use", lastUpdated: "2026-04-10" },
+  { id: "t4", tankNo: "T04", capacity: 2000, currentVolume: 0, productName: "純米大吟醸", jikomiNo: "J2026-04", status: "in_use", lastUpdated: "2026-04-15" },
+  { id: "t5", tankNo: "T05", capacity: 5000, currentVolume: 3200, productName: "本醸造（貯蔵）", jikomiNo: "J2026-02", status: "aging", lastUpdated: "2026-03-20" }
+];
+
+export async function fetchTankList(): Promise<TankRecord[]> {
+  return fetchJson("data/api/latest/tanks.json", mockTanks);
+}
+
+export interface KenteiRecord {
+  id: string;
+  kenteiNo: string;
+  jikomiNo: string;
+  productName: string;
+  kenteiDate: string;
+  alcoholDegree: number;
+  extractDegree: number;
+  sakaMeterValue: number;
+  volume: number;
+  taxCategory: string;
+  status: "pending" | "submitted" | "approved";
+}
+
+const mockKentei: KenteiRecord[] = [
+  { id: "k1", kenteiNo: "K2026-001", jikomiNo: "J2026-01", productName: "純米吟醸", kenteiDate: "2026-02-25", alcoholDegree: 16.2, extractDegree: 3.8, sakaMeterValue: 2.5, volume: 2850, taxCategory: "清酒", status: "approved" },
+  { id: "k2", kenteiNo: "K2026-002", jikomiNo: "J2026-02", productName: "本醸造", kenteiDate: "2026-03-18", alcoholDegree: 15.5, extractDegree: 4.1, sakaMeterValue: 1.8, volume: 3600, taxCategory: "清酒", status: "submitted" },
+  { id: "k3", kenteiNo: "K2026-003", jikomiNo: "J2026-03", productName: "特別純米", kenteiDate: "2026-04-18", alcoholDegree: 0, extractDegree: 0, sakaMeterValue: 0, volume: 0, taxCategory: "清酒", status: "pending" }
+];
+
+export async function fetchKenteiList(): Promise<KenteiRecord[]> {
+  return fetchJson("data/api/latest/kentei.json", mockKentei);
+}
+
+export interface MaterialRecord {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+  currentStock: number;
+  minimumStock: number;
+  unitCost: number;
+  lastUpdated: string;
+}
+
+const mockMaterials: MaterialRecord[] = [
+  { id: "m1", code: "M001", name: "720ml瓶", unit: "本", currentStock: 2400, minimumStock: 500, unitCost: 85, lastUpdated: "2026-04-10" },
+  { id: "m2", code: "M002", name: "1.8L瓶", unit: "本", currentStock: 1800, minimumStock: 300, unitCost: 140, lastUpdated: "2026-04-10" },
+  { id: "m3", code: "M003", name: "300ml瓶", unit: "本", currentStock: 3600, minimumStock: 600, unitCost: 55, lastUpdated: "2026-04-08" },
+  { id: "m4", code: "M004", name: "キャップ（金）", unit: "個", currentStock: 8000, minimumStock: 1000, unitCost: 12, lastUpdated: "2026-04-05" },
+  { id: "m5", code: "M005", name: "ラベル（純米吟醸）", unit: "枚", currentStock: 1200, minimumStock: 300, unitCost: 28, lastUpdated: "2026-04-01" },
+  { id: "m6", code: "M006", name: "化粧箱（720ml）", unit: "個", currentStock: 180, minimumStock: 100, unitCost: 320, lastUpdated: "2026-04-01" }
+];
+
+export async function fetchMaterialList(): Promise<MaterialRecord[]> {
+  return fetchJson("data/api/latest/materials.json", mockMaterials);
+}
+
+// ─── 仕入・買掛管理 ───────────────────────────────────────────────────────────
+
+export interface PurchaseRecord {
+  id: string;
+  documentNo: string;
+  purchaseDate: string;
+  supplierCode: string;
+  supplierName: string;
+  itemName: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+  status: "pending" | "confirmed" | "paid";
+}
+
+const mockPurchases: PurchaseRecord[] = [
+  { id: "p1", documentNo: "K240050", purchaseDate: "2026-04-05", supplierCode: "S001", supplierName: "山田農場", itemName: "山田錦（精米65%）", quantity: 500, unitPrice: 480, amount: 240000, status: "confirmed" },
+  { id: "p2", documentNo: "K240051", purchaseDate: "2026-04-06", supplierCode: "S002", supplierName: "日本瓶工業", itemName: "720ml瓶", quantity: 1200, unitPrice: 85, amount: 102000, status: "confirmed" },
+  { id: "p3", documentNo: "K240052", purchaseDate: "2026-04-10", supplierCode: "S003", supplierName: "山本麹店", itemName: "米麹", quantity: 80, unitPrice: 1200, amount: 96000, status: "pending" },
+  { id: "p4", documentNo: "K240053", purchaseDate: "2026-04-12", supplierCode: "S001", supplierName: "山田農場", itemName: "五百万石（精米60%）", quantity: 300, unitPrice: 420, amount: 126000, status: "pending" }
+];
+
+export interface PayableRecord {
+  supplierCode: string;
+  supplierName: string;
+  totalPurchase: number;
+  paidAmount: number;
+  balance: number;
+  nextPaymentDate: string;
+  status: "unpaid" | "partial" | "paid";
+}
+
+const mockPayables: PayableRecord[] = [
+  { supplierCode: "S001", supplierName: "山田農場", totalPurchase: 366000, paidAmount: 240000, balance: 126000, nextPaymentDate: "2026-04-30", status: "partial" },
+  { supplierCode: "S002", supplierName: "日本瓶工業", totalPurchase: 102000, paidAmount: 102000, balance: 0, nextPaymentDate: "", status: "paid" },
+  { supplierCode: "S003", supplierName: "山本麹店", totalPurchase: 96000, paidAmount: 0, balance: 96000, nextPaymentDate: "2026-04-30", status: "unpaid" }
+];
+
+export interface BillRecord {
+  id: string;
+  billNo: string;
+  supplierName: string;
+  amount: number;
+  issueDate: string;
+  dueDate: string;
+  status: "holding" | "due" | "cleared";
+}
+
+const mockBills: BillRecord[] = [
+  { id: "b1", billNo: "H240001", supplierName: "山田農場", amount: 240000, issueDate: "2026-03-31", dueDate: "2026-04-30", status: "holding" },
+  { id: "b2", billNo: "H240002", supplierName: "大阪資材", amount: 185000, issueDate: "2026-03-31", dueDate: "2026-05-31", status: "holding" },
+  { id: "b3", billNo: "H230045", supplierName: "中部農業", amount: 320000, issueDate: "2026-02-28", dueDate: "2026-03-31", status: "cleared" }
+];
+
+export interface RawMaterialStock {
+  code: string;
+  name: string;
+  unit: string;
+  currentStock: number;
+  minimumStock: number;
+  lastPurchaseDate: string;
+  unitCost: number;
+}
+
+const mockRawStock: RawMaterialStock[] = [
+  { code: "R001", name: "山田錦（精米65%）", unit: "kg", currentStock: 380, minimumStock: 100, lastPurchaseDate: "2026-04-05", unitCost: 480 },
+  { code: "R002", name: "五百万石（精米60%）", unit: "kg", currentStock: 290, minimumStock: 100, lastPurchaseDate: "2026-04-12", unitCost: 420 },
+  { code: "R003", name: "米麹", unit: "kg", currentStock: 62, minimumStock: 20, lastPurchaseDate: "2026-04-10", unitCost: 1200 },
+  { code: "R004", name: "醸造用アルコール", unit: "L", currentStock: 240, minimumStock: 50, lastPurchaseDate: "2026-03-20", unitCost: 180 },
+  { code: "R005", name: "清酒用酵母", unit: "g", currentStock: 500, minimumStock: 100, lastPurchaseDate: "2026-02-15", unitCost: 3200 }
+];
+
+export async function fetchPurchaseList(): Promise<PurchaseRecord[]> {
+  return fetchJson("data/api/latest/purchases.json", mockPurchases);
+}
+
+export async function fetchPayableList(): Promise<PayableRecord[]> {
+  return fetchJson("data/api/latest/payables.json", mockPayables);
+}
+
+export async function fetchBillList(): Promise<BillRecord[]> {
+  return fetchJson("data/api/latest/bills.json", mockBills);
+}
+
+export async function fetchRawMaterialStock(): Promise<RawMaterialStock[]> {
+  return fetchJson("data/api/latest/raw-stock.json", mockRawStock);
+}
+
+// ─── 税務管理 ────────────────────────────────────────────────────────────────
+
+export interface TaxDeclarationRow {
+  taxCategory: string;
+  taxCategoryName: string;
+  alcoholDegree: number;
+  volume: number;
+  taxRate: number;
+  taxAmount: number;
+}
+
+export interface TaxDeclaration {
+  targetYear: number;
+  targetMonth: number;
+  companyName: string;
+  companyNo: string;
+  rows: TaxDeclarationRow[];
+  totalVolume: number;
+  totalTax: number;
+  status: "draft" | "submitted";
+}
+
+const mockTaxDeclaration: TaxDeclaration = {
+  targetYear: 2026,
+  targetMonth: 3,
+  companyName: "金井酒造店",
+  companyNo: "1234567890123",
+  rows: [
+    { taxCategory: "01", taxCategoryName: "清酒（普通酒）", alcoholDegree: 15.5, volume: 3600, taxRate: 88, taxAmount: 316800 },
+    { taxCategory: "02", taxCategoryName: "清酒（純米酒）", alcoholDegree: 16.2, volume: 2850, taxRate: 88, taxAmount: 250800 },
+    { taxCategory: "03", taxCategoryName: "清酒（吟醸酒）", alcoholDegree: 16.5, volume: 1200, taxRate: 88, taxAmount: 105600 }
+  ],
+  totalVolume: 7650,
+  totalTax: 673200,
+  status: "draft"
+};
+
+export async function fetchTaxDeclaration(year: number, month: number): Promise<TaxDeclaration> {
+  return fetchJson(`data/api/latest/tax-${year}-${String(month).padStart(2, "0")}.json`, { ...mockTaxDeclaration, targetYear: year, targetMonth: month });
+}
+
+// ─── 店舗・直売所 ─────────────────────────────────────────────────────────────
+
+export interface StoreSale {
+  id: string;
+  saleDate: string;
+  saleTime: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+  paymentMethod: "cash" | "card" | "paypay" | "other";
+}
+
+export interface StoreOrder {
+  id: string;
+  orderNo: string;
+  orderDate: string;
+  customerName: string;
+  postalCode: string;
+  address: string;
+  items: { productName: string; quantity: number; amount: number }[];
+  totalAmount: number;
+  status: "new" | "processing" | "shipped" | "delivered";
+  shippingDate: string;
+}
+
+const mockStoreSales: StoreSale[] = Array.from({ length: 10 }, (_, i) => ({
+  id: `ss${i + 1}`,
+  saleDate: "2026-04-15",
+  saleTime: `${9 + i}:${String(i * 7 % 60).padStart(2, "0")}`,
+  productCode: `P${String((i % 4) + 1).padStart(5, "0")}`,
+  productName: ["純米吟醸 720ml", "本醸造 1.8L", "梅酒 500ml", "特別純米 300ml"][i % 4],
+  quantity: 1 + (i % 3),
+  unitPrice: [2200, 1800, 980, 680][i % 4],
+  amount: (1 + (i % 3)) * [2200, 1800, 980, 680][i % 4],
+  paymentMethod: (["cash", "card", "paypay", "cash"] as const)[i % 4]
+}));
+
+const mockStoreOrders: StoreOrder[] = [
+  { id: "o1", orderNo: "ORD-2604001", orderDate: "2026-04-13", customerName: "鈴木 太郎", postalCode: "150-0001", address: "東京都渋谷区〇〇1-1", items: [{ productName: "純米吟醸 720ml", quantity: 2, amount: 4400 }], totalAmount: 4400, status: "shipped", shippingDate: "2026-04-14" },
+  { id: "o2", orderNo: "ORD-2604002", orderDate: "2026-04-14", customerName: "田中 花子", postalCode: "530-0001", address: "大阪府大阪市北区〇〇2-3", items: [{ productName: "梅酒 500ml", quantity: 3, amount: 2940 }, { productName: "本醸造 1.8L", quantity: 1, amount: 1800 }], totalAmount: 4740, status: "processing", shippingDate: "" },
+  { id: "o3", orderNo: "ORD-2604003", orderDate: "2026-04-15", customerName: "佐藤 一郎", postalCode: "460-0001", address: "愛知県名古屋市中区〇〇3-5", items: [{ productName: "特別純米 300ml ×6本セット", quantity: 1, amount: 3980 }], totalAmount: 3980, status: "new", shippingDate: "" }
+];
+
+export async function fetchStoreSales(date: string): Promise<StoreSale[]> {
+  return fetchJson(`data/api/latest/store-sales-${date}.json`, mockStoreSales);
+}
+
+export async function fetchStoreOrders(): Promise<StoreOrder[]> {
+  return fetchJson("data/api/latest/store-orders.json", mockStoreOrders);
 }
