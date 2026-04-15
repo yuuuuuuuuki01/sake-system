@@ -80,7 +80,7 @@ const TARGET_FILE_CODES = new Set(["SHDEN", "SHTOR", "SHNKI", "SHSUJ", "SHTNSUJ"
 const RECORDS_TO_CAPTURE = 3;
 const CHUNK_BYTES = 16;
 const MAX_BYTES_PER_RECORD = 128;
-const PAYLOAD_SEARCH_RECORDS = 32;
+const PAYLOAD_SEARCH_RECORDS = 256;
 
 function requireArtifactsDir(context: JobContext): string {
   if (!context.artifactsDir) {

@@ -16,6 +16,9 @@ import { writeMasterStubParsers } from "../parsers/master-stub-parser.js";
 import { writeNamedMasterDraft } from "../parsers/named-master-draft.js";
 import { writeCanonicalProfiles } from "../parsers/profile.js";
 import { writeProvisionalMasterParser } from "../parsers/provisional-master-parser.js";
+import { writeNamedSalesTransactionDraft } from "../parsers/sales-transaction-draft.js";
+import { writeSalesTransactionDraftExtraction } from "../parsers/sales-transaction-extract.js";
+import { writeProvisionalSalesParser } from "../parsers/provisional-sales-parser.js";
 import { writeTransactionRecordInspection } from "../parsers/transaction-record-inspection.js";
 import type { JobContext, JobName, JobResult } from "./job-types.js";
 
@@ -26,6 +29,9 @@ const orderedJobs: JobName[] = [
   "probeFixedRecords",
   "inspectMasterRecords",
   "inspectTransactionRecords",
+  "draftSalesTransactionFields",
+  "extractSalesTransactionDraftFields",
+  "parseProvisionalSalesFields",
   "parseMasterStubFields",
   "mapMasterFieldHypotheses",
   "draftNamedMasterFields",
@@ -141,6 +147,33 @@ async function executeJob(jobName: JobName, context: JobContext): Promise<JobRes
           jobName,
           ok: true,
           detail: `Wrote transaction record inspection artifact to ${targetPath}.`
+        };
+      }
+    case "draftSalesTransactionFields":
+      {
+        const targetPath = await writeNamedSalesTransactionDraft(context);
+        return {
+          jobName,
+          ok: true,
+          detail: `Wrote sales transaction draft artifact to ${targetPath}.`
+        };
+      }
+    case "extractSalesTransactionDraftFields":
+      {
+        const targetPath = await writeSalesTransactionDraftExtraction(context);
+        return {
+          jobName,
+          ok: true,
+          detail: `Wrote sales transaction draft extraction artifact to ${targetPath}.`
+        };
+      }
+    case "parseProvisionalSalesFields":
+      {
+        const targetPath = await writeProvisionalSalesParser(context);
+        return {
+          jobName,
+          ok: true,
+          detail: `Wrote provisional sales parser artifact to ${targetPath}.`
         };
       }
     case "parseMasterStubFields":

@@ -41,14 +41,17 @@ external integrations without breaking the current office workflow.
 7. Writes fixed-record probe artifacts for canonical master files
 8. Writes master record inspection artifacts for SHSYO and SHTKI
 9. Writes transaction record inspection artifacts for SHDEN / SHTOR / SHNKI and payment-side candidates
-10. Writes parser stub artifacts for SHSYO and SHTKI
-11. Writes field hypothesis artifacts for SHSYO and SHTKI
-12. Writes named parser draft artifacts for SHSYO and SHTKI
-13. Writes named draft extraction artifacts for SHSYO and SHTKI
-14. Writes provisional master parser artifacts for SHSYO and SHTKI
-15. Writes a provisional `masters.snapshot.json` for products and customers
-16. Writes normalization plans for masters, sales, and payments
-17. Prints the ordered pipeline results
+10. Writes sales transaction draft artifacts for SHDEN and SHTOR
+11. Writes sales transaction extraction artifacts for SHDEN and SHTOR
+12. Writes provisional sales parser artifacts for SHDEN and SHTOR
+13. Writes parser stub artifacts for SHSYO and SHTKI
+14. Writes field hypothesis artifacts for SHSYO and SHTKI
+15. Writes named parser draft artifacts for SHSYO and SHTKI
+16. Writes named draft extraction artifacts for SHSYO and SHTKI
+17. Writes provisional master parser artifacts for SHSYO and SHTKI
+18. Writes a provisional `masters.snapshot.json` for products and customers
+19. Writes normalization plans for masters, sales, and payments
+20. Prints the ordered pipeline results
 
 `npm run run:dashboard` currently:
 
