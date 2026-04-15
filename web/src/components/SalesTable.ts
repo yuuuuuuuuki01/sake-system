@@ -20,7 +20,11 @@ function toDateInputValue(value: Date): string {
   return value.toISOString().slice(0, 10);
 }
 
-export function renderSalesTable(records: SalesRecord[], startDate: string, endDate: string): string {
+export function renderSalesTable(
+  records: SalesRecord[],
+  startDate: string,
+  endDate: string
+): string {
   const rows = records.length
     ? records
         .map(

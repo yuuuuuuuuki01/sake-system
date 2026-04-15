@@ -206,11 +206,8 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
     }
     return (await response.json()) as T;
   } catch (error) {
-    if (import.meta.env.DEV) {
-      return fallback;
-    }
-    console.warn(`Failed to fetch ${path}`, error);
-    throw error;
+    console.warn(`Failed to fetch ${path}, using fallback data`, error);
+    return fallback;
   }
 }
 

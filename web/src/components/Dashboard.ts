@@ -32,7 +32,9 @@ function buildBars(dailySales: SalesSummary["dailySales"]): string {
       const barHeight = (point.amount / maxValue) * plotHeight;
       const x = padding.left + index * step + 4;
       const y = padding.top + plotHeight - barHeight;
-      const label = new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric" }).format(new Date(point.date));
+      const label = new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric" }).format(
+        new Date(point.date)
+      );
       return `
         <g>
           <rect x="${x}" y="${y}" width="${Math.max(step - 8, 8)}" height="${barHeight}" rx="4" fill="#0F5B8D" opacity="${0.58 + (index / dailySales.length) * 0.34}" />

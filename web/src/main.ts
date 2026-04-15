@@ -115,7 +115,9 @@ function renderView(): string {
       );
     case "/payment":
       return renderPaymentStatus(
-        [...state.paymentStatus.records].sort((left, right) => right.balanceAmount - left.balanceAmount)
+        [...state.paymentStatus.records].sort(
+          (left, right) => right.balanceAmount - left.balanceAmount
+        )
       );
     case "/master":
       return renderMasterStats(state.masterStats, state.masterTab);
@@ -171,12 +173,14 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  root.querySelector<HTMLButtonElement>("[data-action='sales-filter']")?.addEventListener("click", () => {
-    const start = root.querySelector<HTMLInputElement>("#sales-start")?.value ?? "";
-    const end = root.querySelector<HTMLInputElement>("#sales-end")?.value ?? "";
-    state.salesFilter = { startDate: start, endDate: end };
-    renderApp();
-  });
+  root
+    .querySelector<HTMLButtonElement>("[data-action='sales-filter']")
+    ?.addEventListener("click", () => {
+      const start = root.querySelector<HTMLInputElement>("#sales-start")?.value ?? "";
+      const end = root.querySelector<HTMLInputElement>("#sales-end")?.value ?? "";
+      state.salesFilter = { startDate: start, endDate: end };
+      renderApp();
+    });
 
   root.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
