@@ -31,7 +31,8 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "売上分析", description: "商品別・得意先別の売上分析から傾向を把握し、販促に活用します。", path: "/analytics" },
     { title: "マスタ", description: "得意先や商品マスタの登録状況を確認し、運用の整合性を保ちます。", path: "/master" },
     { title: "メール配信", description: "季節商品の案内メールを下書き保存し、顧客向け配信の準備を行います。", path: "/email" },
-    { title: "連動設定", description: "WEB連動PC の設定手順と接続情報を確認して同期環境を整えます。", path: "/setup" }
+    { title: "連動設定", description: "WEB連動PC の設定手順と接続情報を確認して同期環境を整えます。", path: "/setup" },
+    { title: "CSV/Excelインポート", description: "Excelで作成したマスタデータをアップロードして一括登録できます。", path: "/import" }
   ]
 };
 

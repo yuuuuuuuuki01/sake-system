@@ -89,6 +89,15 @@ import { renderSalesAnalytics } from "./components/SalesAnalytics";
 import { renderSalesReport } from "./components/SalesReport";
 import { renderSalesTable } from "./components/SalesTable";
 import { renderStorePOS } from "./components/StorePOS";
+import { renderDataImport } from "./components/DataImport";
+import {
+  generateTemplateCSV,
+  importToSupabase,
+  parseCSV,
+  validateImport,
+  type ImportPreview,
+  type ImportableEntity
+} from "./utils/import";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase";
@@ -120,7 +129,8 @@ type RoutePath =
   | "/tax"
   | "/store"
   | "/setup"
-  | "/email";
+  | "/email"
+  | "/import";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -163,7 +173,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/tax",
   "/store",
   "/setup",
-  "/email"
+  "/email",
+  "/import"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -196,7 +207,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/raw-material", title: "手形・原料" },
   { path: "/tax", title: "酒税申告" },
   { path: "/store", title: "店舗・直売所" },
-  { path: "/setup", title: "連動設定" }
+  { path: "/setup", title: "連動設定" },
+  { path: "/import", title: "CSV/Excelインポート" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -272,6 +284,10 @@ interface AppState {
   storeSales: StoreSale[];
   storeOrders: StoreOrder[];
   storeTab: "pos" | "orders";
+  importEntity: ImportableEntity;
+  importPreview: ImportPreview | null;
+  importing: boolean;
+  importResult: string | null;
   storeSalesDate: string;
   route: RoutePath;
   currentCategory: CategoryKey;
@@ -382,6 +398,10 @@ const state: AppState = {
   storeSales: [],
   storeOrders: [],
   storeTab: "pos",
+  importEntity: "customers",
+  importPreview: null,
+  importing: false,
+  importResult: null,
   storeSalesDate: defaultStoreDate,
   route: initialRoute,
   currentCategory: inferCurrentCategory(initialRoute),
@@ -975,6 +995,8 @@ function renderView(): string {
       return state.pipelineMeta
         ? renderRelaySetup(state.pipelineMeta, SUPABASE_URL, SUPABASE_ANON_KEY)
         : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+    case "/import":
+      return renderDataImport(state.importEntity, state.importPreview, state.importing, state.importResult);
     default:
       break;
   }
@@ -1671,11 +1693,165 @@ function bindEvents(root: HTMLElement): void {
     }
   });
 
+  // ── 税務: 区分・控除・製造場情報の編集 ─────────────
+  root.querySelectorAll<HTMLInputElement>("[data-tax-row][data-tax-field]").forEach((input) => {
+    input.addEventListener("change", async () => {
+      if (!state.taxDeclaration) return;
+      const idx = Number(input.dataset.taxRow);
+      const field = input.dataset.taxField as string;
+      const value = input.type === "number" ? Number(input.value) || 0 : input.value;
+      const rows = [...state.taxDeclaration.rows];
+      rows[idx] = { ...rows[idx], [field]: value };
+      const { recalculateTaxDeclaration } = await import("./api");
+      state.taxDeclaration = recalculateTaxDeclaration({ ...state.taxDeclaration, rows });
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLInputElement>("[data-ded-row][data-ded-field]").forEach((input) => {
+    input.addEventListener("change", () => {
+      if (!state.taxDeclaration) return;
+      const idx = Number(input.dataset.dedRow);
+      const field = input.dataset.dedField as string;
+      const value = input.type === "number" ? Number(input.value) || 0 : input.value;
+      const deductions = [...state.taxDeclaration.deductions];
+      deductions[idx] = { ...deductions[idx], [field]: value };
+      state.taxDeclaration = { ...state.taxDeclaration, deductions };
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLInputElement>("input[data-tax-field]:not([data-tax-row])").forEach((input) => {
+    input.addEventListener("change", () => {
+      if (!state.taxDeclaration) return;
+      const field = input.dataset.taxField as string;
+      state.taxDeclaration = { ...state.taxDeclaration, [field]: input.value };
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='tax-add-category']")?.addEventListener("click", async () => {
+    if (!state.taxDeclaration) return;
+    const { recalculateTaxDeclaration, TAX_RATE_CATEGORIES } = await import("./api");
+    const firstCat = TAX_RATE_CATEGORIES[0];
+    const newRow = {
+      taxCategory: firstCat.code,
+      taxCategoryName: firstCat.name,
+      alcoholDegree: 15.0,
+      productionVolume: 0,
+      previousBalance: 0,
+      currentAdjustment: 0,
+      exportDeduction: 0,
+      sampleDeduction: 0,
+      taxableVolume: 0,
+      volume: 0,
+      taxRate: firstCat.taxRatePerLiter,
+      taxAmount: 0
+    };
+    state.taxDeclaration = recalculateTaxDeclaration({
+      ...state.taxDeclaration,
+      rows: [...state.taxDeclaration.rows, newRow]
+    });
+    renderApp();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-action='tax-remove-category']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!state.taxDeclaration) return;
+      const idx = Number(button.dataset.taxRow);
+      const { recalculateTaxDeclaration } = await import("./api");
+      const rows = state.taxDeclaration.rows.filter((_, i) => i !== idx);
+      state.taxDeclaration = recalculateTaxDeclaration({ ...state.taxDeclaration, rows });
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='tax-add-deduction']")?.addEventListener("click", () => {
+    if (!state.taxDeclaration) return;
+    const newDed = { type: "export" as const, categoryCode: "01", volume: 0, reason: "", documentNo: "" };
+    state.taxDeclaration = {
+      ...state.taxDeclaration,
+      deductions: [...state.taxDeclaration.deductions, newDed]
+    };
+    renderApp();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-action='tax-remove-deduction']").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!state.taxDeclaration) return;
+      const idx = Number(button.dataset.dedRow);
+      const deductions = state.taxDeclaration.deductions.filter((_, i) => i !== idx);
+      state.taxDeclaration = { ...state.taxDeclaration, deductions };
+      renderApp();
+    });
+  });
+
   root.querySelectorAll<HTMLButtonElement>("[data-store-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.storeTab = button.dataset.storeTab as "pos" | "orders";
       renderApp();
     });
+  });
+
+  // ── CSV/Excelインポート ─────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-import-entity]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.importEntity = button.dataset.importEntity as ImportableEntity;
+      state.importPreview = null;
+      state.importResult = null;
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='download-template']")?.addEventListener("click", () => {
+    const csv = generateTemplateCSV(state.importEntity);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `template_${state.importEntity}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='import-parse']")?.addEventListener("click", () => {
+    const input = root.querySelector<HTMLInputElement>("#import-file");
+    const file = input?.files?.[0];
+    if (!file) {
+      alert("CSVファイルを選択してください");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? "");
+      const { columns, rows } = parseCSV(text);
+      state.importPreview = validateImport(state.importEntity, columns, rows);
+      state.importResult = null;
+      renderApp();
+    };
+    reader.readAsText(file, "utf-8");
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='import-cancel']")?.addEventListener("click", () => {
+    state.importPreview = null;
+    state.importResult = null;
+    renderApp();
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='import-execute']")?.addEventListener("click", async () => {
+    if (!state.importPreview) return;
+    state.importing = true;
+    renderApp();
+    try {
+      const validRows = state.importPreview.rows.filter((r) => r._valid);
+      const result = await importToSupabase(state.importEntity, validRows);
+      state.importResult = `取り込み完了: ${result.inserted}件成功 / ${result.failed}件失敗`;
+      state.importPreview = null;
+    } catch (e) {
+      state.importResult = `エラー: ${e instanceof Error ? e.message : String(e)}`;
+    } finally {
+      state.importing = false;
+      renderApp();
+    }
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='store-load']")?.addEventListener("click", () => {
