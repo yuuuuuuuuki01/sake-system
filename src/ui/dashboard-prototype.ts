@@ -107,7 +107,9 @@ function buildDashboardModel(
   salesPlan: NormalizationPlanArtifact,
   paymentsPlan: NormalizationPlanArtifact
 ): DashboardModel {
-  const canonicalCandidates = raw.candidates.filter((candidate) => candidate.sourceRole === "canonical");
+  const canonicalCandidates = raw.candidates.filter(
+    (candidate) => candidate.sourceRole === "canonical"
+  );
   const productOutput = provisional.outputs.find((output) => output.fileCode === "SHSYO");
   const customerOutput = provisional.outputs.find((output) => output.fileCode === "SHTKI");
 
@@ -117,8 +119,12 @@ function buildDashboardModel(
     totalCandidates: raw.candidates.length,
     canonicalCandidates: canonicalCandidates.length,
     auxiliaryCandidates: raw.candidates.length - canonicalCandidates.length,
-    canonicalSalesFiles: canonicalCandidates.filter((candidate) => PRIMARY_FILE_CODES.has(candidate.fileCode)),
-    canonicalPaymentFiles: canonicalCandidates.filter((candidate) => PAYMENT_FILE_CODES.has(candidate.fileCode)),
+    canonicalSalesFiles: canonicalCandidates.filter((candidate) =>
+      PRIMARY_FILE_CODES.has(candidate.fileCode)
+    ),
+    canonicalPaymentFiles: canonicalCandidates.filter((candidate) =>
+      PAYMENT_FILE_CODES.has(candidate.fileCode)
+    ),
     productSamples:
       productOutput?.records.slice(0, 8).map((record) => ({
         productCode: record.productCodeCandidate,
@@ -146,7 +152,10 @@ function renderRows<T>(items: T[], render: (item: T, index: number) => string): 
 
 function renderDashboard(model: DashboardModel): string {
   const totalSalesBytes = model.canonicalSalesFiles.reduce((sum, file) => sum + file.fileSize, 0);
-  const totalPaymentBytes = model.canonicalPaymentFiles.reduce((sum, file) => sum + file.fileSize, 0);
+  const totalPaymentBytes = model.canonicalPaymentFiles.reduce(
+    (sum, file) => sum + file.fileSize,
+    0
+  );
 
   return `<!DOCTYPE html>
 <html lang="ja">

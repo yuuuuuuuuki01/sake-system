@@ -25,8 +25,6 @@ export async function readJsonFile<T>(analysisDir: string, fileName: string): Pr
   return JSON.parse(content.replace(/^\uFEFF/, "")) as T;
 }
 
-export async function readFileManifest(
-  analysisDir: string
-): Promise<AnalysisManifestEntry[]> {
+export async function readFileManifest(analysisDir: string): Promise<AnalysisManifestEntry[]> {
   return readJsonFile<AnalysisManifestEntry[]>(analysisDir, "file_manifest.json");
 }

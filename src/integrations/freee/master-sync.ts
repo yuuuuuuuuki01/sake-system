@@ -22,8 +22,7 @@ async function loadMappingCache(): Promise<MappingCachePayload> {
     const content = await readFile(mappingCachePath, "utf8");
     const parsed = JSON.parse(content) as Partial<MappingCachePayload>;
     return {
-      customers:
-        parsed.customers && typeof parsed.customers === "object" ? parsed.customers : {}
+      customers: parsed.customers && typeof parsed.customers === "object" ? parsed.customers : {}
     };
   } catch {
     return { customers: {} };

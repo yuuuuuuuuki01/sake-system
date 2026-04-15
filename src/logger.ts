@@ -25,7 +25,7 @@ function buildLogger(): AppLogger {
   return pino({ level }, transport);
 }
 
-export const logger = globalThis.__syusenLogger__ ??= buildLogger();
+export const logger = (globalThis.__syusenLogger__ ??= buildLogger());
 
 export function createLogger(context: Record<string, unknown>): AppLogger {
   return logger.child(context);

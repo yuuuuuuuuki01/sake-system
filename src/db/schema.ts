@@ -5,7 +5,11 @@ type DateColumn = ColumnType<Date, Date | string, Date | string>;
 type _NumericColumn = ColumnType<string, number | string, number | string>;
 type NullableTimestampColumn = ColumnType<Date | null, Date | string | null, Date | string | null>;
 type NullableDateColumn = ColumnType<Date | null, Date | string | null, Date | string | null>;
-type NullableNumericColumn = ColumnType<string | null, number | string | null, number | string | null>;
+type NullableNumericColumn = ColumnType<
+  string | null,
+  number | string | null,
+  number | string | null
+>;
 
 export interface RawFileIngestionsTable {
   id: string;

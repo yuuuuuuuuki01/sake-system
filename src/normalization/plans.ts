@@ -38,7 +38,9 @@ function requireArtifactsDir(context: JobContext): string {
 
 function pickSources(context: JobContext, fileCodes: string[]): NormalizationSource[] {
   return context.candidates
-    .filter((candidate) => fileCodes.includes(candidate.fileCode) && candidate.sourceRole === "canonical")
+    .filter(
+      (candidate) => fileCodes.includes(candidate.fileCode) && candidate.sourceRole === "canonical"
+    )
     .map((candidate) => ({
       fileCode: candidate.fileCode,
       sourcePath: candidate.sourcePath,

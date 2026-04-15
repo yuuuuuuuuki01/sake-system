@@ -49,16 +49,11 @@ function resolveFileSize(entry: AnalysisManifestEntry): number {
 
 function resolveFileMtime(entry: AnalysisManifestEntry): string {
   return (
-    entry.lastWriteTime ??
-    entry.last_write_time ??
-    entry.LastWriteTime ??
-    new Date(0).toISOString()
+    entry.lastWriteTime ?? entry.last_write_time ?? entry.LastWriteTime ?? new Date(0).toISOString()
   );
 }
 
-export async function buildCandidates(
-  config: PipelineConfig
-): Promise<FileIngestionCandidate[]> {
+export async function buildCandidates(config: PipelineConfig): Promise<FileIngestionCandidate[]> {
   const manifest = await readFileManifest(config.analysisDir);
   const allowedCodes = new Set([...config.primaryFileCodes, ...config.secondaryFileCodes]);
 
@@ -76,10 +71,8 @@ export async function buildCandidates(
         fileMtime: resolveFileMtime(entry)
       };
     })
-    .filter(
-      (
-        candidate
-      ): candidate is Omit<FileIngestionCandidate, "sourceRole" | "score"> => Boolean(candidate)
+    .filter((candidate): candidate is Omit<FileIngestionCandidate, "sourceRole" | "score"> =>
+      Boolean(candidate)
     );
 
   return attachSelectionMetadata(candidates);

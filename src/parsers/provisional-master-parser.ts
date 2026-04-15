@@ -215,22 +215,19 @@ function parseCustomers(file: MasterDraftExtraction): ProvisionalCustomerOutput 
 export async function writeProvisionalMasterParser(context: JobContext): Promise<string> {
   const artifactsDir = requireArtifactsDir(context);
   const extractPath = join(artifactsDir, "profiles", "master-draft-extract.json");
-  const artifact = JSON.parse(
-    await readFile(extractPath, "utf8")
-  ) as MasterDraftExtractionArtifact;
+  const artifact = JSON.parse(await readFile(extractPath, "utf8")) as MasterDraftExtractionArtifact;
 
-  const outputs = artifact.files.reduce<Array<ProvisionalProductOutput | ProvisionalCustomerOutput>>(
-    (items, file) => {
-      if (file.fileCode === "SHSYO") {
-        items.push(parseProducts(file));
-      } else if (file.fileCode === "SHTKI") {
-        items.push(parseCustomers(file));
-      }
+  const outputs = artifact.files.reduce<
+    Array<ProvisionalProductOutput | ProvisionalCustomerOutput>
+  >((items, file) => {
+    if (file.fileCode === "SHSYO") {
+      items.push(parseProducts(file));
+    } else if (file.fileCode === "SHTKI") {
+      items.push(parseCustomers(file));
+    }
 
-      return items;
-    },
-    []
-  );
+    return items;
+  }, []);
 
   const payload: ProvisionalMasterParserArtifact = {
     runId: context.runId,

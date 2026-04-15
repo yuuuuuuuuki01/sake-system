@@ -55,7 +55,9 @@ interface SalesSummaryAccumulator {
 
 function requireArtifactsDir(context: JobContext): string {
   if (!context.artifactsDir) {
-    throw new Error("artifactsDir is not set. ingestRawFiles must run before refreshing sales marts.");
+    throw new Error(
+      "artifactsDir is not set. ingestRawFiles must run before refreshing sales marts."
+    );
   }
 
   return context.artifactsDir;
@@ -69,7 +71,11 @@ function isUsefulCode(value?: string): value is string {
   return Boolean(value && /^[0-9A-Za-z]{1,32}$/.test(value) && value !== "0");
 }
 
-function makeFactKey(salesDate: string, legacyCustomerCode: string, legacyProductCode: string): string {
+function makeFactKey(
+  salesDate: string,
+  legacyCustomerCode: string,
+  legacyProductCode: string
+): string {
   return `${salesDate}::${legacyCustomerCode}::${legacyProductCode}`;
 }
 
@@ -122,7 +128,9 @@ export async function refreshSalesMarts(
   const fallbackSalesDate = context.startedAt.slice(0, 10);
 
   const salesPlan = await readNormalizationArtifact(context, "sales.plan.json");
-  const hasDailySalesFact = salesPlan.entities.some((entity) => entity.entity === "daily_sales_fact");
+  const hasDailySalesFact = salesPlan.entities.some(
+    (entity) => entity.entity === "daily_sales_fact"
+  );
   if (!hasDailySalesFact) {
     throw new Error("sales.plan.json does not define the daily_sales_fact entity.");
   }
@@ -140,7 +148,10 @@ export async function refreshSalesMarts(
   >();
 
   for (const record of headers?.records ?? []) {
-    if (!isUsefulCode(record.legacyDocumentNoCandidate) || !isUsefulCode(record.legacyCustomerCodeCandidate)) {
+    if (
+      !isUsefulCode(record.legacyDocumentNoCandidate) ||
+      !isUsefulCode(record.legacyCustomerCodeCandidate)
+    ) {
       continue;
     }
 
@@ -200,10 +211,11 @@ export async function refreshSalesMarts(
       quantity: item.quantity,
       documentCount: item.documentNos.size
     }))
-    .sort((a, b) =>
-      a.salesDate.localeCompare(b.salesDate) ||
-      a.legacyCustomerCode.localeCompare(b.legacyCustomerCode) ||
-      a.legacyProductCode.localeCompare(b.legacyProductCode)
+    .sort(
+      (a, b) =>
+        a.salesDate.localeCompare(b.salesDate) ||
+        a.legacyCustomerCode.localeCompare(b.legacyCustomerCode) ||
+        a.legacyProductCode.localeCompare(b.legacyProductCode)
     );
 
   const summary = Array.from(summaryMap.values())

@@ -74,7 +74,8 @@ function draftFieldsFor(file: MasterFieldHypothesis): NamedFieldDraft[] {
         widthBytes: 4,
         sourceHypothesisLabel: findHypothesis(file, 8)?.label ?? "candidate_product_code",
         confidence: "medium",
-        rationale: "Offset 8 varied strongly across sampled records and ranked highest as a product code candidate."
+        rationale:
+          "Offset 8 varied strongly across sampled records and ranked highest as a product code candidate."
       },
       {
         name: "legacy_product_code_secondary",
@@ -82,7 +83,8 @@ function draftFieldsFor(file: MasterFieldHypothesis): NamedFieldDraft[] {
         widthBytes: 4,
         sourceHypothesisLabel: findHypothesis(file, 0)?.label ?? "candidate_product_code",
         confidence: "low",
-        rationale: "Offset 0 also varies per record and may be part of a compound key or alternate code."
+        rationale:
+          "Offset 0 also varies per record and may be part of a compound key or alternate code."
       },
       {
         name: "jan_or_external_code_part_a",
@@ -90,7 +92,8 @@ function draftFieldsFor(file: MasterFieldHypothesis): NamedFieldDraft[] {
         widthBytes: 4,
         sourceHypothesisLabel: findHypothesis(file, 28)?.label ?? "candidate_jan_or_external_code",
         confidence: "low",
-        rationale: "Offset 28 was consistently surfaced as a JAN or external-code hint but needs layout confirmation."
+        rationale:
+          "Offset 28 was consistently surfaced as a JAN or external-code hint but needs layout confirmation."
       },
       {
         name: "jan_or_external_code_part_b",
@@ -98,7 +101,8 @@ function draftFieldsFor(file: MasterFieldHypothesis): NamedFieldDraft[] {
         widthBytes: 4,
         sourceHypothesisLabel: findHypothesis(file, 32)?.label ?? "candidate_jan_or_external_code",
         confidence: "low",
-        rationale: "Offset 32 varies alongside offset 28 and may belong to the same external code family."
+        rationale:
+          "Offset 32 varies alongside offset 28 and may belong to the same external code family."
       }
     ];
   }
@@ -110,7 +114,8 @@ function draftFieldsFor(file: MasterFieldHypothesis): NamedFieldDraft[] {
       widthBytes: 4,
       sourceHypothesisLabel: findHypothesis(file, 0)?.label ?? "candidate_customer_code",
       confidence: "medium",
-      rationale: "Offset 0 is an early varying slot and remains the strongest customer identity anchor."
+      rationale:
+        "Offset 0 is an early varying slot and remains the strongest customer identity anchor."
     },
     {
       name: "legacy_customer_code_secondary",
@@ -124,17 +129,21 @@ function draftFieldsFor(file: MasterFieldHypothesis): NamedFieldDraft[] {
       name: "billing_rule_or_closing_day",
       offset: 28,
       widthBytes: 4,
-      sourceHypothesisLabel: findHypothesis(file, 28)?.label ?? "candidate_closing_day_or_billing_rule",
+      sourceHypothesisLabel:
+        findHypothesis(file, 28)?.label ?? "candidate_closing_day_or_billing_rule",
       confidence: "low",
-      rationale: "Offset 28 was already treated as a closing or billing rule hint in the prior hypothesis pass."
+      rationale:
+        "Offset 28 was already treated as a closing or billing rule hint in the prior hypothesis pass."
     },
     {
       name: "collection_rule_or_payment_day",
       offset: 32,
       widthBytes: 4,
-      sourceHypothesisLabel: findHypothesis(file, 32)?.label ?? "candidate_payment_day_or_collection_rule",
+      sourceHypothesisLabel:
+        findHypothesis(file, 32)?.label ?? "candidate_payment_day_or_collection_rule",
       confidence: "low",
-      rationale: "Offset 32 varies separately from offset 28 and is a likely collection term candidate."
+      rationale:
+        "Offset 32 varies separately from offset 28 and is a likely collection term candidate."
     }
   ];
 }

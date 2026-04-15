@@ -24,7 +24,9 @@ interface MasterSnapshotArtifact {
 
 function requireArtifactsDir(context: JobContext): string {
   if (!context.artifactsDir) {
-    throw new Error("artifactsDir is not set. ingestRawFiles must run before publishing API cache.");
+    throw new Error(
+      "artifactsDir is not set. ingestRawFiles must run before publishing API cache."
+    );
   }
 
   return context.artifactsDir;
@@ -59,17 +61,16 @@ export async function writeApiCache(context: JobContext): Promise<string> {
       a.legacyProductCode.localeCompare(b.legacyProductCode)
   );
 
-  const paymentStatusCounts = paymentMart.reduce<Record<string, { customerCount: number; balanceAmount: number }>>(
-    (accumulator, row) => {
-      const status = normalizePaymentStatus(row.paymentStatus);
-      const current = accumulator[status] ?? { customerCount: 0, balanceAmount: 0 };
-      current.customerCount += 1;
-      current.balanceAmount += row.balanceAmount ?? 0;
-      accumulator[status] = current;
-      return accumulator;
-    },
-    {}
-  );
+  const paymentStatusCounts = paymentMart.reduce<
+    Record<string, { customerCount: number; balanceAmount: number }>
+  >((accumulator, row) => {
+    const status = normalizePaymentStatus(row.paymentStatus);
+    const current = accumulator[status] ?? { customerCount: 0, balanceAmount: 0 };
+    current.customerCount += 1;
+    current.balanceAmount += row.balanceAmount ?? 0;
+    accumulator[status] = current;
+    return accumulator;
+  }, {});
 
   const paymentStatus = ["未入金", "一部入金", "完済"].map((status) => ({
     paymentStatus: status,
@@ -100,10 +101,26 @@ export async function writeApiCache(context: JobContext): Promise<string> {
 
   await mkdir(apiDir, { recursive: true });
   await Promise.all([
-    writeFile(join(apiDir, "sales-summary.json"), `${JSON.stringify(salesSummary, null, 2)}\n`, "utf8"),
-    writeFile(join(apiDir, "payment-status.json"), `${JSON.stringify(paymentStatus, null, 2)}\n`, "utf8"),
-    writeFile(join(apiDir, "master-stats.json"), `${JSON.stringify(masterStats, null, 2)}\n`, "utf8"),
-    writeFile(join(apiDir, "pipeline-meta.json"), `${JSON.stringify(pipelineMeta, null, 2)}\n`, "utf8")
+    writeFile(
+      join(apiDir, "sales-summary.json"),
+      `${JSON.stringify(salesSummary, null, 2)}\n`,
+      "utf8"
+    ),
+    writeFile(
+      join(apiDir, "payment-status.json"),
+      `${JSON.stringify(paymentStatus, null, 2)}\n`,
+      "utf8"
+    ),
+    writeFile(
+      join(apiDir, "master-stats.json"),
+      `${JSON.stringify(masterStats, null, 2)}\n`,
+      "utf8"
+    ),
+    writeFile(
+      join(apiDir, "pipeline-meta.json"),
+      `${JSON.stringify(pipelineMeta, null, 2)}\n`,
+      "utf8"
+    )
   ]);
 
   const apiRootDir = join(context.config.workDir, "api");

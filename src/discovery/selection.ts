@@ -1,6 +1,8 @@
 import type { FileIngestionCandidate } from "../jobs/job-types.js";
 
-function scoreCandidate(candidate: Pick<FileIngestionCandidate, "sourcePath" | "fileSize">): number {
+function scoreCandidate(
+  candidate: Pick<FileIngestionCandidate, "sourcePath" | "fileSize">
+): number {
   const path = candidate.sourcePath.replace(/\\/g, "/").toUpperCase();
   let score = 0;
 

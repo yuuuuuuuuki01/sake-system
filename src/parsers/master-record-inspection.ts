@@ -70,9 +70,7 @@ function requireArtifactsDir(context: JobContext): string {
 }
 
 function asciiView(buffer: Buffer): string {
-  return buffer
-    .toString("latin1")
-    .replace(/[^\x20-\x7E]/g, ".");
+  return buffer.toString("latin1").replace(/[^\x20-\x7E]/g, ".");
 }
 
 async function readRecord(filePath: string, startOffset: number, length: number): Promise<Buffer> {

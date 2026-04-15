@@ -5,17 +5,13 @@ import {
   detectRecordLength,
   readShiftJisField,
   readUint16BE,
-  readUint32BE,
+  readUint32BE
 } from "./binary-utils.js";
 
 describe("binary-utils", () => {
   it("readShiftJisField decodes a fixed Shift-JIS byte sequence", () => {
     const encoded = iconv.encode("こんにちは", "shift_jis");
-    const buffer = Buffer.concat([
-      Buffer.from([0x20]),
-      encoded,
-      Buffer.from([0x00, 0x20]),
-    ]);
+    const buffer = Buffer.concat([Buffer.from([0x20]), encoded, Buffer.from([0x00, 0x20])]);
 
     expect(readShiftJisField(buffer, 0, buffer.length)).toBe("こんにちは");
   });

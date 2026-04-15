@@ -84,7 +84,9 @@ const PAYLOAD_SEARCH_RECORDS = 256;
 
 function requireArtifactsDir(context: JobContext): string {
   if (!context.artifactsDir) {
-    throw new Error("artifactsDir is not set. ingestRawFiles must run before transaction inspection.");
+    throw new Error(
+      "artifactsDir is not set. ingestRawFiles must run before transaction inspection."
+    );
   }
 
   return context.artifactsDir;
@@ -100,7 +102,11 @@ function findOffsetValue(profile: CanonicalProfile, offset: number): number | un
 }
 
 function guessPageSize(profile: CanonicalProfile): number | undefined {
-  const candidates = [findOffsetValue(profile, 8), findOffsetValue(profile, 12), findOffsetValue(profile, 20)]
+  const candidates = [
+    findOffsetValue(profile, 8),
+    findOffsetValue(profile, 12),
+    findOffsetValue(profile, 20)
+  ]
     .filter((value): value is number => Boolean(value))
     .filter((value) => value >= 512 && value <= 16384 && value % 2 === 0);
 
@@ -108,7 +114,11 @@ function guessPageSize(profile: CanonicalProfile): number | undefined {
 }
 
 function guessRecordLength(profile: CanonicalProfile): number | undefined {
-  const candidates = [findOffsetValue(profile, 24), findOffsetValue(profile, 28), findOffsetValue(profile, 40)]
+  const candidates = [
+    findOffsetValue(profile, 24),
+    findOffsetValue(profile, 28),
+    findOffsetValue(profile, 40)
+  ]
     .filter((value): value is number => Boolean(value))
     .filter((value) => value >= 32 && value <= 4096);
 
@@ -248,9 +258,7 @@ export async function writeTransactionRecordInspection(context: JobContext): Pro
   const artifactsDir = requireArtifactsDir(context);
   const profilePath = join(artifactsDir, "profiles", "canonical-file-profiles.json");
   const rawPath = join(artifactsDir, "raw-ingestion.json");
-  const artifact = JSON.parse(
-    await readFile(profilePath, "utf8")
-  ) as CanonicalProfileArtifact;
+  const artifact = JSON.parse(await readFile(profilePath, "utf8")) as CanonicalProfileArtifact;
   const rawArtifact = JSON.parse(await readFile(rawPath, "utf8")) as RawSnapshotArtifact;
 
   const inspections: TransactionInspection[] = [];
@@ -266,11 +274,15 @@ export async function writeTransactionRecordInspection(context: JobContext): Pro
     const notes = notesFor(profile.fileCode);
 
     if (guessPageSize(profile) === undefined && auxiliaryHint.pageSize !== undefined) {
-      notes.push(`Page size heuristic was inherited from auxiliary variant ${auxiliaryHint.sourcePath}.`);
+      notes.push(
+        `Page size heuristic was inherited from auxiliary variant ${auxiliaryHint.sourcePath}.`
+      );
     }
 
     if (guessRecordLength(profile) === undefined && auxiliaryHint.recordLength !== undefined) {
-      notes.push(`Record length heuristic was inherited from auxiliary variant ${auxiliaryHint.sourcePath}.`);
+      notes.push(
+        `Record length heuristic was inherited from auxiliary variant ${auxiliaryHint.sourcePath}.`
+      );
     }
 
     if (!candidatePageSize || !candidateRecordLength) {
@@ -297,10 +309,7 @@ export async function writeTransactionRecordInspection(context: JobContext): Pro
       candidateRecordLength
     );
 
-    if (
-      firstPayload.recordIndex === undefined ||
-      firstPayload.startOffset === undefined
-    ) {
+    if (firstPayload.recordIndex === undefined || firstPayload.startOffset === undefined) {
       inspections.push({
         fileCode: profile.fileCode,
         sourcePath: profile.sourcePath,

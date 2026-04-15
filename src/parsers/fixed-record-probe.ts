@@ -79,7 +79,11 @@ function guessPageSize(profile: CanonicalProfile): number | undefined {
 }
 
 function guessRecordLength(profile: CanonicalProfile): number | undefined {
-  const candidates = [findOffsetValue(profile, 24), findOffsetValue(profile, 28), findOffsetValue(profile, 40)]
+  const candidates = [
+    findOffsetValue(profile, 24),
+    findOffsetValue(profile, 28),
+    findOffsetValue(profile, 40)
+  ]
     .filter((value): value is number => Boolean(value))
     .filter((value) => value >= 32 && value <= 4096);
 

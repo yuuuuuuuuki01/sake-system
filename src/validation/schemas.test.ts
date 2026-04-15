@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  CustomerSchema,
-  ProductSchema,
-  SalesHeaderSchema,
-} from "./schemas.js";
+import { CustomerSchema, ProductSchema, SalesHeaderSchema } from "./schemas.js";
 
 describe("validation schemas", () => {
   it("CustomerSchema accepts a valid customer", () => {
@@ -14,8 +10,8 @@ describe("validation schemas", () => {
         legacyCustomerCode: "C001",
         name: "Test Customer",
         closingDay: 15,
-        isActive: true,
-      }).success,
+        isActive: true
+      }).success
     ).toBe(true);
   });
 
@@ -26,8 +22,8 @@ describe("validation schemas", () => {
         legacyCustomerCode: "",
         name: "Test Customer",
         closingDay: 15,
-        isActive: true,
-      }).success,
+        isActive: true
+      }).success
     ).toBe(false);
   });
 
@@ -38,8 +34,8 @@ describe("validation schemas", () => {
         legacyCustomerCode: "C001",
         name: "Test Customer",
         closingDay: 32,
-        isActive: true,
-      }).success,
+        isActive: true
+      }).success
     ).toBe(false);
   });
 
@@ -50,8 +46,8 @@ describe("validation schemas", () => {
         legacyProductCode: "P001",
         name: "Test Product",
         janCode: "1234567890123",
-        isActive: true,
-      }).success,
+        isActive: true
+      }).success
     ).toBe(true);
   });
 
@@ -62,8 +58,8 @@ describe("validation schemas", () => {
         legacyProductCode: "P001",
         name: "Test Product",
         janCode: "123456789012",
-        isActive: true,
-      }).success,
+        isActive: true
+      }).success
     ).toBe(false);
   });
 
@@ -74,8 +70,8 @@ describe("validation schemas", () => {
         legacyDocumentNo: "S0001",
         legacyCustomerCode: "C001",
         salesDate: "2026-04-15",
-        totalAmount: -1,
-      }).success,
+        totalAmount: -1
+      }).success
     ).toBe(false);
   });
 
@@ -86,8 +82,8 @@ describe("validation schemas", () => {
         legacyDocumentNo: "S0001",
         legacyCustomerCode: "C001",
         salesDate: "2026/04/15",
-        totalAmount: 1000,
-      }).success,
+        totalAmount: 1000
+      }).success
     ).toBe(false);
   });
 });

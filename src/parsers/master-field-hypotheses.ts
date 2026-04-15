@@ -69,7 +69,11 @@ function requireArtifactsDir(context: JobContext): string {
   return context.artifactsDir;
 }
 
-function buildHypothesis(fileCode: string, offset: number, values: number[]): OffsetHypothesis | undefined {
+function buildHypothesis(
+  fileCode: string,
+  offset: number,
+  values: number[]
+): OffsetHypothesis | undefined {
   const unique = Array.from(new Set(values));
   const zeroCount = values.filter((value) => value === 0).length;
   const min = unique.length > 0 ? Math.min(...unique) : undefined;
@@ -85,10 +89,12 @@ function buildHypothesis(fileCode: string, offset: number, values: number[]): Of
   if (fileCode === "SHSYO") {
     if (offset === 0 || offset === 8) {
       label = "candidate_product_code";
-      reason = "Low-order values vary per record and are strong anchors for a product key candidate.";
+      reason =
+        "Low-order values vary per record and are strong anchors for a product key candidate.";
     } else if (offset === 28 || offset === 32) {
       label = "candidate_jan_or_external_code";
-      reason = "Values vary across product records and were already flagged as JAN/external-code hints in the stub parser.";
+      reason =
+        "Values vary across product records and were already flagged as JAN/external-code hints in the stub parser.";
     } else if ((min ?? 0) > 1000 && (max ?? 0) < 60000) {
       label = "candidate_lookup_or_category_code";
       reason = "Stable mid-range integers may encode category, tax, or lookup references.";

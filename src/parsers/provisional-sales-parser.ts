@@ -80,7 +80,9 @@ interface ProvisionalSalesParserArtifact {
 
 function requireArtifactsDir(context: JobContext): string {
   if (!context.artifactsDir) {
-    throw new Error("artifactsDir is not set. ingestRawFiles must run before provisional sales parsing.");
+    throw new Error(
+      "artifactsDir is not set. ingestRawFiles must run before provisional sales parsing."
+    );
   }
 
   return context.artifactsDir;
@@ -182,15 +184,18 @@ export async function writeProvisionalSalesParser(context: JobContext): Promise<
     await readFile(extractPath, "utf8")
   ) as SalesTransactionExtractionArtifact;
 
-  const outputs = artifact.files.reduce<ProvisionalSalesParserArtifact["outputs"]>((items, file) => {
-    if (file.fileCode === "SHDEN") {
-      items.push(parseHeaders(file));
-    } else if (file.fileCode === "SHTOR") {
-      items.push(parseLines(file));
-    }
+  const outputs = artifact.files.reduce<ProvisionalSalesParserArtifact["outputs"]>(
+    (items, file) => {
+      if (file.fileCode === "SHDEN") {
+        items.push(parseHeaders(file));
+      } else if (file.fileCode === "SHTOR") {
+        items.push(parseLines(file));
+      }
 
-    return items;
-  }, []);
+      return items;
+    },
+    []
+  );
 
   const payload: ProvisionalSalesParserArtifact = {
     runId: context.runId,

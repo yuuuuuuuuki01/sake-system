@@ -4,7 +4,7 @@ export {
   PaymentReceiptSchema,
   ProductSchema,
   SalesHeaderSchema,
-  SalesLineSchema,
+  SalesLineSchema
 } from "./schemas.js";
 export type { ValidationError } from "./validate.js";
 export { validateBatch } from "./validate.js";

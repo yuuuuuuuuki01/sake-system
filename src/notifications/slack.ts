@@ -11,7 +11,9 @@ const SLACK_LEVEL_COLORS: Record<SlackNotification["level"], string> = {
   info: "#2B6CB0"
 };
 
-function buildFieldElements(fields: Record<string, string>): Array<{ type: "mrkdwn"; text: string }> {
+function buildFieldElements(
+  fields: Record<string, string>
+): Array<{ type: "mrkdwn"; text: string }> {
   return Object.entries(fields).map(([key, value]) => ({
     type: "mrkdwn",
     text: `*${key}:* ${value}`
@@ -88,7 +90,11 @@ export async function sendSlackNotification(notification: SlackNotification): Pr
   }
 }
 
-export async function notifyPipelineError(runId: string, jobName: string, error: Error): Promise<void> {
+export async function notifyPipelineError(
+  runId: string,
+  jobName: string,
+  error: Error
+): Promise<void> {
   await sendSlackNotification({
     level: "error",
     title: "🚨 パイプラインエラー",

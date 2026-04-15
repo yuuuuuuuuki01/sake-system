@@ -83,9 +83,7 @@ function summarizeCandidates(context: JobContext, codes: string[]): string {
     return "no matching files discovered";
   }
 
-  return matched
-    .map((candidate) => `${candidate.fileCode}:${candidate.sourcePath}`)
-    .join(", ");
+  return matched.map((candidate) => `${candidate.fileCode}:${candidate.sourcePath}`).join(", ");
 }
 
 async function executeJob(jobName: JobName, context: JobContext): Promise<JobResult> {
@@ -98,181 +96,158 @@ async function executeJob(jobName: JobName, context: JobContext): Promise<JobRes
         detail: `Discovered ${context.candidates.length} legacy candidates from analysis output.`
       };
     }
-    case "ingestRawFiles":
-      {
-        const { artifactsDir, snapshotPath } = await persistRawSnapshot(context);
-        context.artifactsDir = artifactsDir;
-        return {
-          jobName,
-          ok: true,
-          detail: `Persisted raw ingestion snapshot for ${context.candidates.length} candidates at ${snapshotPath}.`
-        };
-      }
-    case "normalizeMasters":
-      {
-        const targetPath = await writeMasterNormalizationPlan(context);
-        const snapshotPath = await writeMasterSnapshot(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote master normalization plan to ${targetPath}. Sources: ${summarizeCandidates(context, [
-            "SHSYO",
-            "SHTKI",
-            "SHZEI",
-            "SHTAN",
-            "SHTANT"
-          ])}. Snapshot: ${snapshotPath}`
-        };
-      }
-    case "profileCanonicalFiles":
-      {
-        const targetPath = await writeCanonicalProfiles(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote canonical file profiles to ${targetPath}.`
-        };
-      }
-    case "probeFixedRecords":
-      {
-        const targetPath = await writeFixedRecordProbe(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote fixed-record probe results to ${targetPath}.`
-        };
-      }
-    case "inspectMasterRecords":
-      {
-        const targetPath = await writeMasterRecordInspection(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote master record inspection artifact to ${targetPath}.`
-        };
-      }
-    case "inspectTransactionRecords":
-      {
-        const targetPath = await writeTransactionRecordInspection(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote transaction record inspection artifact to ${targetPath}.`
-        };
-      }
-    case "draftSalesTransactionFields":
-      {
-        const targetPath = await writeNamedSalesTransactionDraft(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote sales transaction draft artifact to ${targetPath}.`
-        };
-      }
-    case "extractSalesTransactionDraftFields":
-      {
-        const targetPath = await writeSalesTransactionDraftExtraction(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote sales transaction draft extraction artifact to ${targetPath}.`
-        };
-      }
-    case "parseProvisionalSalesFields":
-      {
-        const targetPath = await writeProvisionalSalesParser(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote provisional sales parser artifact to ${targetPath}.`
-        };
-      }
-    case "parseMasterStubFields":
-      {
-        const targetPath = await writeMasterStubParsers(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote master stub parser artifact to ${targetPath}.`
-        };
-      }
-    case "mapMasterFieldHypotheses":
-      {
-        const targetPath = await writeMasterFieldHypotheses(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote master field hypothesis artifact to ${targetPath}.`
-        };
-      }
-    case "draftNamedMasterFields":
-      {
-        const targetPath = await writeNamedMasterDraft(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote named master draft artifact to ${targetPath}.`
-        };
-      }
-    case "extractNamedMasterDraftFields":
-      {
-        const targetPath = await writeMasterDraftExtraction(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote named master draft extraction artifact to ${targetPath}.`
-        };
-      }
-    case "parseProvisionalMasterFields":
-      {
-        const targetPath = await writeProvisionalMasterParser(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote provisional master parser artifact to ${targetPath}.`
-        };
-      }
-    case "normalizeSales":
-      {
-        const targetPath = await writeSalesNormalizationPlan(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote sales normalization plan to ${targetPath}. Sources: ${summarizeCandidates(context, ["SHDEN", "SHTOR"])}`
-        };
-      }
-    case "normalizePayments":
-      {
-        const targetPath = await writePaymentNormalizationPlan(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote payment normalization plan to ${targetPath}. Sources: ${summarizeCandidates(context, [
-            "SHNKI",
-            "SHSUJ",
-            "SHTNSUJ",
-            "SHTEGATA"
-          ])}`
-        };
-      }
-    case "refreshSalesMarts":
-      {
-        const summary = await refreshSalesMarts(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote daily sales mart with ${summary.length} sales-date summaries.`
-        };
-      }
-    case "refreshPaymentMarts":
-      {
-        const rows = await refreshPaymentMarts(context);
-        return {
-          jobName,
-          ok: true,
-          detail: `Wrote customer payment status mart with ${rows.length} rows.`
-        };
-      }
+    case "ingestRawFiles": {
+      const { artifactsDir, snapshotPath } = await persistRawSnapshot(context);
+      context.artifactsDir = artifactsDir;
+      return {
+        jobName,
+        ok: true,
+        detail: `Persisted raw ingestion snapshot for ${context.candidates.length} candidates at ${snapshotPath}.`
+      };
+    }
+    case "normalizeMasters": {
+      const targetPath = await writeMasterNormalizationPlan(context);
+      const snapshotPath = await writeMasterSnapshot(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote master normalization plan to ${targetPath}. Sources: ${summarizeCandidates(
+          context,
+          ["SHSYO", "SHTKI", "SHZEI", "SHTAN", "SHTANT"]
+        )}. Snapshot: ${snapshotPath}`
+      };
+    }
+    case "profileCanonicalFiles": {
+      const targetPath = await writeCanonicalProfiles(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote canonical file profiles to ${targetPath}.`
+      };
+    }
+    case "probeFixedRecords": {
+      const targetPath = await writeFixedRecordProbe(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote fixed-record probe results to ${targetPath}.`
+      };
+    }
+    case "inspectMasterRecords": {
+      const targetPath = await writeMasterRecordInspection(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote master record inspection artifact to ${targetPath}.`
+      };
+    }
+    case "inspectTransactionRecords": {
+      const targetPath = await writeTransactionRecordInspection(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote transaction record inspection artifact to ${targetPath}.`
+      };
+    }
+    case "draftSalesTransactionFields": {
+      const targetPath = await writeNamedSalesTransactionDraft(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote sales transaction draft artifact to ${targetPath}.`
+      };
+    }
+    case "extractSalesTransactionDraftFields": {
+      const targetPath = await writeSalesTransactionDraftExtraction(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote sales transaction draft extraction artifact to ${targetPath}.`
+      };
+    }
+    case "parseProvisionalSalesFields": {
+      const targetPath = await writeProvisionalSalesParser(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote provisional sales parser artifact to ${targetPath}.`
+      };
+    }
+    case "parseMasterStubFields": {
+      const targetPath = await writeMasterStubParsers(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote master stub parser artifact to ${targetPath}.`
+      };
+    }
+    case "mapMasterFieldHypotheses": {
+      const targetPath = await writeMasterFieldHypotheses(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote master field hypothesis artifact to ${targetPath}.`
+      };
+    }
+    case "draftNamedMasterFields": {
+      const targetPath = await writeNamedMasterDraft(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote named master draft artifact to ${targetPath}.`
+      };
+    }
+    case "extractNamedMasterDraftFields": {
+      const targetPath = await writeMasterDraftExtraction(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote named master draft extraction artifact to ${targetPath}.`
+      };
+    }
+    case "parseProvisionalMasterFields": {
+      const targetPath = await writeProvisionalMasterParser(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote provisional master parser artifact to ${targetPath}.`
+      };
+    }
+    case "normalizeSales": {
+      const targetPath = await writeSalesNormalizationPlan(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote sales normalization plan to ${targetPath}. Sources: ${summarizeCandidates(context, ["SHDEN", "SHTOR"])}`
+      };
+    }
+    case "normalizePayments": {
+      const targetPath = await writePaymentNormalizationPlan(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote payment normalization plan to ${targetPath}. Sources: ${summarizeCandidates(
+          context,
+          ["SHNKI", "SHSUJ", "SHTNSUJ", "SHTEGATA"]
+        )}`
+      };
+    }
+    case "refreshSalesMarts": {
+      const summary = await refreshSalesMarts(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote daily sales mart with ${summary.length} sales-date summaries.`
+      };
+    }
+    case "refreshPaymentMarts": {
+      const rows = await refreshPaymentMarts(context);
+      return {
+        jobName,
+        ok: true,
+        detail: `Wrote customer payment status mart with ${rows.length} rows.`
+      };
+    }
     case "freeeExport":
       return runFreeeExport(context);
     case "publishApiCache": {
@@ -318,7 +293,10 @@ async function main(): Promise<void> {
 
       if (!result.ok) {
         const err = new Error(result.detail);
-        jobLogger.error({ jobName, runId: context.runId, durationMs, detail: result.detail, err }, "job failed");
+        jobLogger.error(
+          { jobName, runId: context.runId, durationMs, detail: result.detail, err },
+          "job failed"
+        );
 
         try {
           await notifyPipelineError(context.runId, result.jobName, err);
@@ -329,7 +307,10 @@ async function main(): Promise<void> {
         break;
       }
 
-      jobLogger.info({ jobName, runId: context.runId, durationMs, detail: result.detail }, "job end");
+      jobLogger.info(
+        { jobName, runId: context.runId, durationMs, detail: result.detail },
+        "job end"
+      );
     } catch (error) {
       const err = toError(error);
       const durationMs = Date.now() - jobStartedAtMs;
@@ -345,14 +326,21 @@ async function main(): Promise<void> {
     }
   }
 
-  pipelineLogger.info({ runId: context.runId, durationMs: Date.now() - startedAtMs }, "pipeline done");
+  pipelineLogger.info(
+    { runId: context.runId, durationMs: Date.now() - startedAtMs },
+    "pipeline done"
+  );
   if (context.artifactsDir) {
     pipelineLogger.info({ artifactsDir: context.artifactsDir }, "pipeline artifacts");
   }
 
   if (process.exitCode !== 1) {
     try {
-      await notifyPipelineComplete(context.runId, context.jobResults.length, Date.now() - startedAtMs);
+      await notifyPipelineComplete(
+        context.runId,
+        context.jobResults.length,
+        Date.now() - startedAtMs
+      );
     } catch (notificationError) {
       pipelineLogger.error({ err: toError(notificationError) }, "slack notification failed");
     }

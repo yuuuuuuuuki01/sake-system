@@ -98,8 +98,14 @@ export function detectRecordLength(buf: Buffer, sampleSize = DEFAULT_SAMPLE_SIZE
     throw new Error("Buffer is too small to infer a fixed record length.");
   }
 
-  const effectiveSampleSize = Math.max(2, Math.min(sampleSize, Math.floor(buf.length / MIN_RECORD_LENGTH)));
-  const maxCandidateLength = Math.min(MAX_RECORD_LENGTH, Math.floor(buf.length / effectiveSampleSize));
+  const effectiveSampleSize = Math.max(
+    2,
+    Math.min(sampleSize, Math.floor(buf.length / MIN_RECORD_LENGTH))
+  );
+  const maxCandidateLength = Math.min(
+    MAX_RECORD_LENGTH,
+    Math.floor(buf.length / effectiveSampleSize)
+  );
 
   let bestLength = 0;
   let bestScore = -1;
@@ -128,7 +134,8 @@ export function detectRecordLength(buf: Buffer, sampleSize = DEFAULT_SAMPLE_SIZE
         stableColumns += 1;
       }
 
-      const paddingShare = ((counts.get("zero") ?? 0) + (counts.get("space") ?? 0)) / effectiveSampleSize;
+      const paddingShare =
+        ((counts.get("zero") ?? 0) + (counts.get("space") ?? 0)) / effectiveSampleSize;
       if (paddingShare >= 0.5) {
         paddedColumns += 1;
       }

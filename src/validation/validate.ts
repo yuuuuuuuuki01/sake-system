@@ -9,7 +9,7 @@ export interface ValidationError {
 export function validateBatch<T>(
   schema: ZodSchema<T>,
   records: unknown[],
-  label: string,
+  label: string
 ): { valid: T[]; errors: ValidationError[] } {
   const valid: T[] = [];
   const errors: ValidationError[] = [];
@@ -27,7 +27,7 @@ export function validateBatch<T>(
       issues: result.error.issues.map((issue) => {
         const path = issue.path.length > 0 ? issue.path.join(".") : label;
         return `${label}[${index}]${path === label ? "" : `.${path}`}: ${issue.message}`;
-      }),
+      })
     });
   });
 

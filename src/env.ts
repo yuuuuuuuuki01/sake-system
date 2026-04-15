@@ -48,7 +48,10 @@ const envSchema = z.object({
 
     return normalized;
   }, z.boolean()),
-  LOG_LEVEL: z.preprocess((value) => emptyStringToUndefined(value) ?? "info", z.enum(LOG_LEVEL_VALUES)),
+  LOG_LEVEL: z.preprocess(
+    (value) => emptyStringToUndefined(value) ?? "info",
+    z.enum(LOG_LEVEL_VALUES)
+  ),
   SLACK_WEBHOOK_URL: optionalString,
   SYUSEN_ANALYSIS_DIR: z.preprocess(
     (value) => emptyStringToUndefined(value) ?? "./references/analysis/current",

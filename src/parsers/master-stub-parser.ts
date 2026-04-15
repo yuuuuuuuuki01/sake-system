@@ -101,7 +101,10 @@ function parseSlots(buffer: Buffer): ParsedSlot[] {
   return slots;
 }
 
-function candidateCodeSlots(fileCode: string, slots: ParsedSlot[]): Record<string, number | undefined> {
+function candidateCodeSlots(
+  fileCode: string,
+  slots: ParsedSlot[]
+): Record<string, number | undefined> {
   const byOffset = new Map<number, ParsedSlot>(slots.map((slot) => [slot.offset, slot]));
 
   if (fileCode === "SHSYO") {
@@ -158,7 +161,11 @@ export async function writeMasterStubParsers(context: JobContext): Promise<strin
     for (let i = 0; i < RECORDS_TO_PARSE; i += 1) {
       const recordIndex = probe.firstPayloadRecordIndex + i;
       const startOffset = probe.firstPayloadStartOffset + probe.candidateRecordLength * i;
-      const record = await readRecord(probe.sourcePath, startOffset, Math.min(probe.candidateRecordLength, BYTES_TO_CAPTURE));
+      const record = await readRecord(
+        probe.sourcePath,
+        startOffset,
+        Math.min(probe.candidateRecordLength, BYTES_TO_CAPTURE)
+      );
       const slots = parseSlots(record);
 
       records.push({

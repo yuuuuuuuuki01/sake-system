@@ -16,7 +16,9 @@ interface ProvisionalPaymentArtifact {
 
 function requireArtifactsDir(context: JobContext): string {
   if (!context.artifactsDir) {
-    throw new Error("artifactsDir is not set. ingestRawFiles must run before refreshing payment marts.");
+    throw new Error(
+      "artifactsDir is not set. ingestRawFiles must run before refreshing payment marts."
+    );
   }
 
   return context.artifactsDir;

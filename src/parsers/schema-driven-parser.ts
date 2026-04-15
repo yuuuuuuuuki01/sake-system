@@ -70,7 +70,10 @@ export async function parseFile(
   schema: FileSchema
 ): Promise<Record<string, unknown>[]> {
   const buffer = await readFile(filePath);
-  const detectedLength = detectRecordLength(buffer, Math.min(8, Math.max(2, Math.floor(buffer.length / schema.recordLength))));
+  const detectedLength = detectRecordLength(
+    buffer,
+    Math.min(8, Math.max(2, Math.floor(buffer.length / schema.recordLength)))
+  );
 
   if (detectedLength !== schema.recordLength) {
     throw new Error(

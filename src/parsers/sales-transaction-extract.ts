@@ -58,14 +58,19 @@ interface SalesTransactionExtractionArtifact {
 
 function requireArtifactsDir(context: JobContext): string {
   if (!context.artifactsDir) {
-    throw new Error("artifactsDir is not set. ingestRawFiles must run before transaction extraction.");
+    throw new Error(
+      "artifactsDir is not set. ingestRawFiles must run before transaction extraction."
+    );
   }
 
   return context.artifactsDir;
 }
 
 function sanitizeAscii(value: Buffer): string {
-  return value.toString("latin1").replace(/[^\x20-\x7E]/g, ".").trim();
+  return value
+    .toString("latin1")
+    .replace(/[^\x20-\x7E]/g, ".")
+    .trim();
 }
 
 function toHex(value: Buffer): string {
