@@ -6,7 +6,8 @@
   "scripts": {
     "check": "tsc --noEmit",
     "run:pipeline": "tsx src/jobs/pipeline.ts",
-    "run:dashboard": "tsx src/ui/dashboard-prototype.ts"
+    "run:dashboard": "tsx src/ui/dashboard-prototype.ts",
+    "sync:analysis-reference": "tsx src/tools/sync-analysis-reference.ts"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

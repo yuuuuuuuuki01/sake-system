@@ -71,9 +71,23 @@ under `references/` or override paths with environment variables.
 Recommended setup:
 
 1. Copy `.env.example` to `.env`
-2. Place the analysis export under `references/analysis/current/`
+2. Import analysis JSON into `references/analysis/current/`
 3. Point `SYUSEN_LEGACY_ROOT` at a mounted or copied legacy root for that machine
 4. Run `npm run run:pipeline`
+
+To import analysis JSON from another local snapshot:
+
+```powershell
+$env:SYUSEN_ANALYSIS_IMPORT_DIR="C:\agent\codex\syusen_analysis\20260414_165347"
+npm run sync:analysis-reference
+```
+
+The sync command copies a curated subset of analysis files into the tracked
+`references/analysis/current/` folder so discovery work can continue on another
+machine without depending on the original absolute path.
+
+If you prefer manual setup instead, place the analysis export under
+`references/analysis/current/` yourself.
 
 Notes:
 

@@ -1,0 +1,310 @@
+﻿[
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323185432)\/",
+        "Length":  61440,
+        "Name":  "00000SHBAK.MST",
+        "FullName":  "Z:\\sh\\mst\\00000SHBAK.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323185338)\/",
+        "Length":  27648,
+        "Name":  "00000SHSTA.MST",
+        "FullName":  "Z:\\sh\\mst\\00000SHSTA.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1472003477141)\/",
+        "Length":  61440,
+        "Name":  "H5UTK.MST",
+        "FullName":  "Z:\\sh\\mst\\H5UTK.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1770114729574)\/",
+        "Length":  0,
+        "Name":  "mglock.dat",
+        "FullName":  "Z:\\sh\\mst\\mglock.dat"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1776150248144)\/",
+        "Length":  24576,
+        "Name":  "SHDKA.MST",
+        "FullName":  "Z:\\sh\\mst\\SHDKA.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323185211)\/",
+        "Length":  61440,
+        "Name":  "SHGIN.MST",
+        "FullName":  "Z:\\sh\\mst\\SHGIN.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323191295)\/",
+        "Length":  73728,
+        "Name":  "SHISYU.MST",
+        "FullName":  "Z:\\sh\\mst\\SHISYU.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323191183)\/",
+        "Length":  73728,
+        "Name":  "SHJIYUS.MST",
+        "FullName":  "Z:\\sh\\mst\\SHJIYUS.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323191214)\/",
+        "Length":  73728,
+        "Name":  "SHJIYUT.MST",
+        "FullName":  "Z:\\sh\\mst\\SHJIYUT.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1686569963852)\/",
+        "Length":  73728,
+        "Name":  "SHKDS.MST",
+        "FullName":  "Z:\\sh\\mst\\SHKDS.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1470981394000)\/",
+        "Length":  12288,
+        "Name":  "SHKEIYU.MST",
+        "FullName":  "Z:\\sh\\mst\\SHKEIYU.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1473206250578)\/",
+        "Length":  81920,
+        "Name":  "SHKOM.MST",
+        "FullName":  "Z:\\sh\\mst\\SHKOM.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1740122246836)\/",
+        "Length":  81920,
+        "Name":  "SHMEI.MST",
+        "FullName":  "Z:\\sh\\mst\\SHMEI.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323185643)\/",
+        "Length":  32768,
+        "Name":  "SHMOKU.MST",
+        "FullName":  "Z:\\sh\\mst\\SHMOKU.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323185274)\/",
+        "Length":  27648,
+        "Name":  "SHMTK.MST",
+        "FullName":  "Z:\\sh\\mst\\SHMTK.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1775782142415)\/",
+        "Length":  81920,
+        "Name":  "SHNOU.MST",
+        "FullName":  "Z:\\sh\\mst\\SHNOU.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323185149)\/",
+        "Length":  30720,
+        "Name":  "SHRIB.MST",
+        "FullName":  "Z:\\sh\\mst\\SHRIB.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1647336434020)\/",
+        "Length":  98304,
+        "Name":  "SHSIR.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSIR.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471494368374)\/",
+        "Length":  73728,
+        "Name":  "SHSMI.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSMI.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1684123369127)\/",
+        "Length":  253952,
+        "Name":  "SHSTK_NEW.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSTK_NEW.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471487485866)\/",
+        "Length":  61440,
+        "Name":  "SHSTK_NEW1.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSTK_NEW1.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1776135832406)\/",
+        "Length":  2334720,
+        "Name":  "SHSYO.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSYO.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1687337366900)\/",
+        "Length":  87040,
+        "Name":  "SHSYOGEN.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSYOGEN.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323191280)\/",
+        "Length":  81920,
+        "Name":  "SHSYOKEI.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSYOKEI.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1776133820807)\/",
+        "Length":  28160,
+        "Name":  "SHSYS.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSYS.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323191133)\/",
+        "Length":  39936,
+        "Name":  "SHSZI.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSZI.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1686569963820)\/",
+        "Length":  73728,
+        "Name":  "SHSZK.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSZK.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1470981394000)\/",
+        "Length":  10752,
+        "Name":  "SHSZKAKU.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSZKAKU.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1301733693921)\/",
+        "Length":  26624,
+        "Name":  "SHSZK_NEW.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSZK_NEW.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471487476320)\/",
+        "Length":  30720,
+        "Name":  "SHSZK_NEW1.MST",
+        "FullName":  "Z:\\sh\\mst\\SHSZK_NEW1.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1775791037626)\/",
+        "Length":  496640,
+        "Name":  "SHTAN.MST",
+        "FullName":  "Z:\\sh\\mst\\SHTAN.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1775790073147)\/",
+        "Length":  1800192,
+        "Name":  "SHTANT.MST",
+        "FullName":  "Z:\\sh\\mst\\SHTANT.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1775791037706)\/",
+        "Length":  110592,
+        "Name":  "SHTHE.MST",
+        "FullName":  "Z:\\sh\\mst\\SHTHE.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1776068477614)\/",
+        "Length":  745472,
+        "Name":  "SHTKI.MST",
+        "FullName":  "Z:\\sh\\mst\\SHTKI.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471323190930)\/",
+        "Length":  86016,
+        "Name":  "SHTKU.MST",
+        "FullName":  "Z:\\sh\\mst\\SHTKU.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1470981392000)\/",
+        "Length":  21504,
+        "Name":  "SHTTCLR.MST",
+        "FullName":  "Z:\\sh\\mst\\SHTTCLR.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1470981394000)\/",
+        "Length":  21504,
+        "Name":  "SHUSB.MST",
+        "FullName":  "Z:\\sh\\mst\\SHUSB.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1606467301437)\/",
+        "Length":  81920,
+        "Name":  "SHZEI.MST",
+        "FullName":  "Z:\\sh\\mst\\SHZEI.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1556791072513)\/",
+        "Length":  57344,
+        "Name":  "SHZEI_NEW.MST",
+        "FullName":  "Z:\\sh\\mst\\SHZEI_NEW.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1471486195977)\/",
+        "Length":  25088,
+        "Name":  "SHZEI_NEW1.MST",
+        "FullName":  "Z:\\sh\\mst\\SHZEI_NEW1.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1773286733263)\/",
+        "Length":  261120,
+        "Name":  "SHZHN.MST",
+        "FullName":  "Z:\\sh\\mst\\SHZHN.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1737162515411)\/",
+        "Length":  57344,
+        "Name":  "SH_CYENSTORE_ID.MST",
+        "FullName":  "Z:\\sh\\mst\\SH_CYENSTORE_ID.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1737162113620)\/",
+        "Length":  285696,
+        "Name":  "SH_CYENSTORE_SYOUHIN_CD.MST",
+        "FullName":  "Z:\\sh\\mst\\SH_CYENSTORE_SYOUHIN_CD.MST"
+    },
+    {
+        "Mode":  "-a----",
+        "LastWriteTime":  "\/Date(1775782142446)\/",
+        "Length":  196608,
+        "Name":  "SH_CYENSTORE_TOKUISAKIDENPYO.MST",
+        "FullName":  "Z:\\sh\\mst\\SH_CYENSTORE_TOKUISAKIDENPYO.MST"
+    }
+]
