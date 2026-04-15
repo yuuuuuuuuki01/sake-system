@@ -3,13 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- index.htmlは最新を取得させる(SPA redirect破綻を防ぐ) -->
+    <meta http-equiv="Cache-Control" content="no-cache" />
     <title>syusen-cloud</title>
     <script>
+      // 404.htmlから渡された元のパスを復元してSPAルーターに引き渡す
       (function redirectSpaPath() {
-        const redirect = sessionStorage.getItem("spa-redirect");
-        if (redirect) {
-          sessionStorage.removeItem("spa-redirect");
-          history.replaceState(null, "", redirect);
+        try {
+          var redirect = sessionStorage.getItem("spa-redirect");
+          if (redirect && redirect !== location.pathname + location.search + location.hash) {
+            sessionStorage.removeItem("spa-redirect");
+            history.replaceState(null, "", redirect);
+          } else if (redirect) {
+            sessionStorage.removeItem("spa-redirect");
+          }
+        } catch (e) {
+          // sessionStorage未対応時は無視
         }
       })();
     </script>
