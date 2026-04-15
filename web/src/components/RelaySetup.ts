@@ -464,10 +464,32 @@ cd sake-system\\relay`,
       </div>
     </section>
 
+    <section class="panel kpi-alert">
+      <div class="panel-header">
+        <div>
+          <h2>⚡ かんたんセットアップ：設定ファイルを自動生成</h2>
+          <p class="panel-caption">ボタン1つで設定済みの <code>relay_config.json</code> をダウンロードできます。中身は編集不要で、そのまま relay フォルダに保存するだけでOKです。</p>
+        </div>
+      </div>
+      <div class="action-bar-large">
+        <button
+          class="button primary"
+          type="button"
+          data-action="download-relay-config"
+          style="font-size: 15px; padding: 14px 28px;"
+        >
+          📥 relay_config.json をダウンロード
+        </button>
+      </div>
+      <p class="form-hint" style="margin-top: 12px;">
+        保存場所: WEB連動PCの <code>relay\</code> フォルダ（<code>relay_agent.py</code> と同じ場所）に置いてください。上書き保存でOKです。
+      </p>
+    </section>
+
     <section class="panel">
       <div class="panel-header">
         <div>
-          <h2>接続情報</h2>
+          <h2>接続情報（手動で設定する方用）</h2>
         </div>
       </div>
       <div class="relay-config-list">
@@ -488,7 +510,7 @@ cd sake-system\\relay`,
         <div class="relay-config-row">
           <div>
             <p class="panel-title">Supabase Anon Key</p>
-            <span class="config-value">${escapeHtml(supabaseAnonKey)}</span>
+            <span class="config-value">${escapeHtml(supabaseAnonKey || "（未設定：Supabaseダッシュボードから取得してください）")}</span>
           </div>
           <button
             class="button secondary"

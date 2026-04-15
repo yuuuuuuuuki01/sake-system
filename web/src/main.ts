@@ -1670,6 +1670,27 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  root.querySelector<HTMLButtonElement>("[data-action='download-relay-config']")?.addEventListener("click", () => {
+    const config = {
+      supabase_url: SUPABASE_URL,
+      supabase_anon_key: SUPABASE_ANON_KEY || "（Supabaseダッシュボードから取得して貼り付け）",
+      z_drive_path: "Z:\\",
+      sync_modules: ["sk", "sh", "k5", "h5"],
+      interval_minutes: 5,
+      use_odbc: false,
+      odbc_dsn: "MagicSake",
+      log_level: "INFO"
+    };
+    const json = JSON.stringify(config, null, 2);
+    const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "relay_config.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  });
+
   root.querySelectorAll<HTMLButtonElement>("[data-action='copy-code']").forEach((button) => {
     button.addEventListener("click", async () => {
       const encoded = button.dataset.code ?? "";
