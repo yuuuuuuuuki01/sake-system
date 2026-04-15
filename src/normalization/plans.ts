@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { FileIngestionCandidate, JobContext } from "../jobs/job-types.js";
+import type { JobContext } from "../jobs/job-types.js";
 
 interface NormalizationSource {
   fileCode: string;
