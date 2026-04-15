@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>syusen-cloud</title>
+    <script>
+      sessionStorage.setItem(
+        "spa-redirect",
+        location.pathname + location.search + location.hash
+      );
+      location.replace("/sake-system/");
+    </script>
+  </head>
+  <body></body>
+</html>

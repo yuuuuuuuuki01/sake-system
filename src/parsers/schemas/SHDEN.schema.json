@@ -1,0 +1,41 @@
+{
+  "fileCode": "SHDEN",
+  "recordLength": 64,
+  "fields": [
+    {
+      "name": "documentNo",
+      "offset": 0,
+      "length": 8,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "customerCode",
+      "offset": 8,
+      "length": 8,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "salesDate",
+      "offset": 16,
+      "length": 8,
+      "type": "date_yyyymmdd",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "totalAmount",
+      "offset": 24,
+      "length": 8,
+      "type": "packed_decimal",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "remarks",
+      "offset": 32,
+      "length": 32,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    }
+  ]
+}

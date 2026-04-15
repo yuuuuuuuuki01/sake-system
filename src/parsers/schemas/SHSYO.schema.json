@@ -1,0 +1,41 @@
+{
+  "fileCode": "SHSYO",
+  "recordLength": 96,
+  "fields": [
+    {
+      "name": "customerCode",
+      "offset": 0,
+      "length": 8,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "customerName",
+      "offset": 8,
+      "length": 32,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "zipCode",
+      "offset": 40,
+      "length": 8,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "phoneNumber",
+      "offset": 48,
+      "length": 16,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "closingDay",
+      "offset": 64,
+      "length": 2,
+      "type": "uint16",
+      "confidence": "hypothesis"
+    }
+  ]
+}

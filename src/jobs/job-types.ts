@@ -21,6 +21,7 @@ export type JobName =
   | "normalizePayments"
   | "refreshSalesMarts"
   | "refreshPaymentMarts"
+  | "freeeExport"
   | "publishApiCache";
 
 export interface FileIngestionCandidate {
@@ -39,6 +40,7 @@ export interface JobContext {
   config: PipelineConfig;
   candidates: FileIngestionCandidate[];
   artifactsDir?: string;
+  jobResults: JobResult[];
   notes: string[];
 }
 

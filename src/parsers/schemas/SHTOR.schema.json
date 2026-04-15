@@ -1,0 +1,48 @@
+{
+  "fileCode": "SHTOR",
+  "recordLength": 64,
+  "fields": [
+    {
+      "name": "documentNo",
+      "offset": 0,
+      "length": 8,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "lineNo",
+      "offset": 8,
+      "length": 2,
+      "type": "uint16",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "productCode",
+      "offset": 10,
+      "length": 8,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "quantity",
+      "offset": 18,
+      "length": 4,
+      "type": "uint32",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "lineAmount",
+      "offset": 22,
+      "length": 8,
+      "type": "packed_decimal",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "description",
+      "offset": 30,
+      "length": 34,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "fileCode": "SHTKI",
+  "recordLength": 96,
+  "fields": [
+    {
+      "name": "productCode",
+      "offset": 0,
+      "length": 8,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "productName",
+      "offset": 8,
+      "length": 32,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "unitPrice",
+      "offset": 40,
+      "length": 8,
+      "type": "packed_decimal",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "taxCategory",
+      "offset": 48,
+      "length": 2,
+      "type": "uint16",
+      "confidence": "hypothesis"
+    },
+    {
+      "name": "specification",
+      "offset": 50,
+      "length": 46,
+      "type": "shiftjis",
+      "confidence": "hypothesis"
+    }
+  ]
+}

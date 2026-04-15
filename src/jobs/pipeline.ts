@@ -1,13 +1,14 @@
 import { loadConfig } from "../config.js";
 import { buildCandidates } from "../discovery/candidate-builder.js";
 import { persistRawSnapshot } from "../ingestion/raw-snapshot.js";
+import { writeApiCache } from "./api-cache.js";
 import { writeMasterSnapshot } from "../normalization/master-snapshot.js";
 import {
-  readNormalizationArtifact,
   writeMasterNormalizationPlan,
   writePaymentNormalizationPlan,
   writeSalesNormalizationPlan
 } from "../normalization/plans.js";
+import { refreshPaymentMarts } from "./payment-mart.js";
 import { writeMasterDraftExtraction } from "../parsers/extract-master-draft.js";
 import { writeFixedRecordProbe } from "../parsers/fixed-record-probe.js";
 import { writeMasterFieldHypotheses } from "../parsers/master-field-hypotheses.js";
@@ -20,6 +21,8 @@ import { writeNamedSalesTransactionDraft } from "../parsers/sales-transaction-dr
 import { writeSalesTransactionDraftExtraction } from "../parsers/sales-transaction-extract.js";
 import { writeProvisionalSalesParser } from "../parsers/provisional-sales-parser.js";
 import { writeTransactionRecordInspection } from "../parsers/transaction-record-inspection.js";
+import { runFreeeExport } from "./freee-export.js";
+import { refreshSalesMarts } from "./sales-mart.js";
 import type { JobContext, JobName, JobResult } from "./job-types.js";
 
 const orderedJobs: JobName[] = [
@@ -42,6 +45,7 @@ const orderedJobs: JobName[] = [
   "normalizePayments",
   "refreshSalesMarts",
   "refreshPaymentMarts",
+  "freeeExport",
   "publishApiCache"
 ];
 
@@ -53,6 +57,7 @@ function createContext(): JobContext {
     startedAt: new Date().toISOString(),
     config,
     candidates: [],
+    jobResults: [],
     notes: [
       "MVP assumes the legacy Syusen system remains the source of truth.",
       `Primary sync scope: ${config.primaryFileCodes.join(", ")}.`,
@@ -246,28 +251,32 @@ async function executeJob(jobName: JobName, context: JobContext): Promise<JobRes
       }
     case "refreshSalesMarts":
       {
-        const artifact = await readNormalizationArtifact(context, "sales.plan.json");
+        const summary = await refreshSalesMarts(context);
         return {
           jobName,
           ok: true,
-          detail: `Prepared sales mart refresh inputs from ${artifact.entities.length} normalized sales entities.`
+          detail: `Wrote daily sales mart with ${summary.length} sales-date summaries.`
         };
       }
     case "refreshPaymentMarts":
       {
-        const artifact = await readNormalizationArtifact(context, "payments.plan.json");
+        const rows = await refreshPaymentMarts(context);
         return {
           jobName,
           ok: true,
-          detail: `Prepared payment mart refresh inputs from ${artifact.entities.length} normalized payment entities.`
+          detail: `Wrote customer payment status mart with ${rows.length} rows.`
         };
       }
-    case "publishApiCache":
+    case "freeeExport":
+      return runFreeeExport(context);
+    case "publishApiCache": {
+      const apiDir = await writeApiCache(context);
       return {
         jobName,
         ok: true,
-        detail: "TODO: publish cache snapshots for dashboard and API consumers."
+        detail: `Published API cache snapshots to ${apiDir}.`
       };
+    }
     default: {
       const exhaustive: never = jobName;
       throw new Error(`Unhandled job: ${exhaustive}`);
@@ -285,6 +294,7 @@ async function main(): Promise<void> {
 
   for (const jobName of orderedJobs) {
     const result = await executeJob(jobName, context);
+    context.jobResults.push(result);
     console.log(`[pipeline] ${result.jobName}: ${result.ok ? "ok" : "ng"} - ${result.detail}`);
 
     if (jobName === "discoverChangedFiles") {
