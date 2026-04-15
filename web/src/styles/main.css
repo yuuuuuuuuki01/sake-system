@@ -1882,3 +1882,426 @@ tbody tr:hover {
     padding: 0 !important;
   }
 }
+
+/* ===== チェーンストア統一伝票 (1101型) 規格 ===== */
+/* 9" × 5.5" (228.6mm × 139.7mm) */
+.chain-store.print-page {
+  width: 228.6mm;
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.csu-slip {
+  width: 228.6mm;
+  height: 139.7mm;
+  padding: 4mm;
+  box-sizing: border-box;
+  background: white;
+  color: #000;
+  font-family: "Noto Sans JP", "Hiragino Sans", sans-serif;
+  font-size: 8pt;
+  line-height: 1.3;
+  display: flex;
+  flex-direction: column;
+  page-break-after: always;
+}
+.csu-separator {
+  height: 6mm;
+  background: #e8edf1;
+  border-top: 1px dashed #999;
+  border-bottom: 1px dashed #999;
+  margin: 0;
+}
+@media print {
+  .csu-separator { display: none; }
+}
+.csu-topbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 2px solid #000;
+  padding-bottom: 3px;
+  margin-bottom: 3px;
+}
+.csu-copy-label {
+  font-size: 12pt;
+  font-weight: 900;
+  border: 2px solid #000;
+  padding: 2px 8px;
+  text-align: center;
+}
+.csu-title {
+  font-size: 11pt;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.2em;
+}
+.csu-type-no {
+  font-size: 8pt;
+  color: #666;
+  margin-left: 8px;
+}
+.csu-docno {
+  font-size: 9pt;
+  font-weight: 700;
+}
+.csu-docno .csu-label { font-size: 7pt; color: #555; margin-right: 4px; }
+
+.csu-header-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1px;
+  border: 1px solid #000;
+  background: #000;
+  margin-bottom: 1px;
+}
+.csu-hcell {
+  background: white;
+  padding: 2px 4px;
+  display: flex;
+  flex-direction: column;
+  min-height: 32px;
+}
+.csu-hcell.csu-wide { grid-column: span 1; }
+.csu-label {
+  font-size: 6.5pt;
+  color: #555;
+  line-height: 1.1;
+}
+.csu-value {
+  font-size: 9pt;
+  font-weight: 700;
+  margin-top: auto;
+}
+
+.csu-parties {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  border: 1px solid #000;
+  background: #000;
+  margin-bottom: 2px;
+}
+.csu-party {
+  background: white;
+  padding: 3px 6px;
+}
+.csu-party-name {
+  font-size: 10pt;
+  font-weight: 700;
+  margin-top: 2px;
+  display: block;
+}
+
+.csu-table {
+  width: 100%;
+  border-collapse: collapse;
+  flex: 1;
+  font-size: 7.5pt;
+}
+.csu-table th, .csu-table td {
+  border: 1px solid #000;
+  padding: 1px 3px;
+  vertical-align: middle;
+  line-height: 1.2;
+}
+.csu-table th {
+  background: #e0e0e0;
+  font-weight: 700;
+  font-size: 7pt;
+  text-align: center;
+}
+.csu-no-col { width: 18px; }
+.csu-pcode-col { width: 56px; }
+.csu-jan-col { width: 70px; }
+.csu-name-col { width: auto; }
+.csu-spec-col { width: 50px; }
+.csu-irisu-col, .csu-case-col, .csu-piece-col { width: 30px; }
+.csu-price-col, .csu-amount-col { width: 60px; }
+.csu-empty-row td { height: 14px; }
+
+.csu-totals-grid {
+  display: grid;
+  grid-template-columns: 70px 70px 100px 100px 1fr;
+  gap: 1px;
+  border: 1px solid #000;
+  background: #000;
+  margin-top: 2px;
+}
+.csu-tcell {
+  background: white;
+  padding: 2px 4px;
+  display: flex;
+  flex-direction: column;
+  min-height: 24px;
+}
+.csu-tcell.csu-grand {
+  background: #fff3cd;
+}
+.csu-tcell.csu-grand .csu-value {
+  font-size: 11pt;
+  color: #c62828;
+}
+
+.csu-seals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 3px;
+}
+.csu-seal-box {
+  border: 1px solid #000;
+  height: 16mm;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 2px;
+  position: relative;
+}
+.csu-seal-box .csu-label { font-size: 7pt; }
+.csu-vendor-seal img { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -40%); width: 14mm; height: 14mm; object-fit: contain; }
+.csu-seal-ph {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -40%);
+  width: 14mm; height: 14mm;
+  border: 2px solid #cc0000;
+  border-radius: 50%;
+  color: #cc0000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12pt;
+}
+
+/* 印刷時 */
+@media print {
+  .chain-store.print-page { width: 228.6mm; box-shadow: none; margin: 0; padding: 0; }
+  .csu-slip { margin: 0; padding: 4mm; }
+  @page {
+    size: 228.6mm 139.7mm;
+    margin: 0;
+  }
+}
+
+/* ===== freeeスタイル 見積書・請求書 ===== */
+.quotation-freee, .invoice-freee {
+  background: white;
+  padding: 20mm 15mm;
+  color: #2d3436;
+  font-family: "Noto Sans JP", "Hiragino Sans", sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.6;
+}
+.freee-header {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  margin-bottom: 32px;
+  align-items: flex-start;
+}
+.freee-title {
+  font-size: 28pt;
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  margin: 0;
+  color: #2d3436;
+}
+.freee-doc-no {
+  color: #636e72;
+  font-size: 9pt;
+  margin-top: 8px;
+  font-family: "Courier New", monospace;
+}
+.freee-from {
+  text-align: right;
+  font-size: 9.5pt;
+}
+.freee-from .freee-company-name {
+  font-size: 12pt;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.freee-from p { margin: 2px 0; }
+.freee-from .freee-seal-wrap {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+}
+.freee-seal-placeholder {
+  width: 50px; height: 50px;
+  border: 2px solid #cc0000;
+  border-radius: 50%;
+  color: #cc0000;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700;
+}
+
+.freee-to {
+  border-bottom: 1px solid #dfe6e9;
+  padding-bottom: 12px;
+  margin-bottom: 24px;
+}
+.freee-to .freee-to-postal { font-size: 9pt; color: #636e72; margin: 0; }
+.freee-to .freee-to-addr { font-size: 9.5pt; color: #636e72; margin: 2px 0; }
+.freee-to-name {
+  font-size: 18pt;
+  font-weight: 700;
+  margin-top: 8px;
+  border-bottom: 2px solid #2d3436;
+  display: inline-block;
+  padding: 4px 24px 4px 0;
+}
+
+.freee-meta {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 24px;
+  margin-bottom: 24px;
+  font-size: 10pt;
+}
+.freee-meta dt {
+  color: #636e72;
+  font-size: 8.5pt;
+  margin-bottom: 2px;
+}
+.freee-meta dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.freee-subject {
+  margin-bottom: 16px;
+  font-size: 11pt;
+}
+.freee-subject strong { margin-right: 12px; }
+
+.freee-total-highlight {
+  background: #fff7e6;
+  border: 3px solid #ff9f43;
+  padding: 20px 32px;
+  display: inline-block;
+  margin-bottom: 32px;
+  min-width: 60%;
+}
+.freee-total-highlight .freee-total-label {
+  font-size: 11pt;
+  color: #ff9f43;
+  font-weight: 700;
+}
+.freee-total-highlight .freee-total-value {
+  font-size: 24pt;
+  font-weight: 700;
+  color: #2d3436;
+  letter-spacing: 0.02em;
+}
+.freee-total-highlight .freee-total-tax {
+  font-size: 9pt;
+  color: #636e72;
+  margin-left: 8px;
+}
+
+.freee-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 24px;
+}
+.freee-table thead tr {
+  background: #f5f6fa;
+  border-top: 2px solid #2d3436;
+  border-bottom: 1px solid #2d3436;
+}
+.freee-table th {
+  padding: 10px 8px;
+  font-size: 9.5pt;
+  font-weight: 700;
+  text-align: left;
+  color: #2d3436;
+}
+.freee-table th.numeric { text-align: right; }
+.freee-table tbody tr {
+  border-bottom: 1px solid #dfe6e9;
+}
+.freee-table td {
+  padding: 10px 8px;
+  font-size: 10pt;
+  vertical-align: middle;
+}
+.freee-table td.numeric { text-align: right; font-family: "Helvetica Neue", sans-serif; }
+.freee-table .freee-empty td { height: 2em; }
+
+.freee-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.freee-summary-table {
+  border-collapse: collapse;
+  min-width: 280px;
+}
+.freee-summary-table th {
+  padding: 6px 12px;
+  font-size: 9.5pt;
+  color: #636e72;
+  text-align: right;
+  font-weight: 400;
+}
+.freee-summary-table td {
+  padding: 6px 12px;
+  text-align: right;
+  font-size: 10pt;
+  font-weight: 700;
+  min-width: 120px;
+}
+.freee-summary-table .freee-sum-grand th,
+.freee-summary-table .freee-sum-grand td {
+  border-top: 2px solid #2d3436;
+  font-size: 14pt;
+  color: #2d3436;
+  padding-top: 12px;
+}
+
+.freee-tax-breakdown {
+  border: 1px solid #dfe6e9;
+  padding: 10px 16px;
+  background: #f5f6fa;
+  font-size: 9pt;
+  color: #636e72;
+  border-radius: 4px;
+}
+.freee-tax-breakdown p { margin: 2px 0; }
+
+.freee-notes {
+  background: #f5f6fa;
+  border-left: 4px solid #74b9ff;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  font-size: 9.5pt;
+}
+.freee-notes h3 {
+  margin: 0 0 6px;
+  font-size: 10pt;
+  color: #2d3436;
+}
+
+.freee-bank {
+  border-top: 2px solid #2d3436;
+  padding-top: 12px;
+  margin-top: 20px;
+  font-size: 9.5pt;
+}
+.freee-bank h3 { margin: 0 0 6px; font-size: 10.5pt; }
+.freee-bank p { margin: 2px 0; }
+.freee-bank .freee-bank-note { color: #636e72; font-size: 8.5pt; margin-top: 6px; }
+
+.freee-footer {
+  margin-top: 32px;
+  text-align: center;
+  color: #b2bec3;
+  font-size: 8pt;
+}
