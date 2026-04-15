@@ -1,4 +1,4 @@
-import { Kysely, PgDialect } from "kysely";
+import { Kysely, PostgresDialect } from "kysely";
 import pg from "pg";
 
 import { DATABASE_URL } from "../env.js";
@@ -23,7 +23,7 @@ function createClient(): Kysely<Database> {
     });
 
     return new Kysely<Database>({
-      dialect: new PgDialect({
+      dialect: new PostgresDialect({
         pool
       })
     });

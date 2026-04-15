@@ -62,7 +62,7 @@ export async function exportInvoiceCandidates(
     }
 
     try {
-      const invoice = await client.createInvoice(toCreateInvoiceParams(candidate, partnerId));
+      const invoice = await client!.createInvoice(toCreateInvoiceParams(candidate, partnerId));
       results.push({
         candidateId: candidate.id,
         legacyCustomerCode: candidate.legacyCustomerCode,

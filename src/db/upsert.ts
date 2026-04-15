@@ -16,10 +16,6 @@ import type {
   SalesDocumentLinesTable
 } from "./schema.js";
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
 function mapCustomer(row: Customer): Insertable<CustomersTable> {
   return {
     id: row.id,
@@ -36,8 +32,7 @@ function mapCustomer(row: Customer): Insertable<CustomersTable> {
     payment_day: row.paymentDay ?? null,
     billing_cycle_type: null,
     is_active: row.isActive,
-    source_updated_at: row.sourceUpdatedAt ?? null,
-    synced_at: nowIso()
+    source_updated_at: row.sourceUpdatedAt ?? null
   };
 }
 
@@ -54,8 +49,7 @@ function mapProduct(row: Product): Insertable<ProductsTable> {
     jan_code: row.janCode ?? null,
     tax_code: row.taxCode ?? null,
     is_active: row.isActive,
-    source_updated_at: row.sourceUpdatedAt ?? null,
-    synced_at: nowIso()
+    source_updated_at: row.sourceUpdatedAt ?? null
   };
 }
 
@@ -73,8 +67,7 @@ function mapSalesHeader(row: SalesDocumentHeader): Insertable<SalesDocumentHeade
     subtotal_amount: null,
     tax_amount: row.taxAmount ?? null,
     total_amount: row.totalAmount ?? null,
-    source_updated_at: row.sourceUpdatedAt ?? null,
-    synced_at: nowIso()
+    source_updated_at: row.sourceUpdatedAt ?? null
   };
 }
 
@@ -91,8 +84,7 @@ function mapSalesLine(row: SalesDocumentLine): Insertable<SalesDocumentLinesTabl
     tax_amount: null,
     warehouse_code: null,
     note: null,
-    source_updated_at: row.sourceUpdatedAt ?? null,
-    synced_at: nowIso()
+    source_updated_at: row.sourceUpdatedAt ?? null
   };
 }
 
@@ -106,8 +98,7 @@ function mapPaymentReceipt(row: PaymentReceipt): Insertable<PaymentReceiptsTable
     payment_amount: row.paymentAmount ?? null,
     reference_document_no: null,
     note: null,
-    source_updated_at: row.sourceUpdatedAt ?? null,
-    synced_at: nowIso()
+    source_updated_at: row.sourceUpdatedAt ?? null
   };
 }
 
@@ -134,8 +125,7 @@ export async function upsertCustomers(rows: Customer[]): Promise<void> {
         payment_day: eb.ref("excluded.payment_day"),
         billing_cycle_type: eb.ref("excluded.billing_cycle_type"),
         is_active: eb.ref("excluded.is_active"),
-        source_updated_at: eb.ref("excluded.source_updated_at"),
-        synced_at: eb.ref("excluded.synced_at")
+        source_updated_at: eb.ref("excluded.source_updated_at")
       }))
     )
     .execute();
@@ -161,8 +151,7 @@ export async function upsertProducts(rows: Product[]): Promise<void> {
         jan_code: eb.ref("excluded.jan_code"),
         tax_code: eb.ref("excluded.tax_code"),
         is_active: eb.ref("excluded.is_active"),
-        source_updated_at: eb.ref("excluded.source_updated_at"),
-        synced_at: eb.ref("excluded.synced_at")
+        source_updated_at: eb.ref("excluded.source_updated_at")
       }))
     )
     .execute();
@@ -189,8 +178,7 @@ export async function upsertSalesHeaders(rows: SalesDocumentHeader[]): Promise<v
         subtotal_amount: eb.ref("excluded.subtotal_amount"),
         tax_amount: eb.ref("excluded.tax_amount"),
         total_amount: eb.ref("excluded.total_amount"),
-        source_updated_at: eb.ref("excluded.source_updated_at"),
-        synced_at: eb.ref("excluded.synced_at")
+        source_updated_at: eb.ref("excluded.source_updated_at")
       }))
     )
     .execute();
@@ -215,8 +203,7 @@ export async function upsertSalesLines(rows: SalesDocumentLine[]): Promise<void>
         tax_amount: eb.ref("excluded.tax_amount"),
         warehouse_code: eb.ref("excluded.warehouse_code"),
         note: eb.ref("excluded.note"),
-        source_updated_at: eb.ref("excluded.source_updated_at"),
-        synced_at: eb.ref("excluded.synced_at")
+        source_updated_at: eb.ref("excluded.source_updated_at")
       }))
     )
     .execute();
@@ -239,8 +226,7 @@ export async function upsertPaymentReceipts(rows: PaymentReceipt[]): Promise<voi
         payment_amount: eb.ref("excluded.payment_amount"),
         reference_document_no: eb.ref("excluded.reference_document_no"),
         note: eb.ref("excluded.note"),
-        source_updated_at: eb.ref("excluded.source_updated_at"),
-        synced_at: eb.ref("excluded.synced_at")
+        source_updated_at: eb.ref("excluded.source_updated_at")
       }))
     )
     .execute();
