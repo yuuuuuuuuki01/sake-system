@@ -29,7 +29,22 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate API cache from Supabase
+        working-directory: .
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "${DATABASE_URL}" ]; then
+            echo "DATABASE_URL is not set. Skipping API cache generation."
+            exit 0
+          fi
+          npm ci
+          npm run generate:api-cache
+
       - name: Build
+        env:
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_RESEND_API_KEY: ${{ secrets.VITE_RESEND_API_KEY }}
         run: npm run build
 
       - name: Deploy
