@@ -6,6 +6,8 @@
     <!-- index.htmlは最新を取得させる(SPA redirect破綻を防ぐ) -->
     <meta http-equiv="Cache-Control" content="no-cache" />
     <title>syusen-cloud</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
     <script>
       // 404.htmlから渡された元のパスを復元してSPAルーターに引き渡す
       (function redirectSpaPath() {

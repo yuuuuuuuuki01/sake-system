@@ -91,6 +91,15 @@ import { renderSalesTable } from "./components/SalesTable";
 import { renderStorePOS } from "./components/StorePOS";
 import { renderDataImport } from "./components/DataImport";
 import { collectFieldPositions, renderFormDesigner } from "./components/FormDesigner";
+import { renderCustomerMap, type GeoCustomer } from "./components/CustomerMap";
+import { renderOrderWorkflow, type WorkflowOrder } from "./components/OrderWorkflow";
+import { renderMobileOrder, type MobileOrderState } from "./components/MobileOrder";
+import {
+  renderBreweryTour,
+  TOUR_TEMPLATE_CONFIRM,
+  TOUR_TEMPLATE_DECLINE,
+  type TourInquiry
+} from "./components/BreweryTour";
 import { renderPrintCenter } from "./components/PrintCenter";
 import {
   DEFAULT_COMPANY_INFO,
@@ -142,7 +151,11 @@ type RoutePath =
   | "/email"
   | "/import"
   | "/print"
-  | "/form-designer";
+  | "/form-designer"
+  | "/map"
+  | "/workflow"
+  | "/mobile-order"
+  | "/tour";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -188,7 +201,11 @@ const ALL_ROUTES: RoutePath[] = [
   "/email",
   "/import",
   "/print",
-  "/form-designer"
+  "/form-designer",
+  "/map",
+  "/workflow",
+  "/mobile-order",
+  "/tour"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -224,7 +241,11 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/setup", title: "連動設定" },
   { path: "/import", title: "CSV/Excelインポート" },
   { path: "/print", title: "印刷センター" },
-  { path: "/form-designer", title: "帳票デザイナー" }
+  { path: "/form-designer", title: "帳票デザイナー" },
+  { path: "/map", title: "取引先マップ" },
+  { path: "/workflow", title: "受注ワークフロー" },
+  { path: "/mobile-order", title: "モバイル受注" },
+  { path: "/tour", title: "酒蔵見学" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -307,6 +328,11 @@ interface AppState {
   fdDesignMode: boolean;
   fdSavedPositions: Record<string, { x: number; y: number }> | null;
   fdActiveFieldId: string | null;
+  mapRegionFilter: string;
+  workflowOrders: WorkflowOrder[];
+  mobileOrder: MobileOrderState;
+  tourInquiries: TourInquiry[];
+  tourActiveId: string | null;
   printTemplate: PrintTemplateKey;
   printOptions: PrintOptions;
   printCompany: PrintCompanyInfo;
@@ -428,6 +454,30 @@ const state: AppState = {
   fdDesignMode: true,
   fdSavedPositions: null,
   fdActiveFieldId: null,
+  mapRegionFilter: "",
+  workflowOrders: [
+    { id: "o1", orderNo: "ORD-240416-001", customerName: "青葉商事", orderDate: "2026-04-16", deliveryDate: "2026-04-18", stage: "new", totalAmount: 54000, itemCount: 3, priority: "urgent", staffName: "田中" },
+    { id: "o2", orderNo: "ORD-240416-002", customerName: "北斗酒販", orderDate: "2026-04-16", deliveryDate: "2026-04-20", stage: "new", totalAmount: 36000, itemCount: 2, priority: "normal" },
+    { id: "o3", orderNo: "ORD-240415-003", customerName: "中央フーズ", orderDate: "2026-04-15", deliveryDate: "2026-04-17", stage: "picking", totalAmount: 128000, itemCount: 6, priority: "urgent", staffName: "佐藤" },
+    { id: "o4", orderNo: "ORD-240415-001", customerName: "東海酒店", orderDate: "2026-04-15", stage: "packed", totalAmount: 72000, itemCount: 4, priority: "normal", staffName: "山田" },
+    { id: "o5", orderNo: "ORD-240414-002", customerName: "西川商店", orderDate: "2026-04-14", deliveryDate: "2026-04-15", stage: "shipped", totalAmount: 96000, itemCount: 5, priority: "normal" },
+    { id: "o6", orderNo: "ORD-240413-001", customerName: "南部酒販", orderDate: "2026-04-13", stage: "delivered", totalAmount: 48000, itemCount: 3, priority: "normal" }
+  ],
+  mobileOrder: {
+    step: "customer",
+    selectedCustomer: null,
+    cart: [],
+    customerQuery: "",
+    productQuery: "",
+    memo: "",
+    submittedDocNo: null
+  },
+  tourInquiries: [
+    { id: "t1", name: "鈴木 太郎", email: "suzuki@example.com", phone: "090-1234-5678", visitDate: "2026-04-22", partySize: 4, language: "ja", purpose: "家族旅行の記念に", message: "蔵見学と試飲を希望します。予算は1人5000円程度です。", status: "new", createdAt: "2026-04-16T09:00:00" },
+    { id: "t2", name: "John Smith", email: "john@example.com", visitDate: "2026-04-25", partySize: 2, language: "en", purpose: "Sake tourism research", message: "We are journalists writing about Japanese sake culture. Would love to interview the toji-san.", status: "replied", createdAt: "2026-04-15T14:30:00" },
+    { id: "t3", name: "田中 花子", email: "tanaka@example.com", phone: "03-9999-0000", visitDate: "2026-04-28", partySize: 8, language: "ja", purpose: "会社の親睦会", message: "団体での訪問になります。可能であればランチも一緒にお願いします。", status: "confirmed", createdAt: "2026-04-14T10:00:00", confirmedTime: "2026-04-28T14:00" }
+  ],
+  tourActiveId: null,
   printTemplate: "chain_store",
   printOptions: {
     ...DEFAULT_PRINT_OPTIONS,
@@ -1061,6 +1111,27 @@ function renderView(): string {
       return renderPrintCenter(state.printTemplate, state.printOptions, state.printCompany, state.printData);
     case "/form-designer":
       return renderFormDesigner(state.printData, state.printCompany, state.printOptions, state.fdSavedPositions, state.fdDesignMode);
+    case "/map": {
+      const mapCustomers: GeoCustomer[] = (state.masterStats?.customers ?? []).slice(0, 100).map((c, i) => ({
+        ...c,
+        lat: 35.37 + (i % 10) * 0.02 + Math.random() * 0.01,
+        lng: 139.29 + (i % 10) * 0.02 + Math.random() * 0.01,
+        address1: ["神奈川県秦野市", "東京都新宿区", "横浜市西区", "川崎市幸区"][i % 4],
+        businessType: ["酒店", "飲食店", "百貨店", "スーパー"][i % 4],
+        lastOrderAmount: 50000 + (i % 10) * 20000
+      }));
+      return renderCustomerMap(mapCustomers, state.mapRegionFilter);
+    }
+    case "/workflow":
+      return renderOrderWorkflow(state.workflowOrders);
+    case "/mobile-order":
+      return renderMobileOrder(
+        state.mobileOrder,
+        state.masterStats?.customers ?? [],
+        state.masterStats?.products ?? []
+      );
+    case "/tour":
+      return renderBreweryTour(state.tourInquiries, state.tourActiveId);
     default:
       break;
   }
@@ -2171,6 +2242,151 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // ── 取引先マップ (Leaflet) ──────────────────────────
+  const mapEl = root.querySelector<HTMLElement>("#customer-map");
+  if (mapEl && state.route === "/map") {
+    initCustomerMap(mapEl);
+  }
+
+  // ── 受注ワークフロー (カンバン) ────────────────────
+  root.querySelectorAll<HTMLElement>(".wf-card").forEach((card) => {
+    card.addEventListener("dragstart", (e) => {
+      card.classList.add("wf-dragging");
+      (e as DragEvent).dataTransfer?.setData("text/plain", card.dataset.wfOrder ?? "");
+    });
+    card.addEventListener("dragend", () => card.classList.remove("wf-dragging"));
+  });
+  root.querySelectorAll<HTMLElement>(".wf-col").forEach((col) => {
+    col.addEventListener("dragover", (e) => e.preventDefault());
+    col.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const orderId = (e as DragEvent).dataTransfer?.getData("text/plain");
+      const stage = col.dataset.wfStage as WorkflowOrder["stage"];
+      if (!orderId || !stage) return;
+      const order = state.workflowOrders.find((o) => o.id === orderId);
+      if (order) {
+        order.stage = stage;
+        renderApp();
+      }
+    });
+  });
+
+  // ── モバイル受注 ────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-mo-step]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const step = btn.dataset.moStep as MobileOrderState["step"];
+      if (btn.disabled) return;
+      state.mobileOrder.step = step;
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLInputElement>("#mo-customer-q")?.addEventListener("input", (e) => {
+    state.mobileOrder.customerQuery = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+  root.querySelector<HTMLInputElement>("#mo-product-q")?.addEventListener("input", (e) => {
+    state.mobileOrder.productQuery = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-mo-select-customer]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.moSelectCustomer;
+      const cust = state.masterStats?.customers.find((c) => c.id === id);
+      if (cust) state.mobileOrder.selectedCustomer = cust;
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-mo-add-product]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const code = btn.dataset.moAddProduct;
+      const p = state.masterStats?.products.find((pp) => pp.code === code);
+      if (!p) return;
+      const price = 1800; // デフォルト単価（商品マスタに追加すべき）
+      state.mobileOrder.cart.push({
+        productCode: p.code,
+        productName: p.name,
+        quantity: 1,
+        unit: "本",
+        unitPrice: price,
+        amount: price
+      });
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-mo-qty]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const diff = Number(btn.dataset.moQty);
+      const code = btn.dataset.moProduct;
+      const line = state.mobileOrder.cart.find((l) => l.productCode === code);
+      if (!line) return;
+      line.quantity = Math.max(0, line.quantity + diff);
+      line.amount = line.quantity * line.unitPrice;
+      if (line.quantity === 0) state.mobileOrder.cart = state.mobileOrder.cart.filter((l) => l.productCode !== code);
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-mo-remove]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = Number(btn.dataset.moRemove);
+      state.mobileOrder.cart.splice(idx, 1);
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='mo-submit']")?.addEventListener("click", async () => {
+    const memoEl = root.querySelector<HTMLTextAreaElement>("#mo-memo");
+    state.mobileOrder.memo = memoEl?.value ?? "";
+    const docNo = "MO" + Date.now().toString().slice(-8);
+    state.mobileOrder.submittedDocNo = docNo;
+    state.mobileOrder.step = "done";
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='mo-reset']")?.addEventListener("click", () => {
+    state.mobileOrder = {
+      step: "customer",
+      selectedCustomer: null,
+      cart: [],
+      customerQuery: "",
+      productQuery: "",
+      memo: "",
+      submittedDocNo: null
+    };
+    renderApp();
+  });
+
+  // ── 酒蔵見学 ────────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-tour-id]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.tourActiveId = btn.dataset.tourId ?? null;
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='tour-insert-template']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const active = state.tourInquiries.find((i) => i.id === state.tourActiveId);
+      if (!active) return;
+      const tmpl = btn.dataset.template === "confirm" ? TOUR_TEMPLATE_CONFIRM : TOUR_TEMPLATE_DECLINE;
+      const confirmedTimeEl = root.querySelector<HTMLInputElement>("#tour-confirmed-time");
+      const rendered = tmpl
+        .replaceAll("{name}", active.name)
+        .replaceAll("{partySize}", String(active.partySize))
+        .replaceAll("{confirmedTime}", confirmedTimeEl?.value ?? active.visitDate);
+      const bodyEl = root.querySelector<HTMLTextAreaElement>("#tour-reply-body");
+      if (bodyEl) bodyEl.value = rendered;
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='tour-send-reply']")?.addEventListener("click", () => {
+    const id = (document.querySelector<HTMLButtonElement>("[data-action='tour-send-reply']")?.dataset.tourId) ?? "";
+    const inq = state.tourInquiries.find((i) => i.id === id);
+    if (!inq) return;
+    const confirmedTimeEl = root.querySelector<HTMLInputElement>("#tour-confirmed-time");
+    inq.status = "confirmed";
+    inq.repliedAt = new Date().toISOString();
+    inq.confirmedTime = confirmedTimeEl?.value ?? "";
+    alert("返信メールを下書き保存し、ステータスを確定にしました（実送信はSupabase連携で実装）");
+    renderApp();
+  });
+
   root.querySelector<HTMLButtonElement>("[data-action='import-execute']")?.addEventListener("click", async () => {
     if (!state.importPreview) return;
     state.importing = true;
@@ -2599,5 +2815,48 @@ try {
     if (selY) selY.value = String(y);
   });
 })();
+
+// Leaflet customer map initialization
+declare const L: {
+  map: (id: HTMLElement) => unknown;
+  tileLayer: (url: string, opts?: Record<string, unknown>) => unknown;
+  marker: (latlng: [number, number]) => unknown;
+};
+
+let mapInstance: { setView: (latlng: [number, number], zoom: number) => unknown; remove: () => void } | null = null;
+function initCustomerMap(container: HTMLElement) {
+  const Lref = (window as unknown as { L?: typeof L }).L;
+  if (!Lref) {
+    container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary);">Leaflet読込中…</div>';
+    setTimeout(() => initCustomerMap(container), 500);
+    return;
+  }
+  if (mapInstance) {
+    try {
+      mapInstance.remove();
+    } catch {
+      // ignore
+    }
+    mapInstance = null;
+  }
+  container.innerHTML = "";
+  const m = Lref.map(container) as { setView: (l: [number, number], z: number) => unknown; remove: () => void; addLayer?: (layer: unknown) => unknown };
+  m.setView([35.378, 139.295], 11); // 秦野市中心
+  const tile = Lref.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: "© OpenStreetMap contributors",
+    maxZoom: 19
+  }) as { addTo: (m: unknown) => unknown };
+  tile.addTo(m);
+
+  // ダミー顧客のマーカー配置
+  const customers = state.masterStats?.customers ?? [];
+  customers.slice(0, 50).forEach((c, i) => {
+    const lat = 35.37 + (i % 10) * 0.02 + (Math.random() - 0.5) * 0.01;
+    const lng = 139.29 + Math.floor(i / 10) * 0.04 + (Math.random() - 0.5) * 0.02;
+    const marker = (Lref.marker([lat, lng]) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
+    marker.bindPopup(`<strong>${c.name}</strong><br/><span style="color:#666;">${c.code}</span>`);
+  });
+  mapInstance = m as typeof mapInstance;
+}
 
 void loadData();

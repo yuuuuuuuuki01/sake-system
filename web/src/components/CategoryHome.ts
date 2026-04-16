@@ -34,7 +34,11 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "連動設定", description: "WEB連動PC の設定手順と接続情報を確認して同期環境を整えます。", path: "/setup" },
     { title: "CSV/Excelインポート", description: "Excelで作成したマスタデータをアップロードして一括登録できます。", path: "/import" },
     { title: "印刷センター", description: "チェーンストア伝票・見積書・請求書をテンプレートから選んでカスタマイズ印刷。", path: "/print" },
-    { title: "帳票デザイナー", description: "BP1701伝票の各フィールドをドラッグ＆ドロップで正確に配置。実物画像と重ねて位置合わせ。", path: "/form-designer" }
+    { title: "帳票デザイナー", description: "BP1701伝票の各フィールドをドラッグ＆ドロップで正確に配置。実物画像と重ねて位置合わせ。", path: "/form-designer" },
+    { title: "🗺️ 取引先マップ", description: "取引先の所在地を地図上にプロット。エリア絞込で営業ルート最適化に。", path: "/map" },
+    { title: "📋 受注ワークフロー", description: "新規受注→ピッキング→梱包→発送→配達をカンバンで可視化。", path: "/workflow" },
+    { title: "📱 モバイル受注", description: "ラウンダー外出先用。顧客選択→商品選択→確認の3ステップで即受注。", path: "/mobile-order" },
+    { title: "🏭 酒蔵見学管理", description: "見学お問合せの一元管理。多言語対応、テンプレ返信、サイト埋め込みフォーム。", path: "/tour" }
   ]
 };
 
