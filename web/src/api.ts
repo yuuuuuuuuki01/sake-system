@@ -1885,3 +1885,175 @@ export async function deletePrintLayout(id: string): Promise<boolean> {
     return false;
   }
 }
+
+// ─── メール送信元プロファイル ────────────────────────────────────────────────
+
+export interface MailSender {
+  id: string;
+  name: string;
+  email: string;
+  displayName?: string;
+  signature?: string;
+  replyTo?: string;
+  isDefault?: boolean;
+  isVerified?: boolean;
+  note?: string;
+}
+
+export async function fetchMailSenders(): Promise<MailSender[]> {
+  const rows = await supabaseQuery<LooseRow>("mail_senders", { order: "is_default.desc,name.asc" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    name: getString(r, ["name"], ""),
+    email: getString(r, ["email"], ""),
+    displayName: getString(r, ["display_name"], ""),
+    signature: getString(r, ["signature"], ""),
+    replyTo: getString(r, ["reply_to"], ""),
+    isDefault: getBoolean(r, ["is_default"], false),
+    isVerified: getBoolean(r, ["is_verified"], false),
+    note: getString(r, ["note"], "")
+  }));
+}
+
+export async function saveMailSender(sender: MailSender): Promise<MailSender | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const result = await supabaseInsert<LooseRow>("mail_senders", {
+    id: sender.id,
+    name: sender.name,
+    email: sender.email,
+    display_name: sender.displayName ?? "",
+    signature: sender.signature ?? "",
+    reply_to: sender.replyTo ?? "",
+    is_default: sender.isDefault ?? false,
+    is_verified: sender.isVerified ?? false,
+    note: sender.note ?? "",
+    updated_at: new Date().toISOString()
+  });
+  if (!result) return null;
+  return {
+    id: getString(result, ["id"], sender.id),
+    name: getString(result, ["name"], sender.name),
+    email: getString(result, ["email"], sender.email),
+    displayName: getString(result, ["display_name"], ""),
+    signature: getString(result, ["signature"], ""),
+    replyTo: getString(result, ["reply_to"], ""),
+    isDefault: getBoolean(result, ["is_default"], false),
+    isVerified: getBoolean(result, ["is_verified"], false)
+  };
+}
+
+export async function deleteMailSender(id: string): Promise<boolean> {
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+  if (!key) return false;
+  try {
+    const url = new URL(`/rest/v1/mail_senders`, "https://loarwnuyvfxiscjjsmiz.supabase.co");
+    url.searchParams.set("id", `eq.${id}`);
+    const r = await fetch(url.toString(), {
+      method: "DELETE",
+      headers: { apikey: key, Authorization: `Bearer ${key}` }
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ─── カレンダーイベント ──────────────────────────────────────────────────────
+
+export type CalendarCategory = "delivery" | "tour" | "meeting" | "brewing" | "general";
+
+export const CALENDAR_CATEGORY_LABELS: Record<CalendarCategory, string> = {
+  delivery: "🚚 納品",
+  tour: "🏭 蔵見学",
+  meeting: "📋 商談",
+  brewing: "🍶 仕込",
+  general: "📌 その他"
+};
+
+export const CALENDAR_CATEGORY_COLORS: Record<CalendarCategory, string> = {
+  delivery: "#9C27B0",
+  tour: "#FF9800",
+  meeting: "#2196F3",
+  brewing: "#4CAF50",
+  general: "#0F5B8D"
+};
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  description?: string;
+  category: CalendarCategory;
+  startsAt: string; // ISO
+  endsAt?: string;
+  isAllDay?: boolean;
+  location?: string;
+  attendees?: string[];
+  relatedCustomerCode?: string;
+  relatedOrderId?: string;
+  color?: string;
+  googleEventId?: string;
+}
+
+export async function fetchCalendarEvents(yearMonth: string): Promise<CalendarEvent[]> {
+  const start = `${yearMonth}-01T00:00:00Z`;
+  const [y, m] = yearMonth.split("-").map((s) => parseInt(s, 10));
+  const lastDay = new Date(y, m, 0).getDate();
+  const end = `${yearMonth}-${String(lastDay).padStart(2, "0")}T23:59:59Z`;
+  const rows = await supabaseQuery<LooseRow>("calendar_events", {
+    starts_at: `gte.${start}`,
+    and: `(starts_at.lte.${end})`,
+    order: "starts_at.asc"
+  });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    title: getString(r, ["title"], ""),
+    description: getString(r, ["description"], ""),
+    category: (getString(r, ["category"], "general") as CalendarCategory) || "general",
+    startsAt: getString(r, ["starts_at"], new Date().toISOString()),
+    endsAt: getString(r, ["ends_at"], ""),
+    isAllDay: getBoolean(r, ["is_all_day"], false),
+    location: getString(r, ["location"], ""),
+    attendees: (r["attendees"] as string[]) ?? [],
+    relatedCustomerCode: getString(r, ["related_customer_code"], ""),
+    relatedOrderId: getString(r, ["related_order_id"], ""),
+    color: getString(r, ["color"], ""),
+    googleEventId: getString(r, ["google_event_id"], "")
+  }));
+}
+
+export async function saveCalendarEvent(event: CalendarEvent): Promise<CalendarEvent | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const result = await supabaseInsert<LooseRow>("calendar_events", {
+    id: event.id,
+    title: event.title,
+    description: event.description ?? "",
+    category: event.category,
+    starts_at: event.startsAt,
+    ends_at: event.endsAt || null,
+    is_all_day: event.isAllDay ?? false,
+    location: event.location ?? "",
+    attendees: event.attendees ?? [],
+    related_customer_code: event.relatedCustomerCode ?? null,
+    related_order_id: event.relatedOrderId ?? null,
+    color: event.color ?? CALENDAR_CATEGORY_COLORS[event.category],
+    updated_at: new Date().toISOString()
+  });
+  if (!result) return null;
+  return event;
+}
+
+export async function deleteCalendarEvent(id: string): Promise<boolean> {
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+  if (!key) return false;
+  try {
+    const url = new URL(`/rest/v1/calendar_events`, "https://loarwnuyvfxiscjjsmiz.supabase.co");
+    url.searchParams.set("id", `eq.${id}`);
+    const r = await fetch(url.toString(), {
+      method: "DELETE",
+      headers: { apikey: key, Authorization: `Bearer ${key}` }
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}

@@ -38,7 +38,9 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "🗺️ 取引先マップ", description: "取引先の所在地を地図上にプロット。エリア絞込で営業ルート最適化に。", path: "/map" },
     { title: "📋 受注ワークフロー", description: "新規受注→ピッキング→梱包→発送→配達をカンバンで可視化。", path: "/workflow" },
     { title: "📱 モバイル受注", description: "ラウンダー外出先用。顧客選択→商品選択→確認の3ステップで即受注。", path: "/mobile-order" },
-    { title: "🏭 酒蔵見学管理", description: "見学お問合せの一元管理。多言語対応、テンプレ返信、サイト埋め込みフォーム。", path: "/tour" }
+    { title: "🏭 酒蔵見学管理", description: "見学お問合せの一元管理。多言語対応、テンプレ返信、サイト埋め込みフォーム。", path: "/tour" },
+    { title: "✉️ メール送信元管理", description: "複数のメールアドレス(営業/蔵見学等)を切り替えて送信。署名・返信先も個別設定。", path: "/mail-senders" },
+    { title: "📅 カレンダー", description: "納品/見学/商談/仕込予定を月表示で管理。クリックで予定追加・編集。", path: "/calendar" }
   ]
 };
 

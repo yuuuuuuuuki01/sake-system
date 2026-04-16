@@ -53,6 +53,8 @@ import {
   type SalesAnalytics,
   type SalesReport,
   type SalesSummary,
+  type MailSender,
+  type CalendarEvent,
   type StoreOrder,
   type StoreSale,
   type TankRecord,
@@ -100,6 +102,8 @@ import {
   TOUR_TEMPLATE_DECLINE,
   type TourInquiry
 } from "./components/BreweryTour";
+import { renderMailSenders } from "./components/MailSenders";
+import { renderCalendar, type CalendarEditState } from "./components/Calendar";
 import { renderPrintCenter } from "./components/PrintCenter";
 import {
   DEFAULT_COMPANY_INFO,
@@ -155,7 +159,9 @@ type RoutePath =
   | "/map"
   | "/workflow"
   | "/mobile-order"
-  | "/tour";
+  | "/tour"
+  | "/mail-senders"
+  | "/calendar";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -205,7 +211,9 @@ const ALL_ROUTES: RoutePath[] = [
   "/map",
   "/workflow",
   "/mobile-order",
-  "/tour"
+  "/tour",
+  "/mail-senders",
+  "/calendar"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -245,7 +253,9 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/map", title: "取引先マップ" },
   { path: "/workflow", title: "受注ワークフロー" },
   { path: "/mobile-order", title: "モバイル受注" },
-  { path: "/tour", title: "酒蔵見学" }
+  { path: "/tour", title: "酒蔵見学" },
+  { path: "/mail-senders", title: "メール送信元管理" },
+  { path: "/calendar", title: "カレンダー" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -333,6 +343,12 @@ interface AppState {
   mobileOrder: MobileOrderState;
   tourInquiries: TourInquiry[];
   tourActiveId: string | null;
+  mailSenders: MailSender[];
+  mailSenderEditingId: string | null;
+  calendarEvents: CalendarEvent[];
+  calendarYearMonth: string;
+  calendarFilterCategory: string;
+  calendarEdit: CalendarEditState | null;
   printTemplate: PrintTemplateKey;
   printOptions: PrintOptions;
   printCompany: PrintCompanyInfo;
@@ -478,6 +494,12 @@ const state: AppState = {
     { id: "t3", name: "田中 花子", email: "tanaka@example.com", phone: "03-9999-0000", visitDate: "2026-04-28", partySize: 8, language: "ja", purpose: "会社の親睦会", message: "団体での訪問になります。可能であればランチも一緒にお願いします。", status: "confirmed", createdAt: "2026-04-14T10:00:00", confirmedTime: "2026-04-28T14:00" }
   ],
   tourActiveId: null,
+  mailSenders: [],
+  mailSenderEditingId: null,
+  calendarEvents: [],
+  calendarYearMonth: new Date().toISOString().slice(0, 7),
+  calendarFilterCategory: "",
+  calendarEdit: null,
   printTemplate: "chain_store",
   printOptions: {
     ...DEFAULT_PRINT_OPTIONS,
@@ -1016,6 +1038,18 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           ]);
         }
         break;
+      case "/mail-senders":
+        {
+          const { fetchMailSenders } = await import("./api");
+          state.mailSenders = await fetchMailSenders();
+        }
+        break;
+      case "/calendar":
+        {
+          const { fetchCalendarEvents } = await import("./api");
+          state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
+        }
+        break;
       default:
         break;
     }
@@ -1132,6 +1166,15 @@ function renderView(): string {
       );
     case "/tour":
       return renderBreweryTour(state.tourInquiries, state.tourActiveId);
+    case "/mail-senders":
+      return renderMailSenders(state.mailSenders, state.mailSenderEditingId);
+    case "/calendar":
+      return renderCalendar(
+        state.calendarEvents,
+        state.calendarYearMonth,
+        state.calendarFilterCategory,
+        state.calendarEdit
+      );
     default:
       break;
   }
@@ -2385,6 +2428,174 @@ function bindEvents(root: HTMLElement): void {
     inq.confirmedTime = confirmedTimeEl?.value ?? "";
     alert("返信メールを下書き保存し、ステータスを確定にしました（実送信はSupabase連携で実装）");
     renderApp();
+  });
+
+  // ── メール送信元管理 ──────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='ms-new']")?.addEventListener("click", () => {
+    state.mailSenderEditingId = "__new__";
+    renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='ms-edit']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.mailSenderEditingId = btn.dataset.id ?? null;
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='ms-cancel']")?.addEventListener("click", () => {
+    state.mailSenderEditingId = null;
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='ms-save']")?.addEventListener("click", async () => {
+    const id = (root.querySelector<HTMLButtonElement>("[data-action='ms-save']")?.dataset.id) || `sender_${Date.now()}`;
+    const sender: MailSender = {
+      id,
+      name: root.querySelector<HTMLInputElement>("#ms-name")?.value || "",
+      email: root.querySelector<HTMLInputElement>("#ms-email")?.value || "",
+      displayName: root.querySelector<HTMLInputElement>("#ms-display-name")?.value || "",
+      replyTo: root.querySelector<HTMLInputElement>("#ms-reply-to")?.value || "",
+      signature: root.querySelector<HTMLTextAreaElement>("#ms-signature")?.value || "",
+      isDefault: root.querySelector<HTMLInputElement>("#ms-default")?.checked ?? false,
+      isVerified: state.mailSenders.find((s) => s.id === id)?.isVerified ?? false
+    };
+    if (!sender.name || !sender.email) {
+      alert("名前とメールアドレスは必須です");
+      return;
+    }
+    const { saveMailSender, fetchMailSenders } = await import("./api");
+    const saved = await saveMailSender(sender);
+    if (saved) {
+      state.mailSenders = await fetchMailSenders();
+      state.mailSenderEditingId = null;
+      alert("保存しました");
+      renderApp();
+    } else {
+      alert("保存に失敗しました");
+    }
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='ms-delete']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("削除しますか？")) return;
+      const id = btn.dataset.id ?? "";
+      const { deleteMailSender, fetchMailSenders } = await import("./api");
+      const ok = await deleteMailSender(id);
+      if (ok) {
+        state.mailSenders = await fetchMailSenders();
+        renderApp();
+      } else alert("削除失敗");
+    });
+  });
+
+  // ── カレンダー ────────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-action='cal-prev'], [data-action='cal-next'], [data-action='cal-today']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      state.calendarYearMonth = btn.dataset.ym ?? state.calendarYearMonth;
+      const { fetchCalendarEvents } = await import("./api");
+      state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLInputElement>("#cal-month-input")?.addEventListener("change", async (e) => {
+    state.calendarYearMonth = (e.target as HTMLInputElement).value;
+    const { fetchCalendarEvents } = await import("./api");
+    state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
+    renderApp();
+  });
+  root.querySelector<HTMLSelectElement>("#cal-filter-category")?.addEventListener("change", (e) => {
+    state.calendarFilterCategory = (e.target as HTMLSelectElement).value;
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='cal-new']")?.addEventListener("click", () => {
+    const now = new Date();
+    state.calendarEdit = {
+      isOpen: true,
+      isNew: true,
+      event: {
+        id: `evt_${Date.now()}`,
+        title: "",
+        category: "general",
+        startsAt: new Date(now.getTime() + 60 * 60 * 1000).toISOString(),
+        isAllDay: false
+      }
+    };
+    renderApp();
+  });
+  // 日付セルクリックで新規作成
+  root.querySelectorAll<HTMLElement>("[data-cal-date]").forEach((cell) => {
+    if (cell.tagName === "BUTTON") return; // ボタンは除外
+    cell.addEventListener("click", (e) => {
+      // イベント自体のクリックは除外
+      if ((e.target as HTMLElement).closest(".cal-event")) return;
+      const date = cell.dataset.calDate ?? "";
+      state.calendarEdit = {
+        isOpen: true,
+        isNew: true,
+        event: {
+          id: `evt_${Date.now()}`,
+          title: "",
+          category: "general",
+          startsAt: `${date}T10:00:00`,
+          isAllDay: false
+        }
+      };
+      renderApp();
+    });
+  });
+  // イベントクリックで編集
+  root.querySelectorAll<HTMLButtonElement>("[data-cal-event-id]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.calEventId;
+      const ev = state.calendarEvents.find((x) => x.id === id);
+      if (!ev) return;
+      state.calendarEdit = { isOpen: true, isNew: false, event: { ...ev } };
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='cal-close']").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      if (e.currentTarget !== e.target && !(e.target as HTMLElement).matches("button")) return;
+      state.calendarEdit = null;
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='cal-save']")?.addEventListener("click", async () => {
+    if (!state.calendarEdit) return;
+    const { saveCalendarEvent, fetchCalendarEvents, CALENDAR_CATEGORY_COLORS } = await import("./api");
+    const id = (document.querySelector<HTMLButtonElement>("[data-action='cal-save']")?.dataset.id) || state.calendarEdit.event.id || `evt_${Date.now()}`;
+    const cat = (root.querySelector<HTMLSelectElement>("#cal-category")?.value ?? "general") as keyof typeof CALENDAR_CATEGORY_COLORS;
+    const ev: CalendarEvent = {
+      id,
+      title: root.querySelector<HTMLInputElement>("#cal-title")?.value ?? "",
+      category: cat,
+      startsAt: new Date(root.querySelector<HTMLInputElement>("#cal-starts")?.value ?? new Date().toISOString()).toISOString(),
+      endsAt: root.querySelector<HTMLInputElement>("#cal-ends")?.value ? new Date(root.querySelector<HTMLInputElement>("#cal-ends")!.value).toISOString() : undefined,
+      isAllDay: root.querySelector<HTMLInputElement>("#cal-allday")?.checked ?? false,
+      location: root.querySelector<HTMLInputElement>("#cal-location")?.value ?? "",
+      relatedCustomerCode: root.querySelector<HTMLInputElement>("#cal-customer")?.value ?? "",
+      description: root.querySelector<HTMLTextAreaElement>("#cal-description")?.value ?? "",
+      color: CALENDAR_CATEGORY_COLORS[cat]
+    };
+    if (!ev.title) {
+      alert("タイトルは必須です");
+      return;
+    }
+    const saved = await saveCalendarEvent(ev);
+    if (saved) {
+      state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
+      state.calendarEdit = null;
+      renderApp();
+    } else alert("保存失敗");
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='cal-delete']")?.addEventListener("click", async () => {
+    const id = (document.querySelector<HTMLButtonElement>("[data-action='cal-delete']")?.dataset.id) ?? "";
+    if (!id || !confirm("削除しますか？")) return;
+    const { deleteCalendarEvent, fetchCalendarEvents } = await import("./api");
+    const ok = await deleteCalendarEvent(id);
+    if (ok) {
+      state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
+      state.calendarEdit = null;
+      renderApp();
+    } else alert("削除失敗");
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='import-execute']")?.addEventListener("click", async () => {
