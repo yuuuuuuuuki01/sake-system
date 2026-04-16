@@ -2541,3 +2541,45 @@ tbody tr:hover {
     margin: 0;
   }
 }
+
+/* ===== BP1701 オーバーレイ印刷方式 ===== */
+.bp1701-overlay.print-page {
+  width: 228.6mm;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.bp-sheet {
+  position: relative;
+  width: 228.6mm;
+  height: 101.6mm;
+  background-color: white;
+  overflow: hidden;
+}
+.bp-sheet-overlay-mask {
+  position: absolute;
+  inset: 0;
+  background: white;
+  pointer-events: none;
+  z-index: 1;
+}
+.bp-fld {
+  color: black;
+  font-family: "Noto Sans JP", "Hiragino Sans", sans-serif;
+  z-index: 2;
+}
+
+/* 印刷時: 参考画像と白マスクを非表示、データのみ印字 */
+@media print {
+  .bp1701-overlay.print-page { box-shadow: none; }
+  .bp-sheet {
+    background-image: none !important;
+  }
+  .bp-sheet-overlay-mask {
+    display: none !important;
+  }
+  @page {
+    size: 228.6mm 101.6mm;
+    margin: 0;
+  }
+}

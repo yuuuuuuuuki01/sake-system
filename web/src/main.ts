@@ -1917,7 +1917,7 @@ function bindEvents(root: HTMLElement): void {
         value = (input as HTMLInputElement).checked;
       } else if (field === "copies") {
         value = Number(input.value) || 1;
-      } else if (field === "overlayOpacity") {
+      } else if (field === "overlayOpacity" || field === "calibrationOffsetX" || field === "calibrationOffsetY") {
         value = Number(input.value) || 0;
       } else {
         value = input.value;

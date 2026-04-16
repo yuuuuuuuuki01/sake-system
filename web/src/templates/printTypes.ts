@@ -88,8 +88,11 @@ export interface PrintOptions {
   copies: number; // 控え枚数（甲/乙/丙）
   // チェーンストア伝票の画像下敷き機能
   showReferenceOverlay: boolean;
-  overlayOpacity: number; // 0 - 1
+  overlayOpacity: number; // 0 - 1 (透明度: 1=完全に見える, 0=完全に隠れる)
   overlayImageUrl: string; // /sake-system/reference/chainstore_ref.png
+  // 印刷キャリブレーション（プリンタごとの位置調整: +方向=右/下, mm単位）
+  calibrationOffsetX: number;
+  calibrationOffsetY: number;
 }
 
 export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
@@ -106,7 +109,9 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   copies: 1,
   showReferenceOverlay: false,
   overlayOpacity: 0.4,
-  overlayImageUrl: "reference/chainstore_ref.png"
+  overlayImageUrl: "reference/chainstore_ref.png",
+  calibrationOffsetX: 0,
+  calibrationOffsetY: 0
 };
 
 export const DEFAULT_COMPANY_INFO: PrintCompanyInfo = {

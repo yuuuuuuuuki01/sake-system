@@ -237,16 +237,31 @@ export function renderPrintCenter(
         template === "chain_store"
           ? `
       <div style="margin-top:16px; padding:12px; background:var(--surface-alt); border-radius:8px; border:1px dashed var(--border-strong);">
-        <h3 style="margin:0 0 8px; font-size:13px;">📐 画像下敷き（位置合わせ用）</h3>
+        <h3 style="margin:0 0 8px; font-size:13px;">📐 BP1701 オーバーレイ印刷</h3>
+        <p class="form-hint" style="margin:0 0 12px;">
+          事前印刷済みの BP1701 伝票用紙を印刷機にセットし、<b>データ部分のみ</b>を所定座標に印字する方式です。
+          プレビュー画像（実物BP1701）と重ねて位置を確認してください。
+        </p>
         <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
-          <label><input type="checkbox" data-print-opt="showReferenceOverlay" ${options.showReferenceOverlay ? "checked" : ""} /> 参考画像をオーバーレイ表示</label>
+          <label><input type="checkbox" data-print-opt="showReferenceOverlay" ${options.showReferenceOverlay ? "checked" : ""} /> 参考画像を背景に表示</label>
           <label style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:12px;">不透明度</span>
+            <span style="font-size:12px;">画像の濃さ</span>
             <input type="range" min="0" max="1" step="0.05" value="${options.overlayOpacity}" data-print-opt="overlayOpacity" style="width:140px;" />
             <span style="font-size:12px; min-width:32px;">${Math.round(options.overlayOpacity * 100)}%</span>
           </label>
         </div>
-        <p class="form-hint" style="margin-top:8px;">実際のBP1701伝票画像を半透明で重ねて、項目の位置ズレを確認できます。印刷時は自動で非表示になります。</p>
+        <h4 style="margin:12px 0 4px; font-size:12px; color:var(--text-secondary);">プリンタずれ調整（印刷結果を確認してから微調整）</h4>
+        <div style="display:flex; flex-wrap:wrap; gap:16px;">
+          <label style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:12px;">X (横, mm)</span>
+            <input type="number" step="0.5" value="${options.calibrationOffsetX}" data-print-opt="calibrationOffsetX" style="width:80px;" />
+          </label>
+          <label style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:12px;">Y (縦, mm)</span>
+            <input type="number" step="0.5" value="${options.calibrationOffsetY}" data-print-opt="calibrationOffsetY" style="width:80px;" />
+          </label>
+          <span class="form-hint" style="margin:0;">＋方向＝右/下、 −方向＝左/上</span>
+        </div>
       </div>
       `
           : ""

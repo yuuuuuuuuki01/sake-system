@@ -4,36 +4,115 @@ import type {
   PrintOptions
 } from "./printTypes";
 
-// チェーンストア統一伝票 ターンアラウンド用 1型 (BP1701相当)
-// 実物レイアウト参照: /reference/chainstore_ref.png
+// チェーンストア統一伝票 BP1701 (ターンアラウンド用 1型)
+// オーバーレイ印刷方式:
+//   事前印刷済みの BP1701 伝票用紙を印刷機にセット
+//   データ部分のみを所定座標に印字する
 //
-// タイトル: チェーンストア統一伝票（ターンアラウンド用 1型）
-// サブタイトル: 仕入伝票①
-//
-// 上段（コード行）:
-//   - 社名 / 住所
-//   - 柱店コード / 分類コード伝票 / 伝票番号 / 取引コード
-//   - 発注日 / 納品日 / 受注No / 取引先コード
-//   - 決算出力フラグ
-//
-// 中段（明細6行）:
-//   品名・規格 | 商品コード | 色 | サイズ/入数/ケース | 単位 | 数量 | 行 |
-//   訂正後数量 | 引(引下) | 原単価 | 原価金額 | 売単価 | 備考(受領金額)
-//
-// 下段:
-//   合計行 / 受領金額合計 / 返品金額合計 / 訂正後原価金額合計 / 訂正後売価金額合計
+// プレビュー: 参考画像(BP1701.png)を背景に表示し、データをオーバーレイ
+// 印刷: @page 228.6×101.6mm、背景画像は @media print で非表示
+//       データだけが所定座標に出力される
 
-const FIXED_ROWS = 6;
+// 座標単位: mm (用紙左上原点)
+// 用紙サイズ: 228.6mm × 101.6mm (9" × 4")
 
-function formatWareki(iso: string): { era: string; month: string; day: string } {
-  if (!iso) return { era: "", month: "", day: "" };
+interface FieldPos {
+  x: number; // mm
+  y: number; // mm
+  w?: number; // mm
+  align?: "left" | "right" | "center";
+  size?: number; // pt
+  bold?: boolean;
+}
+
+// BP1701 実物から計測した座標 (ミリメートル)
+// 必要に応じて設定画面から微調整可能（calibrationOffsetX/Y）
+const POS = {
+  // 上段: 当日日付 (3つの日付ボックス)
+  currentDateY: { x: 14, y: 4, size: 9 },
+  currentDateM: { x: 21, y: 4, size: 9 },
+  currentDateD: { x: 28, y: 4, size: 9 },
+
+  // タイトル右の仕入伝票番号
+  documentNo: { x: 195, y: 4, size: 10, bold: true },
+
+  // 決算出力チェック
+  settlementCheck: { x: 216, y: 5, size: 9 },
+
+  // 社名行
+  vendorName: { x: 6, y: 17, size: 10, bold: true },
+  vendorAddress: { x: 6, y: 22, size: 7 },
+  chainStoreCode: { x: 64, y: 18, size: 9 },
+  categoryCode: { x: 89, y: 18, size: 9 },
+  slipNumber: { x: 127, y: 18, size: 9 },
+  vendorCode: { x: 163, y: 18, size: 9 },
+
+  // 取引先名行
+  customerName: { x: 6, y: 28, size: 10, bold: true },
+  orderDateY: { x: 82, y: 29, size: 8 },
+  orderDateM: { x: 87, y: 29, size: 8 },
+  orderDateD: { x: 92, y: 29, size: 8 },
+  deliveryDateY: { x: 106, y: 29, size: 8 },
+  deliveryDateM: { x: 111, y: 29, size: 8 },
+  deliveryDateD: { x: 116, y: 29, size: 8 },
+  orderNo: { x: 143, y: 29, size: 9 },
+  partnerCode: { x: 176, y: 29, size: 9 },
+
+  // 明細行の開始位置と行間
+  detailStartY: 42, // mm
+  detailRowH: 6.5, // mm
+  detailCols: {
+    productName: { x: 4, w: 40, align: "left" as const, size: 7.5 },
+    productCode: { x: 45, w: 18, align: "left" as const, size: 7.5 },
+    color: { x: 64, w: 8, align: "center" as const, size: 7.5 },
+    size: { x: 73, w: 14, align: "center" as const, size: 7.5 },
+    unit: { x: 88, w: 7, align: "center" as const, size: 7.5 },
+    quantity: { x: 96, w: 13, align: "right" as const, size: 8 },
+    correctedQty: { x: 115, w: 13, align: "right" as const, size: 8 },
+    discount: { x: 129, w: 9, align: "right" as const, size: 8 },
+    unitPrice: { x: 139, w: 14, align: "right" as const, size: 8 },
+    costAmount: { x: 154, w: 16, align: "right" as const, size: 8, bold: true },
+    retailPrice: { x: 171, w: 13, align: "right" as const, size: 8 },
+    note: { x: 185, w: 20, align: "right" as const, size: 8 }
+  } as Record<string, FieldPos>,
+
+  // 合計エリア
+  totalQty: { x: 105, y: 92, size: 9, bold: true },
+  receivedTotal: { x: 128, y: 92, size: 9 },
+  returnTotal: { x: 152, y: 92, size: 9 },
+  correctedCostTotal: { x: 176, y: 92, size: 10, bold: true },
+  correctedRetailTotal: { x: 205, y: 92, size: 10, bold: true }
+};
+
+function pos(p: FieldPos, value: string): string {
+  const align = p.align ?? "left";
+  const size = p.size ?? 8;
+  const style = [
+    `position:absolute`,
+    `left:${p.x}mm`,
+    `top:${p.y}mm`,
+    p.w ? `width:${p.w}mm` : "",
+    `text-align:${align}`,
+    `font-size:${size}pt`,
+    p.bold ? "font-weight:700" : "",
+    "line-height:1",
+    "white-space:nowrap",
+    "overflow:hidden"
+  ]
+    .filter(Boolean)
+    .join(";");
+  return `<div class="bp-fld" style="${style}">${value}</div>`;
+}
+
+function splitDate(iso: string): { y: string; m: string; d: string } {
+  if (!iso) return { y: "", m: "", d: "" };
   const d = new Date(iso);
   const y = d.getFullYear();
   const reiwa = y - 2018;
   return {
-    era: reiwa > 0 ? `令${reiwa}` : String(y).slice(-2),
-    month: String(d.getMonth() + 1).padStart(2, "0"),
-    day: String(d.getDate()).padStart(2, "0")
+    y: reiwa > 0 ? String(reiwa).padStart(2, "0") : String(y).slice(-2),
+    m: String(d.getMonth() + 1).padStart(2, "0"),
+    d: String(d.getDate()).padStart(2, "0")
   };
 }
 
@@ -42,8 +121,50 @@ export function renderChainStoreSlip(
   company: PrintCompanyInfo,
   opts: PrintOptions
 ): string {
-  const orderDate = formatWareki(data.orderDate ?? data.documentDate);
-  const deliveryDate = formatWareki(data.deliveryDate ?? data.documentDate);
+  const curDate = splitDate(data.documentDate);
+  const orderDate = splitDate(data.orderDate ?? data.documentDate);
+  const deliveryDate = splitDate(data.deliveryDate ?? data.documentDate);
+
+  // 明細を所定位置に配置
+  const detailHtml = data.lines
+    .slice(0, 6) // 最大6行
+    .map((line, i) => {
+      const rowY = POS.detailStartY + i * POS.detailRowH;
+      const c = POS.detailCols;
+      const cells: string[] = [];
+
+      const put = (col: FieldPos, v: string) => {
+        if (!v) return;
+        cells.push(
+          pos({ ...col, y: rowY, x: col.x + 0 } as FieldPos, v)
+        );
+      };
+
+      put(c.productName, line.productName + (line.spec ? ` ${line.spec}` : ""));
+      put(c.productCode, line.productCode);
+      put(c.color, line.color ?? "");
+      put(
+        c.size,
+        [line.size, line.caseQty ? `×${line.caseQty}` : ""].filter(Boolean).join(" ")
+      );
+      put(c.unit, line.unit);
+      put(c.quantity, line.quantity > 0 ? line.quantity.toLocaleString("ja-JP") : "");
+      put(
+        c.correctedQty,
+        line.correctedQuantity ? line.correctedQuantity.toLocaleString("ja-JP") : ""
+      );
+      put(c.discount, line.discount ? line.discount.toLocaleString("ja-JP") : "");
+      put(c.unitPrice, line.unitPrice > 0 ? line.unitPrice.toLocaleString("ja-JP") : "");
+      put(c.costAmount, line.amount > 0 ? line.amount.toLocaleString("ja-JP") : "");
+      put(c.retailPrice, line.retailPrice ? line.retailPrice.toLocaleString("ja-JP") : "");
+      put(
+        c.note,
+        line.receivedAmount ? line.receivedAmount.toLocaleString("ja-JP") : ""
+      );
+
+      return cells.join("");
+    })
+    .join("");
 
   // 合計
   const costTotal = data.lines.reduce((s, l) => s + (l.amount || 0), 0);
@@ -55,188 +176,52 @@ export function renderChainStoreSlip(
   const returnTotal = data.lines.reduce((s, l) => s + (l.returnAmount || 0), 0);
   const quantityTotal = data.lines.reduce((s, l) => s + l.quantity, 0);
 
-  // 明細6行を固定生成
-  const rows = Array.from({ length: FIXED_ROWS }, (_, i) => {
-    const line = data.lines[i];
-    const rowNo = i + 1;
-    if (!line) {
-      return `
-        <tr class="bp-empty-row">
-          <td class="bp-name"></td>
-          <td class="bp-pcode"></td>
-          <td class="bp-color"></td>
-          <td class="bp-size"></td>
-          <td class="bp-unit"></td>
-          <td class="bp-qty"></td>
-          <td class="bp-rowno">${rowNo}</td>
-          <td class="bp-corr-qty"></td>
-          <td class="bp-discount"></td>
-          <td class="bp-cost-price"></td>
-          <td class="bp-cost-amount"></td>
-          <td class="bp-retail-price"></td>
-          <td class="bp-note"></td>
-        </tr>`;
-    }
+  // 参考画像オーバーレイ (プレビュー専用、印刷時は非表示)
+  const overlayStyle = opts.showReferenceOverlay
+    ? `background-image: url('${opts.overlayImageUrl}'); background-size: 100% 100%; background-repeat: no-repeat; opacity: 1;`
+    : "";
 
-    const caseStr = line.caseQty && line.caseQty > 1 ? String(line.caseQty) : "";
-    return `
-      <tr>
-        <td class="bp-name">${line.productName}${line.spec ? `<br/><span class="bp-spec">${line.spec}</span>` : ""}</td>
-        <td class="bp-pcode mono">${line.productCode}</td>
-        <td class="bp-color">${line.color ?? ""}</td>
-        <td class="bp-size">
-          ${line.size ?? ""}
-          ${caseStr ? `<div class="bp-subdiv">入${caseStr}</div>` : ""}
-        </td>
-        <td class="bp-unit">${line.unit}</td>
-        <td class="bp-qty numeric">${line.quantity > 0 ? line.quantity.toLocaleString("ja-JP") : ""}</td>
-        <td class="bp-rowno">${rowNo}</td>
-        <td class="bp-corr-qty numeric">${line.correctedQuantity ? line.correctedQuantity.toLocaleString("ja-JP") : ""}</td>
-        <td class="bp-discount numeric">${line.discount ? line.discount.toLocaleString("ja-JP") : ""}</td>
-        <td class="bp-cost-price numeric">${line.unitPrice > 0 ? line.unitPrice.toLocaleString("ja-JP") : ""}</td>
-        <td class="bp-cost-amount numeric">${line.amount > 0 ? line.amount.toLocaleString("ja-JP") : ""}</td>
-        <td class="bp-retail-price numeric">${line.retailPrice ? line.retailPrice.toLocaleString("ja-JP") : ""}</td>
-        <td class="bp-note numeric">${line.receivedAmount ? line.receivedAmount.toLocaleString("ja-JP") : ""}</td>
-      </tr>`;
-  }).join("");
-
-  const overlay =
-    opts.showReferenceOverlay && opts.overlayImageUrl
-      ? `<img class="bp-overlay" src="${opts.overlayImageUrl}" style="opacity:${opts.overlayOpacity};" alt="参考" />`
-      : "";
+  const calX = opts.calibrationOffsetX || 0;
+  const calY = opts.calibrationOffsetY || 0;
+  const calibStyle = `transform: translate(${calX}mm, ${calY}mm);`;
 
   return `
-    <div class="print-page bp1701 ${opts.fontSize}">
-      <div class="bp1701-slip">
-        ${overlay}
+    <div class="print-page bp1701-overlay">
+      <div class="bp-sheet" style="${overlayStyle}">
+        ${opts.showReferenceOverlay ? `<div class="bp-sheet-overlay-mask" style="opacity:${1 - opts.overlayOpacity};"></div>` : ""}
 
-        <!-- 最上部: タイトル行 -->
-        <div class="bp-topbar">
-          <div class="bp-date-cell">
-            <div class="bp-label">当日日付</div>
-            <div class="bp-date-boxes">
-              <span>${orderDate.era}</span>
-              <span>${orderDate.month}</span>
-              <span>${orderDate.day}</span>
-            </div>
-          </div>
-          <div class="bp-title-main">
-            <span class="bp-title-text">チェーンストア統一伝票</span>
-            <span class="bp-title-sub">（ターンアラウンド用 1型）</span>
-          </div>
-          <div class="bp-title-slip">
-            <div>仕入伝票 <span class="bp-circle-1">①</span></div>
-          </div>
-          <div class="bp-settle">
-            <div class="bp-settle-box ${data.settlementPrint ? "checked" : ""}">${data.settlementPrint ? "✓" : ""}</div>
-            <div class="bp-label">決算出力</div>
-          </div>
-        </div>
+        <!-- データフィールド (絶対座標配置、プリンタずれ調整あり) -->
+        <div class="bp-data-layer" style="${calibStyle}">
+        ${pos(POS.currentDateY, curDate.y)}
+        ${pos(POS.currentDateM, curDate.m)}
+        ${pos(POS.currentDateD, curDate.d)}
+        ${pos(POS.documentNo, data.documentNo)}
+        ${data.settlementPrint ? pos(POS.settlementCheck, "✓") : ""}
 
-        <!-- 社名エリア -->
-        <div class="bp-vendor-row">
-          <div class="bp-vendor-name">
-            <div class="bp-label">社名</div>
-            <div class="bp-val">${company.name}</div>
-          </div>
-          <div class="bp-code-cell">
-            <div class="bp-label">柱店コード</div>
-            <div class="bp-val mono">${data.chainStoreCode ?? ""}</div>
-          </div>
-          <div class="bp-code-cell">
-            <div class="bp-label">分類コード伝票</div>
-            <div class="bp-val mono">${data.categoryCode ?? ""}</div>
-          </div>
-          <div class="bp-code-cell">
-            <div class="bp-label">伝票番号</div>
-            <div class="bp-val mono">${data.documentNo}</div>
-          </div>
-          <div class="bp-code-cell">
-            <div class="bp-label">取引コード</div>
-            <div class="bp-val mono">${data.slipTypeCode ?? ""}</div>
-          </div>
-        </div>
+        ${pos(POS.vendorName, company.name)}
+        ${pos(POS.vendorAddress, company.address1)}
+        ${pos(POS.chainStoreCode, data.chainStoreCode ?? "")}
+        ${pos(POS.categoryCode, data.categoryCode ?? "")}
+        ${pos(POS.slipNumber, data.documentNo)}
+        ${pos(POS.vendorCode, data.slipTypeCode ?? "")}
 
-        <!-- 取引先コード・日付エリア -->
-        <div class="bp-vendor-row">
-          <div class="bp-vendor-address">
-            <div class="bp-val">${data.customerName} ${data.customerHonorific}</div>
-            <div class="bp-val-sub">${data.customerAddress ?? ""}</div>
-          </div>
-          <div class="bp-code-cell">
-            <div class="bp-label">発注日</div>
-            <div class="bp-date-boxes">
-              <span>${orderDate.era}</span><span>${orderDate.month}</span><span>${orderDate.day}</span>
-            </div>
-          </div>
-          <div class="bp-code-cell">
-            <div class="bp-label">納品日</div>
-            <div class="bp-date-boxes">
-              <span>${deliveryDate.era}</span><span>${deliveryDate.month}</span><span>${deliveryDate.day}</span>
-            </div>
-          </div>
-          <div class="bp-code-cell">
-            <div class="bp-label">受注No.</div>
-            <div class="bp-val mono">${data.orderNo ?? ""}</div>
-          </div>
-          <div class="bp-code-cell">
-            <div class="bp-label">取引先コード</div>
-            <div class="bp-val mono">${data.vendorCode ?? company.registrationNo.slice(-7)}</div>
-          </div>
-        </div>
+        ${pos(POS.customerName, `${data.customerName} ${data.customerHonorific}`)}
+        ${pos(POS.orderDateY, orderDate.y)}
+        ${pos(POS.orderDateM, orderDate.m)}
+        ${pos(POS.orderDateD, orderDate.d)}
+        ${pos(POS.deliveryDateY, deliveryDate.y)}
+        ${pos(POS.deliveryDateM, deliveryDate.m)}
+        ${pos(POS.deliveryDateD, deliveryDate.d)}
+        ${pos(POS.orderNo, data.orderNo ?? "")}
+        ${pos(POS.partnerCode, data.vendorCode ?? "")}
 
-        <!-- 明細テーブル -->
-        <table class="bp-table">
-          <thead>
-            <tr>
-              <th class="bp-name">品名・規格</th>
-              <th class="bp-pcode">商品コード</th>
-              <th class="bp-color">色</th>
-              <th class="bp-size">
-                サイズ
-                <div class="bp-subdiv">入数/ケース</div>
-              </th>
-              <th class="bp-unit">単位</th>
-              <th class="bp-qty">数量</th>
-              <th class="bp-rowno">行</th>
-              <th class="bp-corr-qty">訂正後<br/>数量</th>
-              <th class="bp-discount">引</th>
-              <th class="bp-cost-price">原単価</th>
-              <th class="bp-cost-amount">原価金額</th>
-              <th class="bp-retail-price">売単価</th>
-              <th class="bp-note">備考<br/>(受領金額)</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+        ${detailHtml}
 
-        <!-- 下部: 合計行 -->
-        <div class="bp-footer">
-          <div class="bp-ocr-notice">
-            （日計上欄OCR用につき<br/>他の目的で使用しないでください）
-          </div>
-          <div class="bp-totals">
-            <div class="bp-total-row">
-              <span class="bp-label">合計数量</span>
-              <span class="bp-val numeric">${quantityTotal.toLocaleString("ja-JP")}</span>
-            </div>
-            <div class="bp-total-row">
-              <span class="bp-label">受領金額合計</span>
-              <span class="bp-val numeric">${receivedTotal.toLocaleString("ja-JP")}</span>
-            </div>
-            <div class="bp-total-row">
-              <span class="bp-label">返品金額合計</span>
-              <span class="bp-val numeric">${returnTotal.toLocaleString("ja-JP")}</span>
-            </div>
-            <div class="bp-total-row bp-grand-cost">
-              <span class="bp-label">訂正後原価金額合計</span>
-              <span class="bp-val numeric">${costTotal.toLocaleString("ja-JP")}</span>
-            </div>
-            <div class="bp-total-row bp-grand-retail">
-              <span class="bp-label">訂正後売価金額合計</span>
-              <span class="bp-val numeric">${retailTotal.toLocaleString("ja-JP")}</span>
-            </div>
-          </div>
+        ${pos(POS.totalQty, quantityTotal.toLocaleString("ja-JP"))}
+        ${pos(POS.receivedTotal, receivedTotal.toLocaleString("ja-JP"))}
+        ${pos(POS.returnTotal, returnTotal.toLocaleString("ja-JP"))}
+        ${pos(POS.correctedCostTotal, costTotal.toLocaleString("ja-JP"))}
+        ${pos(POS.correctedRetailTotal, retailTotal.toLocaleString("ja-JP"))}
         </div>
       </div>
     </div>
