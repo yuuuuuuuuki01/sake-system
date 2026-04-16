@@ -2981,3 +2981,173 @@ export async function syncPhoneBookToIvry(
     return { synced: 0, error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+// ─── リスト取得ツール (新規営業のリード獲得) ──────────────────────────────
+
+export interface LeadList {
+  id: string;
+  name: string;
+  query?: string;
+  area?: string;
+  businessType?: string;
+  totalCount: number;
+  source: "google_places" | "manual" | "csv" | "sample";
+  createdAt?: string;
+}
+
+export interface LeadItem {
+  id: string;
+  listId: string;
+  companyName: string;
+  address?: string;
+  phone?: string;
+  website?: string;
+  email?: string;
+  businessType?: string;
+  rating?: number;
+  reviewCount?: number;
+  lat?: number;
+  lng?: number;
+  placeId?: string;
+  status: "new" | "imported" | "excluded";
+  convertedProspectId?: string;
+  note?: string;
+}
+
+export async function fetchLeadLists(): Promise<LeadList[]> {
+  const rows = await supabaseQuery<LooseRow>("lead_lists", { order: "created_at.desc" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    name: getString(r, ["name"], ""),
+    query: getString(r, ["query"], ""),
+    area: getString(r, ["area"], ""),
+    businessType: getString(r, ["business_type"], ""),
+    totalCount: toNumber(r["total_count"]),
+    source: (getString(r, ["source"], "manual") as LeadList["source"]),
+    createdAt: getString(r, ["created_at"], "")
+  }));
+}
+
+export async function fetchLeadItems(listId: string): Promise<LeadItem[]> {
+  const rows = await supabaseQuery<LooseRow>("lead_items", {
+    list_id: `eq.${listId}`,
+    order: "rating.desc.nullslast"
+  });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    listId: getString(r, ["list_id"], ""),
+    companyName: getString(r, ["company_name"], ""),
+    address: getString(r, ["address"], ""),
+    phone: getString(r, ["phone"], ""),
+    website: getString(r, ["website"], ""),
+    email: getString(r, ["email"], ""),
+    businessType: getString(r, ["business_type"], ""),
+    rating: r["rating"] ? Number(r["rating"]) : undefined,
+    reviewCount: toNumber(r["review_count"]),
+    lat: r["lat"] ? Number(r["lat"]) : undefined,
+    lng: r["lng"] ? Number(r["lng"]) : undefined,
+    placeId: getString(r, ["place_id"], ""),
+    status: (getString(r, ["status"], "new") as LeadItem["status"]),
+    convertedProspectId: getString(r, ["converted_prospect_id"], ""),
+    note: getString(r, ["note"], "")
+  }));
+}
+
+export async function saveLeadList(list: LeadList): Promise<LeadList | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const r = await supabaseInsert<LooseRow>("lead_lists", {
+    id: list.id,
+    name: list.name,
+    query: list.query || null,
+    area: list.area || null,
+    business_type: list.businessType || null,
+    total_count: list.totalCount,
+    source: list.source
+  });
+  return r ? list : null;
+}
+
+export async function saveLeadItem(item: LeadItem): Promise<LeadItem | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const r = await supabaseInsert<LooseRow>("lead_items", {
+    id: item.id,
+    list_id: item.listId,
+    company_name: item.companyName,
+    address: item.address || null,
+    phone: item.phone || null,
+    website: item.website || null,
+    email: item.email || null,
+    business_type: item.businessType || null,
+    rating: item.rating ?? null,
+    review_count: item.reviewCount ?? null,
+    lat: item.lat ?? null,
+    lng: item.lng ?? null,
+    place_id: item.placeId || null,
+    status: item.status,
+    converted_prospect_id: item.convertedProspectId || null,
+    note: item.note || null
+  });
+  return r ? item : null;
+}
+
+// Google Places Text Search でリスト取得
+export async function searchPlaces(
+  setting: IntegrationSetting,
+  query: string,
+  area: string
+): Promise<{ results: LeadItem[]; error?: string }> {
+  const apiKey = setting.config["api_key"];
+  if (!apiKey) return { results: [], error: "Google Maps API key 未設定" };
+
+  const fullQuery = `${query} ${area}`.trim();
+  const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(fullQuery)}&language=ja&key=${apiKey}`;
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return { results: [], error: `HTTP ${resp.status}` };
+    const data = (await resp.json()) as { results: Array<Record<string, unknown>>; status: string };
+    if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
+      return { results: [], error: `API status: ${data.status}` };
+    }
+    const results: LeadItem[] = data.results.map((r) => {
+      const geo = (r["geometry"] as { location?: { lat: number; lng: number } })?.location;
+      return {
+        id: `place_${r["place_id"]}`,
+        listId: "",
+        companyName: String(r["name"] ?? ""),
+        address: String(r["formatted_address"] ?? ""),
+        rating: r["rating"] ? Number(r["rating"]) : undefined,
+        reviewCount: r["user_ratings_total"] ? Number(r["user_ratings_total"]) : undefined,
+        lat: geo?.lat,
+        lng: geo?.lng,
+        placeId: String(r["place_id"] ?? ""),
+        status: "new" as const
+      };
+    });
+    return { results };
+  } catch (e) {
+    return { results: [], error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// リード → 見込客(prospect)へ変換
+export async function convertLeadToProspect(item: LeadItem): Promise<Prospect | null> {
+  const prospect: Prospect = {
+    id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    companyName: item.companyName,
+    phone: item.phone,
+    address: item.address,
+    lat: item.lat,
+    lng: item.lng,
+    businessType: item.businessType,
+    stage: "cold",
+    source: "リスト",
+    expectedAmount: 100000,
+    probability: 10,
+    note: item.note ?? (item.rating ? `Google評価: ⭐${item.rating} (${item.reviewCount}件)` : "")
+  };
+  const saved = await saveProspect(prospect);
+  if (saved) {
+    await saveLeadItem({ ...item, status: "imported", convertedProspectId: prospect.id });
+  }
+  return saved;
+}

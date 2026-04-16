@@ -67,6 +67,8 @@ import {
   type MaterialRecord,
   type DeliveryLocation,
   type CallLog,
+  type LeadList,
+  type LeadItem,
   type StoreOrder,
   type StoreSale,
   type TankRecord,
@@ -127,6 +129,7 @@ import { renderSlackSettings } from "./components/SlackSettings";
 import { renderMaterialEditModal } from "./components/Materials";
 import { renderCallLogs } from "./components/CallLogs";
 import type { MapFilters } from "./components/CustomerMap";
+import { renderListBuilder, type ListBuilderState } from "./components/ListBuilder";
 import { renderPrintCenter } from "./components/PrintCenter";
 import {
   DEFAULT_COMPANY_INFO,
@@ -193,7 +196,8 @@ type RoutePath =
   | "/audit"
   | "/prospects"
   | "/slack"
-  | "/calls";
+  | "/calls"
+  | "/list-builder";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -254,7 +258,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/audit",
   "/prospects",
   "/slack",
-  "/calls"
+  "/calls",
+  "/list-builder"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -305,7 +310,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/audit", title: "操作ログ" },
   { path: "/prospects", title: "新規営業" },
   { path: "/slack", title: "Slack通知" },
-  { path: "/calls", title: "通話履歴(IVRy)" }
+  { path: "/calls", title: "通話履歴(IVRy)" },
+  { path: "/list-builder", title: "リスト取得ツール" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -421,6 +427,14 @@ interface AppState {
   deliveryLocations: DeliveryLocation[];
   callLogs: CallLog[];
   mapFilters: MapFilters;
+  leadLists: LeadList[];
+  leadItems: LeadItem[];
+  leadActiveListId: string | null;
+  leadSearchQuery: string;
+  leadSearchArea: string;
+  leadSearchType: string;
+  leadSearching: boolean;
+  leadSearchResults: LeadItem[];
   printTemplate: PrintTemplateKey;
   printOptions: PrintOptions;
   printCompany: PrintCompanyInfo;
@@ -600,6 +614,14 @@ const state: AppState = {
     filterRegion: "",
     filterBusinessType: ""
   },
+  leadLists: [],
+  leadItems: [],
+  leadActiveListId: null,
+  leadSearchQuery: "",
+  leadSearchArea: "",
+  leadSearchType: "",
+  leadSearching: false,
+  leadSearchResults: [],
   printTemplate: "chain_store",
   printOptions: {
     ...DEFAULT_PRINT_OPTIONS,
@@ -1219,6 +1241,13 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
         }
         break;
+      case "/list-builder":
+        {
+          const { fetchLeadLists, fetchIntegrationSettings } = await import("./api");
+          state.leadLists = await fetchLeadLists();
+          if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
+        }
+        break;
       case "/slack":
         {
           const { fetchSlackRules, fetchSlackLogs, fetchIntegrationSettings } = await import("./api");
@@ -1416,6 +1445,19 @@ function renderView(): string {
         ivry?.lastSyncAt ?? null,
         ivry?.isEnabled ?? false
       );
+    }
+    case "/list-builder": {
+      const vs: ListBuilderState = {
+        lists: state.leadLists,
+        activeListId: state.leadActiveListId,
+        items: state.leadItems,
+        searchQuery: state.leadSearchQuery,
+        searchArea: state.leadSearchArea,
+        searchBusinessType: state.leadSearchType,
+        searching: state.leadSearching,
+        searchResults: state.leadSearchResults
+      };
+      return renderListBuilder(vs);
     }
     default:
       break;
@@ -2686,6 +2728,131 @@ function bindEvents(root: HTMLElement): void {
     inq.repliedAt = new Date().toISOString();
     inq.confirmedTime = confirmedTimeEl?.value ?? "";
     alert("返信メールを下書き保存し、ステータスを確定にしました（実送信はSupabase連携で実装）");
+    renderApp();
+  });
+
+  // ── リスト取得ツール ────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='lb-search']")?.addEventListener("click", async () => {
+    const type = root.querySelector<HTMLSelectElement>("#lb-type")?.value ?? "";
+    const area = root.querySelector<HTMLInputElement>("#lb-area")?.value ?? "";
+    const keyword = root.querySelector<HTMLInputElement>("#lb-keyword")?.value ?? "";
+    if (!type && !keyword) { alert("業種かキーワードを入力してください"); return; }
+    state.leadSearchType = type;
+    state.leadSearchArea = area;
+    state.leadSearchQuery = keyword;
+    state.leadSearching = true;
+    renderApp();
+    const setting = state.integrations.find((i) => i.provider === "google_maps");
+    if (!setting || !setting.config["api_key"]) {
+      alert("Google Maps APIキーが /integrations で未設定です");
+      state.leadSearching = false;
+      renderApp();
+      return;
+    }
+    const { searchPlaces } = await import("./api");
+    const query = [type, keyword].filter(Boolean).join(" ");
+    const result = await searchPlaces(setting, query, area);
+    state.leadSearching = false;
+    if (result.error) {
+      alert("検索失敗: " + result.error);
+    } else {
+      state.leadSearchResults = result.results;
+    }
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='lb-clear-search']")?.addEventListener("click", () => {
+    state.leadSearchResults = [];
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='lb-save-list']")?.addEventListener("click", async () => {
+    if (state.leadSearchResults.length === 0) return;
+    const name = prompt("リスト名を入力:", `${state.leadSearchType} ${state.leadSearchArea}`);
+    if (!name) return;
+    const listId = `ll_${Date.now()}`;
+    const list: LeadList = {
+      id: listId,
+      name,
+      query: state.leadSearchQuery,
+      area: state.leadSearchArea,
+      businessType: state.leadSearchType,
+      totalCount: state.leadSearchResults.length,
+      source: "google_places"
+    };
+    const { saveLeadList, saveLeadItem, fetchLeadLists, fetchLeadItems } = await import("./api");
+    await saveLeadList(list);
+    const checks = root.querySelectorAll<HTMLInputElement>(".lb-search-check:checked");
+    const selectedIndices = Array.from(checks).map((c) => Number(c.dataset.idx));
+    for (const idx of selectedIndices) {
+      const item = state.leadSearchResults[idx];
+      if (!item) continue;
+      await saveLeadItem({
+        ...item,
+        id: `li_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        listId,
+        businessType: state.leadSearchType
+      });
+    }
+    state.leadLists = await fetchLeadLists();
+    state.leadActiveListId = listId;
+    state.leadItems = await fetchLeadItems(listId);
+    state.leadSearchResults = [];
+    alert(`${selectedIndices.length}件を「${name}」として保存しました`);
+    renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='lb-select-list']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? null;
+      state.leadActiveListId = id;
+      if (id) {
+        const { fetchLeadItems } = await import("./api");
+        state.leadItems = await fetchLeadItems(id);
+      }
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='lb-exclude']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      const item = state.leadItems.find((i) => i.id === id);
+      if (!item) return;
+      const { saveLeadItem, fetchLeadItems } = await import("./api");
+      await saveLeadItem({ ...item, status: "excluded" });
+      if (state.leadActiveListId) state.leadItems = await fetchLeadItems(state.leadActiveListId);
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='lb-convert-one']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      const item = state.leadItems.find((i) => i.id === id);
+      if (!item) return;
+      const { convertLeadToProspect, fetchLeadItems } = await import("./api");
+      const result = await convertLeadToProspect(item);
+      if (result) {
+        alert("見込客に追加しました: " + item.companyName);
+        if (state.leadActiveListId) state.leadItems = await fetchLeadItems(state.leadActiveListId);
+        renderApp();
+      }
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='lb-bulk-convert']")?.addEventListener("click", async () => {
+    const checks = root.querySelectorAll<HTMLInputElement>(".lb-item-check:checked");
+    if (checks.length === 0) {
+      if (!confirm(`全ての新規アイテムを見込客に変換しますか？`)) return;
+    }
+    const ids = checks.length > 0
+      ? Array.from(checks).map((c) => c.dataset.id!)
+      : state.leadItems.filter((i) => i.status === "new").map((i) => i.id);
+    const { convertLeadToProspect, fetchLeadItems } = await import("./api");
+    let converted = 0;
+    for (const id of ids) {
+      const item = state.leadItems.find((i) => i.id === id);
+      if (item && item.status === "new") {
+        if (await convertLeadToProspect(item)) converted++;
+      }
+    }
+    alert(`${converted}件を見込客に変換しました`);
+    if (state.leadActiveListId) state.leadItems = await fetchLeadItems(state.leadActiveListId);
     renderApp();
   });
 
