@@ -116,8 +116,6 @@ export function renderFormDesigner(
         <button class="button ${designMode ? "primary" : "secondary"}" data-action="fd-toggle-design">
           ${designMode ? "🔧 配置モードON" : "▶ プレビューモード"}
         </button>
-        <button class="button secondary" data-action="fd-save-positions">💾 位置を保存</button>
-        <button class="button secondary" data-action="fd-reset-positions">🔄 初期化</button>
         <button class="button primary" onclick="window.print()">🖨️ 印刷</button>
       </div>
     </section>
@@ -126,14 +124,34 @@ export function renderFormDesigner(
       designMode
         ? `
     <section class="panel no-print">
-      <p class="form-hint" style="margin:0;">
-        <strong>配置モード:</strong> テキストボックスを<b>ドラッグ</b>して帳票の枠に合わせてください。
-        位置は「💾 位置を保存」でブラウザに記憶します。<br/>
-        色分け: <span style="color:${FIELD_COLORS.header}">■ ヘッダー</span>
-        <span style="color:${FIELD_COLORS.code}">■ コード</span>
-        <span style="color:${FIELD_COLORS.date}">■ 日付</span>
-        <span style="color:${FIELD_COLORS.detail}">■ 明細</span>
-        <span style="color:${FIELD_COLORS.total}">■ 合計</span>
+      <div class="panel-header">
+        <div>
+          <h2>💾 レイアウト保存</h2>
+          <p class="panel-caption">クラウド保存で他PCからも同じレイアウトが使えます</p>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:12px;">
+        <label class="field" style="flex:1 1 200px;">
+          <span>レイアウト名</span>
+          <input id="fd-layout-name" type="text" placeholder="例: 青葉商事用" />
+        </label>
+        <button class="button primary" data-action="fd-save-cloud">☁️ クラウド保存</button>
+        <button class="button secondary" data-action="fd-save-local">📁 このPCに保存</button>
+      </div>
+      <div id="fd-saved-layouts" class="form-hint" style="margin-bottom:12px;">保存済みレイアウト読込中…</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <button class="button secondary" data-action="fd-export-json">📤 JSONエクスポート</button>
+        <button class="button secondary" data-action="fd-import-json">📥 JSONインポート</button>
+        <input id="fd-import-file" type="file" accept=".json" style="display:none;" />
+        <button class="button secondary" data-action="fd-reset-positions" style="margin-left:auto;">🔄 初期値に戻す</button>
+      </div>
+      <p class="form-hint" style="margin:12px 0 0;">
+        <strong>配置モード:</strong> テキストボックスをドラッグ(または方向キー)で位置合わせ。
+        色: <span style="color:${FIELD_COLORS.header}">■ヘッダ</span>
+        <span style="color:${FIELD_COLORS.code}">■コード</span>
+        <span style="color:${FIELD_COLORS.date}">■日付</span>
+        <span style="color:${FIELD_COLORS.detail}">■明細</span>
+        <span style="color:${FIELD_COLORS.total}">■合計</span>
       </p>
     </section>
     `

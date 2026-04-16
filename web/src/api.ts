@@ -1815,3 +1815,73 @@ export async function sendEmailCampaign(
 
   return { sent, failed };
 }
+
+// ─── 帳票レイアウト（フォームデザイナー配置データ） ──────────────────────────
+
+export interface PrintLayout {
+  id: string;
+  name: string;
+  templateKey: string;
+  positions: Record<string, { x: number; y: number }>;
+  isDefault?: boolean;
+  note?: string;
+  updatedAt?: string;
+}
+
+// Supabaseから全レイアウト取得
+export async function fetchPrintLayouts(templateKey?: string): Promise<PrintLayout[]> {
+  const params: Record<string, string> = { order: "updated_at.desc" };
+  if (templateKey) params.template_key = `eq.${templateKey}`;
+  const rows = await supabaseQuery<LooseRow>("print_layouts", params);
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    name: getString(r, ["name"], ""),
+    templateKey: getString(r, ["template_key"], ""),
+    positions: (r["positions"] as Record<string, { x: number; y: number }>) ?? {},
+    isDefault: getBoolean(r, ["is_default"], false),
+    note: getString(r, ["note"], ""),
+    updatedAt: getString(r, ["updated_at"], "")
+  }));
+}
+
+// レイアウト保存（UPSERT）
+export async function savePrintLayout(layout: PrintLayout): Promise<PrintLayout | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const body = {
+    id: layout.id,
+    name: layout.name,
+    template_key: layout.templateKey,
+    positions: layout.positions,
+    is_default: layout.isDefault ?? false,
+    note: layout.note ?? "",
+    updated_at: new Date().toISOString()
+  };
+  const result = await supabaseInsert<LooseRow>("print_layouts", body);
+  if (!result) return null;
+  return {
+    id: getString(result, ["id"], layout.id),
+    name: getString(result, ["name"], layout.name),
+    templateKey: getString(result, ["template_key"], layout.templateKey),
+    positions: (result["positions"] as Record<string, { x: number; y: number }>) ?? layout.positions,
+    isDefault: getBoolean(result, ["is_default"], false),
+    note: getString(result, ["note"], ""),
+    updatedAt: getString(result, ["updated_at"], "")
+  };
+}
+
+// レイアウト削除
+export async function deletePrintLayout(id: string): Promise<boolean> {
+  const url = new URL(`/rest/v1/print_layouts`, "https://loarwnuyvfxiscjjsmiz.supabase.co");
+  url.searchParams.set("id", `eq.${id}`);
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+  if (!key) return false;
+  try {
+    const resp = await fetch(url.toString(), {
+      method: "DELETE",
+      headers: { apikey: key, Authorization: `Bearer ${key}` }
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}

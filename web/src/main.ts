@@ -2025,18 +2025,131 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
-  root.querySelector<HTMLButtonElement>("[data-action='fd-save-positions']")?.addEventListener("click", () => {
+  // クラウド保存
+  root.querySelector<HTMLButtonElement>("[data-action='fd-save-cloud']")?.addEventListener("click", async () => {
+    const canvas = root.querySelector<HTMLElement>(".fd-canvas");
+    if (!canvas) return;
+    const nameInput = root.querySelector<HTMLInputElement>("#fd-layout-name");
+    const name = (nameInput?.value ?? "").trim() || "デフォルト";
+    const positions = collectFieldPositions(canvas);
+    const { savePrintLayout } = await import("./api");
+    const layout = {
+      id: `bp1701_${name.replaceAll(/[^a-zA-Z0-9_-]/g, "_")}_${Date.now()}`,
+      name,
+      templateKey: "chain_store" as const,
+      positions
+    };
+    try {
+      const saved = await savePrintLayout(layout);
+      if (saved) {
+        alert(`☁️ クラウド保存成功: ${name}`);
+        state.fdSavedPositions = positions;
+        localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
+        renderApp();
+      } else {
+        alert("保存に失敗しました。ローカルには保存されました。");
+        localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
+      }
+    } catch (e) {
+      alert("保存エラー: " + (e instanceof Error ? e.message : ""));
+    }
+  });
+
+  // ローカル保存（従来のlocalStorage）
+  root.querySelector<HTMLButtonElement>("[data-action='fd-save-local']")?.addEventListener("click", () => {
     const canvas = root.querySelector<HTMLElement>(".fd-canvas");
     if (!canvas) return;
     const positions = collectFieldPositions(canvas);
     state.fdSavedPositions = positions;
     try {
       localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
-      alert(`${Object.keys(positions).length}件のフィールド位置を保存しました`);
+      alert(`📁 このPCに保存: ${Object.keys(positions).length}件`);
     } catch (e) {
       alert("保存失敗: " + (e instanceof Error ? e.message : ""));
     }
   });
+
+  // JSONエクスポート
+  root.querySelector<HTMLButtonElement>("[data-action='fd-export-json']")?.addEventListener("click", () => {
+    const canvas = root.querySelector<HTMLElement>(".fd-canvas");
+    if (!canvas) return;
+    const positions = collectFieldPositions(canvas);
+    const data = { templateKey: "chain_store", positions, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bp1701_layout_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // JSONインポート
+  root.querySelector<HTMLButtonElement>("[data-action='fd-import-json']")?.addEventListener("click", () => {
+    root.querySelector<HTMLInputElement>("#fd-import-file")?.click();
+  });
+  root.querySelector<HTMLInputElement>("#fd-import-file")?.addEventListener("change", async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const positions = parsed.positions as Record<string, { x: number; y: number }>;
+      if (!positions) throw new Error("positions field not found");
+      state.fdSavedPositions = positions;
+      localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
+      alert(`📥 インポート成功: ${Object.keys(positions).length}件`);
+      renderApp();
+    } catch (err) {
+      alert("インポート失敗: " + (err instanceof Error ? err.message : ""));
+    }
+  });
+
+  // 保存済みレイアウト一覧を取得して表示
+  const savedLayoutsDiv = root.querySelector<HTMLElement>("#fd-saved-layouts");
+  if (savedLayoutsDiv && state.route === "/form-designer" && state.fdDesignMode) {
+    void (async () => {
+      const { fetchPrintLayouts } = await import("./api");
+      const layouts = await fetchPrintLayouts("chain_store");
+      if (layouts.length === 0) {
+        savedLayoutsDiv.innerHTML = "☁️ クラウドに保存されたレイアウトはありません";
+      } else {
+        savedLayoutsDiv.innerHTML = `☁️ クラウド保存済み (${layouts.length}件):<br/>` +
+          layouts
+            .map(
+              (l) =>
+                `<button class="button-sm secondary" data-action="fd-load-layout" data-layout-id="${l.id}" style="margin:4px 4px 0 0;">${l.name}</button>
+                 <button class="button-sm secondary" data-action="fd-delete-layout" data-layout-id="${l.id}" title="削除" style="margin:4px 8px 0 0;color:var(--danger);">✕</button>`
+            )
+            .join("");
+        // 読込ハンドラ
+        savedLayoutsDiv.querySelectorAll<HTMLButtonElement>("[data-action='fd-load-layout']").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const id = btn.dataset.layoutId;
+            const layout = layouts.find((l) => l.id === id);
+            if (!layout) return;
+            state.fdSavedPositions = layout.positions;
+            localStorage.setItem("sake_fd_positions", JSON.stringify(layout.positions));
+            alert(`読込完了: ${layout.name}`);
+            renderApp();
+          });
+        });
+        // 削除ハンドラ
+        savedLayoutsDiv.querySelectorAll<HTMLButtonElement>("[data-action='fd-delete-layout']").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const id = btn.dataset.layoutId;
+            if (!id || !confirm("このレイアウトを削除しますか？")) return;
+            const { deletePrintLayout } = await import("./api");
+            const ok = await deletePrintLayout(id);
+            if (ok) {
+              alert("削除しました");
+              renderApp();
+            } else alert("削除失敗");
+          });
+        });
+      }
+    })();
+  }
 
   root.querySelector<HTMLButtonElement>("[data-action='fd-reset-positions']")?.addEventListener("click", () => {
     if (!confirm("フィールド位置を初期値に戻しますか？")) return;
