@@ -2687,3 +2687,49 @@ tbody tr:hover {
 @media print {
   .print-preview-scaler { transform: none !important; height: auto !important; }
 }
+
+/* ===== 印刷センター 2カラムレイアウト ===== */
+.print-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(300px, 1.2fr);
+  gap: 16px;
+  align-items: start;
+}
+.print-settings {
+  display: grid;
+  gap: 12px;
+}
+.print-preview-area {
+  position: sticky;
+  top: 16px;
+}
+.print-only {
+  display: none;
+}
+@media print {
+  .print-only { display: block; }
+}
+@media (max-width: 900px) {
+  .print-layout {
+    grid-template-columns: 1fr;
+  }
+  .print-preview-area {
+    position: static;
+  }
+}
+
+/* detailsのスタイル */
+details.panel > summary {
+  list-style: none;
+  padding: 4px 0;
+}
+details.panel > summary::-webkit-details-marker {
+  display: none;
+}
+details.panel > summary::before {
+  content: "▶ ";
+  font-size: 10px;
+}
+details.panel[open] > summary::before {
+  content: "▼ ";
+}

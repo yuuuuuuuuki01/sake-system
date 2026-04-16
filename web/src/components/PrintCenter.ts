@@ -15,17 +15,7 @@ export function renderPrintCenter(
   company: PrintCompanyInfo,
   data: PrintDocumentData
 ): string {
-  const tabs = (Object.keys(PRINT_TEMPLATE_LABELS) as PrintTemplateKey[])
-    .map(
-      (t) => `
-      <button class="tab-button ${template === t ? "active" : ""}" data-print-template="${t}">
-        ${PRINT_TEMPLATE_LABELS[t]}
-      </button>
-    `
-    )
-    .join("");
-
-  // プレビュー
+  // テンプレートプレビュー生成
   let preview = "";
   switch (template) {
     case "chain_store":
@@ -39,249 +29,197 @@ export function renderPrintCenter(
       break;
   }
 
+  // テンプレートタブ
+  const tabs = (Object.keys(PRINT_TEMPLATE_LABELS) as PrintTemplateKey[])
+    .map(
+      (t) => `<button class="tab-button ${template === t ? "active" : ""}" data-print-template="${t}">${PRINT_TEMPLATE_LABELS[t]}</button>`
+    )
+    .join("");
+
+  // 明細行
   const lineRows = data.lines
     .map(
       (line, i) => `
       <tr>
-        <td><input class="input-cell mono" type="text" data-print-line="${i}" data-print-lfield="productCode" value="${line.productCode}" /></td>
-        <td><input class="input-cell" type="text" data-print-line="${i}" data-print-lfield="productName" value="${line.productName}" /></td>
-        <td><input class="input-cell" type="text" data-print-line="${i}" data-print-lfield="spec" value="${line.spec ?? ""}" placeholder="720ml" /></td>
-        <td><input class="input-cell numeric" type="number" data-print-line="${i}" data-print-lfield="quantity" value="${line.quantity}" /></td>
-        <td><input class="input-cell" type="text" data-print-line="${i}" data-print-lfield="unit" value="${line.unit}" placeholder="本" /></td>
-        <td><input class="input-cell numeric" type="number" data-print-line="${i}" data-print-lfield="unitPrice" value="${line.unitPrice}" /></td>
+        <td><input class="input-cell" type="text" data-print-line="${i}" data-print-lfield="productName" value="${line.productName}" style="width:100%;" /></td>
+        <td><input class="input-cell numeric" type="number" data-print-line="${i}" data-print-lfield="quantity" value="${line.quantity}" style="width:60px;" /></td>
+        <td><input class="input-cell numeric" type="number" data-print-line="${i}" data-print-lfield="unitPrice" value="${line.unitPrice}" style="width:80px;" /></td>
         <td class="numeric">${line.amount > 0 ? line.amount.toLocaleString("ja-JP") : "―"}</td>
-        <td><button class="button-icon" data-action="print-remove-line" data-print-line="${i}" title="削除">✕</button></td>
-      </tr>
-    `
+        <td><button class="button-icon" data-action="print-remove-line" data-print-line="${i}">✕</button></td>
+      </tr>`
     )
     .join("");
+
+  // チェックボックス群
+  const checks = [
+    { key: "showSeal", label: "印影" },
+    { key: "showRegistrationNo", label: "登録番号" },
+    { key: "showBankInfo", label: "振込先" },
+    { key: "showJanCode", label: "JAN" },
+    { key: "showRemarks", label: "備考" }
+  ]
+    .map(
+      (c) =>
+        `<label style="font-size:12px;"><input type="checkbox" data-print-opt="${c.key}" ${(options as Record<string, unknown>)[c.key] ? "checked" : ""} /> ${c.label}</label>`
+    )
+    .join(" ");
 
   return `
     <section class="page-head no-print">
       <div>
-        <p class="eyebrow">印刷センター</p>
-        <h1>伝票・見積・請求の印刷</h1>
+        <p class="eyebrow">印刷</p>
+        <h1>印刷センター</h1>
       </div>
       <div class="meta-stack">
-        <button class="button primary" data-action="print-execute" onclick="window.print()">🖨️ 印刷する</button>
+        <button class="button primary" onclick="window.print()">🖨️ 印刷する</button>
       </div>
     </section>
 
-    <section class="panel no-print">
-      <div class="panel-header">
-        <h2>テンプレート選択</h2>
-      </div>
+    <div class="no-print" style="margin-bottom:16px;">
       <div class="tab-group">${tabs}</div>
-    </section>
+    </div>
 
-    <section class="panel no-print">
-      <div class="panel-header">
-        <h2>書類情報</h2>
-      </div>
-      <div class="filter-grid filter-grid--wide">
-        <label class="field">
-          <span>書類番号</span>
-          <input type="text" data-print-field="documentNo" value="${data.documentNo}" />
-        </label>
-        <label class="field">
-          <span>${template === "quotation" ? "見積日" : template === "invoice_monthly" ? "請求日" : "納品日"}</span>
-          <input type="date" data-print-field="documentDate" value="${data.documentDate}" />
-        </label>
-        ${
-          template === "quotation"
-            ? `<label class="field"><span>有効期限</span><input type="date" data-print-field="expireDate" value="${data.expireDate ?? ""}" /></label>`
-            : ""
-        }
-        ${
-          template === "invoice_monthly"
-            ? `<label class="field"><span>お支払期限</span><input type="date" data-print-field="dueDate" value="${data.dueDate ?? ""}" /></label>`
-            : ""
-        }
-        <label class="field">
-          <span>得意先コード</span>
-          <input type="text" data-print-field="customerCode" value="${data.customerCode ?? ""}" />
-        </label>
-        <label class="field">
-          <span>得意先名</span>
-          <input type="text" data-print-field="customerName" value="${data.customerName}" />
-        </label>
-        <label class="field">
-          <span>敬称</span>
-          <select data-print-field="customerHonorific">
-            <option value="御中" ${data.customerHonorific === "御中" ? "selected" : ""}>御中</option>
-            <option value="様" ${data.customerHonorific === "様" ? "selected" : ""}>様</option>
-            <option value="殿" ${data.customerHonorific === "殿" ? "selected" : ""}>殿</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>郵便番号</span>
-          <input type="text" data-print-field="customerPostalCode" value="${data.customerPostalCode ?? ""}" placeholder="100-0001" />
-        </label>
-        <label class="field">
-          <span>住所</span>
-          <input type="text" data-print-field="customerAddress" value="${data.customerAddress ?? ""}" />
-        </label>
-        ${
-          template === "quotation"
-            ? `<label class="field"><span>件名</span><input type="text" data-print-field="title" value="${data.title ?? ""}" placeholder="純米吟醸 出荷見積" /></label>`
-            : ""
-        }
+    <div class="print-layout no-print">
+      <!-- 左: 設定 -->
+      <div class="print-settings">
+
+        <div class="panel">
+          <h3 class="panel-title" style="margin-bottom:12px;">書類情報</h3>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <label class="field" style="flex:1 1 120px;">
+              <span>書類番号</span>
+              <input type="text" data-print-field="documentNo" value="${data.documentNo}" />
+            </label>
+            <label class="field" style="flex:1 1 120px;">
+              <span>日付</span>
+              <input type="date" data-print-field="documentDate" value="${data.documentDate}" />
+            </label>
+            <label class="field" style="flex:1 1 140px;">
+              <span>得意先名</span>
+              <input type="text" data-print-field="customerName" value="${data.customerName}" />
+            </label>
+            <label class="field" style="flex:1 1 60px;">
+              <span>敬称</span>
+              <select data-print-field="customerHonorific">
+                <option value="御中" ${data.customerHonorific === "御中" ? "selected" : ""}>御中</option>
+                <option value="様" ${data.customerHonorific === "様" ? "selected" : ""}>様</option>
+              </select>
+            </label>
+            <label class="field" style="flex:1 1 100px;">
+              <span>税率</span>
+              <select data-print-field="taxRate">
+                <option value="0.10" ${data.taxRate === 0.10 ? "selected" : ""}>10%</option>
+                <option value="0.08" ${data.taxRate === 0.08 ? "selected" : ""}>8%</option>
+              </select>
+            </label>
+            ${
+              template === "invoice_monthly"
+                ? `
+                <label class="field" style="flex:1 1 100px;">
+                  <span>お支払期限</span>
+                  <input type="date" data-print-field="dueDate" value="${data.dueDate ?? ""}" />
+                </label>
+                <label class="field" style="flex:1 1 100px;">
+                  <span>前回請求額</span>
+                  <input type="number" data-print-field="previousBalance" value="${data.previousBalance ?? 0}" />
+                </label>`
+                : ""
+            }
+            ${
+              template === "chain_store"
+                ? `
+                <label class="field" style="flex:1 1 100px;">
+                  <span>柱店CD</span>
+                  <input type="text" data-print-field="chainStoreCode" value="${data.chainStoreCode ?? ""}" />
+                </label>
+                <label class="field" style="flex:1 1 100px;">
+                  <span>伝票区分</span>
+                  <input type="text" data-print-field="slipTypeCode" value="${data.slipTypeCode ?? ""}" />
+                </label>`
+                : ""
+            }
+          </div>
+        </div>
+
+        <div class="panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <h3 class="panel-title">明細 (${data.lines.length}行)</h3>
+            <button class="button secondary" data-action="print-add-line" style="padding:6px 12px;font-size:12px;">＋行追加</button>
+          </div>
+          <div class="table-wrap">
+            <table style="min-width:auto;">
+              <thead><tr><th>品名</th><th class="numeric">数量</th><th class="numeric">単価</th><th class="numeric">金額</th><th></th></tr></thead>
+              <tbody>${lineRows || '<tr><td colspan="5" class="empty-row">行追加してください</td></tr>'}</tbody>
+            </table>
+          </div>
+        </div>
+
+        <details class="panel">
+          <summary style="cursor:pointer;font-weight:700;font-size:14px;">⚙️ 表示オプション</summary>
+          <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:12px;">
+            ${checks}
+          </div>
+          <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;">
+            <label class="field" style="flex:0 0 80px;">
+              <span>文字サイズ</span>
+              <select data-print-opt="fontSize">
+                <option value="small" ${options.fontSize === "small" ? "selected" : ""}>小</option>
+                <option value="medium" ${options.fontSize === "medium" ? "selected" : ""}>中</option>
+                <option value="large" ${options.fontSize === "large" ? "selected" : ""}>大</option>
+              </select>
+            </label>
+            <label class="field" style="flex:0 0 100px;">
+              <span>カラー</span>
+              <select data-print-opt="colorMode">
+                <option value="color" ${options.colorMode === "color" ? "selected" : ""}>カラー</option>
+                <option value="mono" ${options.colorMode === "mono" ? "selected" : ""}>モノクロ</option>
+              </select>
+            </label>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px;">
+            <button class="button secondary" data-action="print-save-settings" style="font-size:12px;">💾 設定を保存</button>
+            <button class="button secondary" data-action="print-open-company" style="font-size:12px;">🏢 会社情報</button>
+          </div>
+        </details>
+
         ${
           template === "chain_store"
             ? `
-              <label class="field"><span>発注日</span><input type="date" data-print-field="orderDate" value="${data.orderDate ?? ""}" /></label>
-              <label class="field"><span>納品日</span><input type="date" data-print-field="deliveryDate" value="${data.deliveryDate ?? ""}" /></label>
-              <label class="field"><span>柱店コード</span><input type="text" data-print-field="chainStoreCode" value="${data.chainStoreCode ?? ""}" placeholder="0123" /></label>
-              <label class="field"><span>分類コード</span><input type="text" data-print-field="categoryCode" value="${data.categoryCode ?? ""}" placeholder="21" /></label>
-              <label class="field"><span>取引コード</span><input type="text" data-print-field="slipTypeCode" value="${data.slipTypeCode ?? ""}" placeholder="11" /></label>
-              <label class="field"><span>受注No.</span><input type="text" data-print-field="orderNo" value="${data.orderNo ?? ""}" /></label>
-              <label class="field"><span>取引先コード</span><input type="text" data-print-field="vendorCode" value="${data.vendorCode ?? ""}" /></label>
-              <label class="field"><span>部門コード</span><input type="text" data-print-field="departmentCode" value="${data.departmentCode ?? ""}" /></label>
-            `
-            : ""
-        }
-        <label class="field">
-          <span>消費税率</span>
-          <select data-print-field="taxRate">
-            <option value="0.10" ${data.taxRate === 0.10 ? "selected" : ""}>10%</option>
-            <option value="0.08" ${data.taxRate === 0.08 ? "selected" : ""}>8% 軽減税率</option>
-          </select>
-        </label>
-        ${
-          template === "invoice_monthly"
-            ? `
-              <label class="field"><span>前回請求額</span><input type="number" data-print-field="previousBalance" value="${data.previousBalance ?? 0}" /></label>
-              <label class="field"><span>ご入金額</span><input type="number" data-print-field="paymentAmount" value="${data.paymentAmount ?? 0}" /></label>
-            `
+        <details class="panel">
+          <summary style="cursor:pointer;font-weight:700;font-size:14px;">📐 BP1701 位置合わせ</summary>
+          <div style="margin-top:12px;">
+            <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px;">
+              帳票デザイナー(<a href="#" data-link="/form-designer" style="color:var(--primary);">/form-designer</a>)でドラッグ配置するのが正確です。
+            </p>
+            <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+              <label style="font-size:12px;"><input type="checkbox" data-print-opt="showReferenceOverlay" ${options.showReferenceOverlay ? "checked" : ""} /> 参考画像表示</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:12px;">
+                濃さ <input type="range" min="0" max="1" step="0.05" value="${options.overlayOpacity}" data-print-opt="overlayOpacity" style="width:80px;" />
+              </label>
+            </div>
+          </div>
+        </details>`
             : ""
         }
       </div>
-    </section>
 
-    <section class="panel no-print">
-      <div class="panel-header">
-        <div>
-          <h2>明細</h2>
-          <p class="panel-caption">${data.lines.length} 行</p>
+      <!-- 右: プレビュー -->
+      <div class="print-preview-area">
+        <div class="panel print-preview-panel">
+          <div class="print-preview-scaler" id="print-scaler">
+            <div class="print-preview ${options.colorMode}">
+              ${preview}
+            </div>
+          </div>
         </div>
-        <button class="button secondary" data-action="print-add-line">＋ 行追加</button>
       </div>
-      <div class="table-wrap">
-        <table class="entry-table">
-          <thead>
-            <tr>
-              <th>商品CD</th>
-              <th>品名</th>
-              <th>規格</th>
-              <th class="numeric">数量</th>
-              <th>単位</th>
-              <th class="numeric">単価</th>
-              <th class="numeric">金額</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>${lineRows || '<tr><td colspan="8" class="empty-row">「＋行追加」で明細を入力してください。</td></tr>'}</tbody>
-        </table>
-      </div>
-      <label class="field" style="margin-top:16px;">
-        <span>備考</span>
-        <textarea data-print-field="remarks" rows="2">${data.remarks ?? ""}</textarea>
-      </label>
-    </section>
+    </div>
 
-    <section class="panel no-print">
-      <div class="panel-header">
-        <h2>印刷オプション</h2>
+    <!-- 印刷時はプレビューだけ表示 -->
+    <div class="print-only">
+      <div class="print-preview ${options.colorMode}">
+        ${preview}
       </div>
-      <div class="filter-grid filter-grid--wide">
-        <label class="field">
-          <span>用紙サイズ</span>
-          <select data-print-opt="pageSize">
-            <option value="A4" ${options.pageSize === "A4" ? "selected" : ""}>A4</option>
-            <option value="A5" ${options.pageSize === "A5" ? "selected" : ""}>A5</option>
-            <option value="B5" ${options.pageSize === "B5" ? "selected" : ""}>B5</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>向き</span>
-          <select data-print-opt="orientation">
-            <option value="portrait" ${options.orientation === "portrait" ? "selected" : ""}>縦</option>
-            <option value="landscape" ${options.orientation === "landscape" ? "selected" : ""}>横</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>文字サイズ</span>
-          <select data-print-opt="fontSize">
-            <option value="small" ${options.fontSize === "small" ? "selected" : ""}>小</option>
-            <option value="medium" ${options.fontSize === "medium" ? "selected" : ""}>中</option>
-            <option value="large" ${options.fontSize === "large" ? "selected" : ""}>大</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>カラーモード</span>
-          <select data-print-opt="colorMode">
-            <option value="color" ${options.colorMode === "color" ? "selected" : ""}>カラー</option>
-            <option value="mono" ${options.colorMode === "mono" ? "selected" : ""}>モノクロ</option>
-          </select>
-        </label>
-      </div>
-      <div style="margin-top:16px; display:flex; flex-wrap:wrap; gap:16px;">
-        <label><input type="checkbox" data-print-opt="showSeal" ${options.showSeal ? "checked" : ""} /> 印影を表示</label>
-        <label><input type="checkbox" data-print-opt="showRegistrationNo" ${options.showRegistrationNo ? "checked" : ""} /> インボイス登録番号</label>
-        <label><input type="checkbox" data-print-opt="showBankInfo" ${options.showBankInfo ? "checked" : ""} /> 振込先</label>
-        <label><input type="checkbox" data-print-opt="showJanCode" ${options.showJanCode ? "checked" : ""} /> JANコード</label>
-        <label><input type="checkbox" data-print-opt="showUnit" ${options.showUnit ? "checked" : ""} /> 単位列</label>
-        <label><input type="checkbox" data-print-opt="showRemarks" ${options.showRemarks ? "checked" : ""} /> 備考</label>
-      </div>
-      ${
-        template === "chain_store"
-          ? `
-      <div style="margin-top:16px; padding:12px; background:var(--surface-alt); border-radius:8px; border:1px dashed var(--border-strong);">
-        <h3 style="margin:0 0 8px; font-size:13px;">📐 BP1701 オーバーレイ印刷</h3>
-        <p class="form-hint" style="margin:0 0 12px;">
-          事前印刷済みの BP1701 伝票用紙を印刷機にセットし、<b>データ部分のみ</b>を所定座標に印字する方式です。
-          プレビュー画像（実物BP1701）と重ねて位置を確認してください。
-        </p>
-        <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
-          <label><input type="checkbox" data-print-opt="showReferenceOverlay" ${options.showReferenceOverlay ? "checked" : ""} /> 参考画像を背景に表示</label>
-          <label style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:12px;">画像の濃さ</span>
-            <input type="range" min="0" max="1" step="0.05" value="${options.overlayOpacity}" data-print-opt="overlayOpacity" style="width:140px;" />
-            <span style="font-size:12px; min-width:32px;">${Math.round(options.overlayOpacity * 100)}%</span>
-          </label>
-        </div>
-        <h4 style="margin:12px 0 4px; font-size:12px; color:var(--text-secondary);">プリンタずれ調整（印刷結果を確認してから微調整）</h4>
-        <div style="display:flex; flex-wrap:wrap; gap:16px;">
-          <label style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:12px;">X (横, mm)</span>
-            <input type="number" step="0.5" value="${options.calibrationOffsetX}" data-print-opt="calibrationOffsetX" style="width:80px;" />
-          </label>
-          <label style="display:flex; align-items:center; gap:8px;">
-            <span style="font-size:12px;">Y (縦, mm)</span>
-            <input type="number" step="0.5" value="${options.calibrationOffsetY}" data-print-opt="calibrationOffsetY" style="width:80px;" />
-          </label>
-          <span class="form-hint" style="margin:0;">＋方向＝右/下、 −方向＝左/上</span>
-        </div>
-      </div>
-      `
-          : ""
-      }
-      <div class="action-bar" style="margin-top:12px;">
-        <button class="button secondary" data-action="print-save-settings">💾 この設定を保存</button>
-        <button class="button secondary" data-action="print-open-company">🏢 会社情報を編集</button>
-      </div>
-    </section>
-
-    <section class="panel print-preview-panel">
-      <div class="panel-header no-print">
-        <h2>プレビュー</h2>
-        <p class="panel-caption">実際に印刷されるイメージ（画面幅に自動縮小）</p>
-      </div>
-      <div class="print-preview-scaler" id="print-scaler">
-        <div class="print-preview ${options.colorMode}">
-          ${preview}
-        </div>
-      </div>
-    </section>
+    </div>
   `;
 }
