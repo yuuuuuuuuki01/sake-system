@@ -1,4 +1,4 @@
-import { SEASONAL_TEMPLATES } from "../api";
+import { SEASONAL_TEMPLATES, type MailSender } from "../api";
 
 export type EmailAudienceMode = "all" | "area" | "history";
 
@@ -19,6 +19,8 @@ export interface EmailBroadcastViewState {
   previewRecipients: EmailRecipientPreview[];
   saveMessage: string | null;
   sending: boolean;
+  senderId: string;
+  senders: MailSender[];
 }
 
 function escapeHtml(value: string): string {
@@ -165,6 +167,19 @@ export function renderEmailBroadcast(state: EmailBroadcastViewState): string {
             <p class="panel-caption">送信前の見え方を確認し、下書き保存または送信操作を行います。</p>
           </div>
         </div>
+        <label class="field" style="margin-bottom:12px;">
+          <span>送信元アドレス</span>
+          <select id="email-sender">
+            ${state.senders
+              .map(
+                (s) =>
+                  `<option value="${s.id}" ${s.id === state.senderId ? "selected" : ""}>${escapeHtml(s.name)} &lt;${escapeHtml(s.email)}&gt;${s.isVerified ? "" : " ⚠️未認証"}</option>`
+              )
+              .join("")}
+            ${state.senders.length === 0 ? '<option value="">送信元が未登録です</option>' : ""}
+          </select>
+          <p class="form-hint" style="margin-top:4px;">送信元は <a href="#" data-link="/mail-senders">メール送信元管理</a> で追加できます</p>
+        </label>
         <div class="email-preview">
           <p class="panel-title">${escapeHtml(state.subject || "件名未入力")}</p>
           <div class="preview-box">${state.body ? formatPreviewBody(state.body) : "本文未入力"}</div>

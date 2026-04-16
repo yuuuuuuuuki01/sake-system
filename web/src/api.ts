@@ -1774,7 +1774,8 @@ export async function saveEmailCampaign(campaign: EmailCampaign): Promise<EmailC
 }
 
 export async function sendEmailCampaign(
-  campaign: EmailCampaign
+  campaign: EmailCampaign,
+  sender?: MailSender
 ): Promise<{ sent: number; failed: number }> {
   const apiKey = import.meta.env.VITE_RESEND_API_KEY;
   if (!apiKey) {
@@ -1782,24 +1783,33 @@ export async function sendEmailCampaign(
   }
 
   const recipients = campaign.recipients ?? [];
+  const fromAddr = sender
+    ? sender.displayName
+      ? `${sender.displayName} <${sender.email}>`
+      : sender.email
+    : "brewery@kaneishuzo.co.jp";
+  const replyTo = sender?.replyTo;
+  const signature = sender?.signature ? `\n\n${sender.signature}` : "";
   let sent = 0;
   let failed = 0;
 
   await Promise.all(
     recipients.map(async (recipient) => {
       try {
+        const body: Record<string, unknown> = {
+          from: fromAddr,
+          to: [recipient],
+          subject: campaign.subject,
+          text: campaign.body + signature
+        };
+        if (replyTo) body.reply_to = replyTo;
         const response = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({
-            from: "brewery@kaneishuzo.co.jp",
-            to: [recipient],
-            subject: campaign.subject,
-            text: campaign.body
-          })
+          body: JSON.stringify(body)
         });
 
         if (!response.ok) {
@@ -2056,4 +2066,247 @@ export async function deleteCalendarEvent(id: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ─── 外部サービス連携設定 ──────────────────────────────────────────────────
+
+export interface IntegrationSetting {
+  id: string;
+  name: string;
+  provider: string;
+  config: Record<string, string>;
+  isEnabled: boolean;
+  lastSyncAt?: string;
+  lastStatus?: string;
+}
+
+export async function fetchIntegrationSettings(): Promise<IntegrationSetting[]> {
+  const rows = await supabaseQuery<LooseRow>("integration_settings", { order: "name.asc" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    name: getString(r, ["name"], ""),
+    provider: getString(r, ["provider"], ""),
+    config: (r["config"] as Record<string, string>) ?? {},
+    isEnabled: getBoolean(r, ["is_enabled"], false),
+    lastSyncAt: getString(r, ["last_sync_at"], ""),
+    lastStatus: getString(r, ["last_status"], "")
+  }));
+}
+
+export async function saveIntegrationSetting(s: IntegrationSetting): Promise<IntegrationSetting | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const result = await supabaseInsert<LooseRow>("integration_settings", {
+    id: s.id,
+    name: s.name,
+    provider: s.provider,
+    config: s.config,
+    is_enabled: s.isEnabled,
+    last_sync_at: s.lastSyncAt || null,
+    last_status: s.lastStatus || null,
+    updated_at: new Date().toISOString()
+  });
+  if (!result) return null;
+  return s;
+}
+
+// ─── Shopify注文取得 ─────────────────────────────────────────────────────
+
+export interface ShopifyOrder {
+  id: string;
+  shopifyOrderId: string;
+  orderNumber: string;
+  orderDate: string;
+  customerName: string;
+  customerEmail: string;
+  totalAmount: number;
+  financialStatus: string;
+  fulfillmentStatus: string;
+  lineItems: Array<{ name: string; quantity: number; price: number }>;
+}
+
+export async function syncShopifyOrders(setting: IntegrationSetting): Promise<{ count: number; error?: string }> {
+  const shopDomain = setting.config["shop_domain"];
+  const adminToken = setting.config["admin_token"];
+  if (!shopDomain || !adminToken) {
+    return { count: 0, error: "shop_domain と admin_token を設定してください" };
+  }
+  try {
+    // Shopify Admin API: GET /admin/api/2024-01/orders.json
+    const url = `https://${shopDomain}/admin/api/2024-01/orders.json?status=any&limit=50`;
+    const resp = await fetch(url, {
+      headers: { "X-Shopify-Access-Token": adminToken, "Content-Type": "application/json" }
+    });
+    if (!resp.ok) {
+      return { count: 0, error: `HTTP ${resp.status}` };
+    }
+    const data = (await resp.json()) as { orders: Array<Record<string, unknown>> };
+    const { supabaseInsert } = await import("./supabase");
+    let count = 0;
+    for (const order of data.orders) {
+      const id = `shopify_${order["id"]}`;
+      await supabaseInsert("shopify_orders", {
+        id,
+        shopify_order_id: String(order["id"]),
+        order_number: String(order["order_number"] ?? ""),
+        order_date: String(order["created_at"] ?? new Date().toISOString()),
+        customer_name: String((order["customer"] as Record<string, unknown>)?.["first_name"] ?? "") + " " + String((order["customer"] as Record<string, unknown>)?.["last_name"] ?? ""),
+        customer_email: String((order["customer"] as Record<string, unknown>)?.["email"] ?? ""),
+        total_amount: Math.round(parseFloat(String(order["total_price"] ?? "0"))),
+        financial_status: String(order["financial_status"] ?? ""),
+        fulfillment_status: String(order["fulfillment_status"] ?? "unfulfilled"),
+        line_items: order["line_items"] ?? [],
+        shipping_address: order["shipping_address"] ?? null,
+        raw_payload: order
+      });
+      count++;
+    }
+    await saveIntegrationSetting({
+      ...setting,
+      lastSyncAt: new Date().toISOString(),
+      lastStatus: `${count}件取得成功`
+    });
+    return { count };
+  } catch (e) {
+    return { count: 0, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function fetchShopifyOrders(): Promise<ShopifyOrder[]> {
+  const rows = await supabaseQuery<LooseRow>("shopify_orders", { order: "order_date.desc", limit: "50" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    shopifyOrderId: getString(r, ["shopify_order_id"], ""),
+    orderNumber: getString(r, ["order_number"], ""),
+    orderDate: getString(r, ["order_date"], ""),
+    customerName: getString(r, ["customer_name"], ""),
+    customerEmail: getString(r, ["customer_email"], ""),
+    totalAmount: toNumber(r["total_amount"]),
+    financialStatus: getString(r, ["financial_status"], ""),
+    fulfillmentStatus: getString(r, ["fulfillment_status"], ""),
+    lineItems: (r["line_items"] as Array<{ name: string; quantity: number; price: number }>) ?? []
+  }));
+}
+
+// ─── Google Calendar 連携（基本同期） ────────────────────────────────────
+
+export async function syncGoogleCalendar(
+  setting: IntegrationSetting
+): Promise<{ count: number; error?: string }> {
+  const token = setting.config["oauth_token"];
+  const calendarId = setting.config["calendar_id"] || "primary";
+  if (!token) {
+    return { count: 0, error: "oauth_token を設定してください (Google Cloud Console で取得)" };
+  }
+  try {
+    // 直近30日のイベントを取得
+    const timeMin = new Date().toISOString();
+    const timeMax = new Date(Date.now() + 30 * 86400 * 1000).toISOString();
+    const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!resp.ok) return { count: 0, error: `HTTP ${resp.status}` };
+    const data = (await resp.json()) as { items: Array<Record<string, unknown>> };
+    const { supabaseInsert } = await import("./supabase");
+    let count = 0;
+    for (const ev of data.items) {
+      const id = `gcal_${ev["id"]}`;
+      const start = (ev["start"] as Record<string, unknown>)?.["dateTime"] ?? (ev["start"] as Record<string, unknown>)?.["date"] ?? "";
+      const end = (ev["end"] as Record<string, unknown>)?.["dateTime"] ?? (ev["end"] as Record<string, unknown>)?.["date"] ?? "";
+      await supabaseInsert("calendar_events", {
+        id,
+        title: String(ev["summary"] ?? "(無題)"),
+        description: String(ev["description"] ?? ""),
+        category: "general",
+        starts_at: String(start),
+        ends_at: String(end),
+        location: String(ev["location"] ?? ""),
+        google_event_id: String(ev["id"] ?? ""),
+        updated_at: new Date().toISOString()
+      });
+      count++;
+    }
+    await saveIntegrationSetting({
+      ...setting,
+      lastSyncAt: new Date().toISOString(),
+      lastStatus: `${count}件取得`
+    });
+    return { count };
+  } catch (e) {
+    return { count: 0, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ─── FAX OCR (Cloud Vision) ──────────────────────────────────────────────
+
+export interface FaxRecord {
+  id: string;
+  receivedAt: string;
+  senderPhone?: string;
+  senderName?: string;
+  imageUrl?: string;
+  ocrStatus: "pending" | "processing" | "done" | "failed";
+  ocrText?: string;
+  extractedData?: Record<string, unknown>;
+  linkedInvoiceId?: string;
+}
+
+export async function fetchFaxInbox(): Promise<FaxRecord[]> {
+  const rows = await supabaseQuery<LooseRow>("fax_inbox", { order: "received_at.desc", limit: "50" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    receivedAt: getString(r, ["received_at"], ""),
+    senderPhone: getString(r, ["sender_phone"], ""),
+    senderName: getString(r, ["sender_name"], ""),
+    imageUrl: getString(r, ["image_url"], ""),
+    ocrStatus: (getString(r, ["ocr_status"], "pending") as FaxRecord["ocrStatus"]) || "pending",
+    ocrText: getString(r, ["ocr_text"], ""),
+    extractedData: (r["extracted_data"] as Record<string, unknown>) ?? {},
+    linkedInvoiceId: getString(r, ["linked_invoice_id"], "")
+  }));
+}
+
+export async function ocrFaxImage(
+  setting: IntegrationSetting,
+  base64Image: string
+): Promise<{ text: string; error?: string }> {
+  const apiKey = setting.config["api_key"];
+  if (!apiKey) return { text: "", error: "Cloud Vision API key 未設定" };
+  try {
+    const url = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requests: [
+          {
+            image: { content: base64Image.replace(/^data:image\/\w+;base64,/, "") },
+            features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+            imageContext: { languageHints: ["ja"] }
+          }
+        ]
+      })
+    });
+    if (!resp.ok) return { text: "", error: `HTTP ${resp.status}` };
+    const data = (await resp.json()) as { responses: Array<{ fullTextAnnotation?: { text: string } }> };
+    const text = data.responses?.[0]?.fullTextAnnotation?.text ?? "";
+    return { text };
+  } catch (e) {
+    return { text: "", error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function saveFaxRecord(record: FaxRecord): Promise<FaxRecord | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const result = await supabaseInsert<LooseRow>("fax_inbox", {
+    id: record.id,
+    received_at: record.receivedAt,
+    sender_phone: record.senderPhone || null,
+    sender_name: record.senderName || null,
+    image_url: record.imageUrl || null,
+    ocr_status: record.ocrStatus,
+    ocr_text: record.ocrText || null,
+    extracted_data: record.extractedData || null,
+    linked_invoice_id: record.linkedInvoiceId || null
+  });
+  if (!result) return null;
+  return record;
 }

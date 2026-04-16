@@ -55,6 +55,9 @@ import {
   type SalesSummary,
   type MailSender,
   type CalendarEvent,
+  type IntegrationSetting,
+  type ShopifyOrder,
+  type FaxRecord,
   type StoreOrder,
   type StoreSale,
   type TankRecord,
@@ -104,6 +107,9 @@ import {
 } from "./components/BreweryTour";
 import { renderMailSenders } from "./components/MailSenders";
 import { renderCalendar, type CalendarEditState } from "./components/Calendar";
+import { renderIntegrations } from "./components/Integrations";
+import { renderShopifyOrders } from "./components/ShopifyOrders";
+import { renderFaxOcr } from "./components/FaxOcr";
 import { renderPrintCenter } from "./components/PrintCenter";
 import {
   DEFAULT_COMPANY_INFO,
@@ -161,7 +167,10 @@ type RoutePath =
   | "/mobile-order"
   | "/tour"
   | "/mail-senders"
-  | "/calendar";
+  | "/calendar"
+  | "/integrations"
+  | "/shopify"
+  | "/fax";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -213,7 +222,10 @@ const ALL_ROUTES: RoutePath[] = [
   "/mobile-order",
   "/tour",
   "/mail-senders",
-  "/calendar"
+  "/calendar",
+  "/integrations",
+  "/shopify",
+  "/fax"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -255,7 +267,10 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/mobile-order", title: "モバイル受注" },
   { path: "/tour", title: "酒蔵見学" },
   { path: "/mail-senders", title: "メール送信元管理" },
-  { path: "/calendar", title: "カレンダー" }
+  { path: "/calendar", title: "カレンダー" },
+  { path: "/integrations", title: "外部連携設定" },
+  { path: "/shopify", title: "Shopify注文" },
+  { path: "/fax", title: "FAX OCR" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -345,10 +360,17 @@ interface AppState {
   tourActiveId: string | null;
   mailSenders: MailSender[];
   mailSenderEditingId: string | null;
+  emailSenderId: string;
   calendarEvents: CalendarEvent[];
   calendarYearMonth: string;
   calendarFilterCategory: string;
   calendarEdit: CalendarEditState | null;
+  integrations: IntegrationSetting[];
+  integrationEditingId: string | null;
+  shopifyOrders: ShopifyOrder[];
+  faxRecords: FaxRecord[];
+  faxProcessing: boolean;
+  faxOcrText: string | null;
   printTemplate: PrintTemplateKey;
   printOptions: PrintOptions;
   printCompany: PrintCompanyInfo;
@@ -496,10 +518,17 @@ const state: AppState = {
   tourActiveId: null,
   mailSenders: [],
   mailSenderEditingId: null,
+  emailSenderId: "default",
   calendarEvents: [],
   calendarYearMonth: new Date().toISOString().slice(0, 7),
   calendarFilterCategory: "",
   calendarEdit: null,
+  integrations: [],
+  integrationEditingId: null,
+  shopifyOrders: [],
+  faxRecords: [],
+  faxProcessing: false,
+  faxOcrText: null,
   printTemplate: "chain_store",
   printOptions: {
     ...DEFAULT_PRINT_OPTIONS,
@@ -735,7 +764,9 @@ function buildEmailViewState(): EmailBroadcastViewState {
     recipientCount: recipients.length,
     previewRecipients: recipients.slice(0, 5),
     saveMessage: state.emailSaveMessage,
-    sending: state.emailSending
+    sending: state.emailSending,
+    senderId: state.emailSenderId,
+    senders: state.mailSenders
   };
 }
 
@@ -1039,15 +1070,40 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         }
         break;
       case "/mail-senders":
+      case "/email":
         {
           const { fetchMailSenders } = await import("./api");
           state.mailSenders = await fetchMailSenders();
+          if (!state.emailSenderId || !state.mailSenders.find((s) => s.id === state.emailSenderId)) {
+            const def = state.mailSenders.find((s) => s.isDefault) ?? state.mailSenders[0];
+            if (def) state.emailSenderId = def.id;
+          }
         }
         break;
       case "/calendar":
         {
           const { fetchCalendarEvents } = await import("./api");
           state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
+        }
+        break;
+      case "/integrations":
+        {
+          const { fetchIntegrationSettings } = await import("./api");
+          state.integrations = await fetchIntegrationSettings();
+        }
+        break;
+      case "/shopify":
+        {
+          const { fetchShopifyOrders, fetchIntegrationSettings } = await import("./api");
+          state.shopifyOrders = await fetchShopifyOrders();
+          if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
+        }
+        break;
+      case "/fax":
+        {
+          const { fetchFaxInbox, fetchIntegrationSettings } = await import("./api");
+          state.faxRecords = await fetchFaxInbox();
+          if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
         }
         break;
       default:
@@ -1175,6 +1231,14 @@ function renderView(): string {
         state.calendarFilterCategory,
         state.calendarEdit
       );
+    case "/integrations":
+      return renderIntegrations(state.integrations, state.integrationEditingId);
+    case "/shopify": {
+      const shopify = state.integrations.find((i) => i.id === "shopify");
+      return renderShopifyOrders(state.shopifyOrders, shopify?.lastSyncAt ?? null);
+    }
+    case "/fax":
+      return renderFaxOcr(state.faxRecords, state.faxProcessing, state.faxOcrText);
     default:
       break;
   }
@@ -2430,6 +2494,122 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
+  // ── 外部連携設定 ────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-action='int-edit']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.integrationEditingId = btn.dataset.id ?? null;
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='int-cancel']")?.addEventListener("click", () => {
+    state.integrationEditingId = null;
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='int-save']")?.addEventListener("click", async () => {
+    const id = (document.querySelector<HTMLButtonElement>("[data-action='int-save']")?.dataset.id) ?? "";
+    const original = state.integrations.find((i) => i.id === id);
+    if (!original) return;
+    const config: Record<string, string> = { ...original.config };
+    Object.keys(config).forEach((k) => {
+      const inp = root.querySelector<HTMLInputElement>(`#int-${k}`);
+      if (inp) config[k] = inp.value;
+    });
+    const enabled = root.querySelector<HTMLInputElement>("#int-enabled")?.checked ?? false;
+    const { saveIntegrationSetting, fetchIntegrationSettings } = await import("./api");
+    const saved = await saveIntegrationSetting({ ...original, config, isEnabled: enabled });
+    if (saved) {
+      state.integrations = await fetchIntegrationSettings();
+      state.integrationEditingId = null;
+      alert("保存しました");
+      renderApp();
+    } else alert("保存失敗");
+  });
+
+  // Shopify同期
+  root.querySelectorAll<HTMLButtonElement>("[data-action='int-sync-shopify'], [data-action='shopify-sync']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const setting = state.integrations.find((i) => i.provider === "shopify");
+      if (!setting) {
+        alert("Shopify連携が未設定です");
+        return;
+      }
+      btn.textContent = "同期中…";
+      (btn as HTMLButtonElement).disabled = true;
+      const { syncShopifyOrders, fetchShopifyOrders } = await import("./api");
+      const result = await syncShopifyOrders(setting);
+      if (result.error) {
+        alert("同期失敗: " + result.error);
+      } else {
+        alert(`${result.count}件を同期しました`);
+        state.shopifyOrders = await fetchShopifyOrders();
+      }
+      renderApp();
+    });
+  });
+
+  // Google Calendar同期
+  root.querySelectorAll<HTMLButtonElement>("[data-action='int-sync-gcal']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const setting = state.integrations.find((i) => i.provider === "google_calendar");
+      if (!setting) return;
+      btn.textContent = "同期中…";
+      (btn as HTMLButtonElement).disabled = true;
+      const { syncGoogleCalendar, fetchCalendarEvents } = await import("./api");
+      const result = await syncGoogleCalendar(setting);
+      if (result.error) alert("同期失敗: " + result.error);
+      else {
+        alert(`${result.count}件を同期しました`);
+        state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
+      }
+      renderApp();
+    });
+  });
+
+  // FAX OCRアップロード
+  root.querySelector<HTMLButtonElement>("[data-action='fax-upload']")?.addEventListener("click", async () => {
+    const fileInput = root.querySelector<HTMLInputElement>("#fax-file");
+    const file = fileInput?.files?.[0];
+    if (!file) {
+      alert("FAX画像を選択してください");
+      return;
+    }
+    const setting = state.integrations.find((i) => i.provider === "cloud_vision");
+    if (!setting || !setting.config["api_key"]) {
+      alert("Cloud Vision API Key が設定されていません (/integrations で設定してください)");
+      return;
+    }
+    state.faxProcessing = true;
+    state.faxOcrText = null;
+    renderApp();
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = String(reader.result ?? "");
+        const { ocrFaxImage, saveFaxRecord, fetchFaxInbox } = await import("./api");
+        const result = await ocrFaxImage(setting, base64);
+        const senderName = root.querySelector<HTMLInputElement>("#fax-sender-name")?.value ?? "";
+        const senderPhone = root.querySelector<HTMLInputElement>("#fax-sender-phone")?.value ?? "";
+        await saveFaxRecord({
+          id: `fax_${Date.now()}`,
+          receivedAt: new Date().toISOString(),
+          senderName,
+          senderPhone,
+          ocrStatus: result.error ? "failed" : "done",
+          ocrText: result.text
+        });
+        state.faxOcrText = result.error ? `エラー: ${result.error}` : result.text;
+        state.faxRecords = await fetchFaxInbox();
+        state.faxProcessing = false;
+        renderApp();
+      };
+      reader.readAsDataURL(file);
+    } catch (e) {
+      alert("OCR失敗: " + (e instanceof Error ? e.message : ""));
+      state.faxProcessing = false;
+      renderApp();
+    }
+  });
+
   // ── メール送信元管理 ──────────────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='ms-new']")?.addEventListener("click", () => {
     state.mailSenderEditingId = "__new__";
@@ -2744,14 +2924,20 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 送信元セレクタ
+  root.querySelector<HTMLSelectElement>("#email-sender")?.addEventListener("change", (e) => {
+    state.emailSenderId = (e.target as HTMLSelectElement).value;
+  });
+
   root.querySelector<HTMLButtonElement>("[data-action='email-send']")?.addEventListener("click", () => {
     collectEmailFormFromDom(root);
     state.actionLoading = true;
     state.emailSending = true;
     renderApp();
     const campaign = buildEmailCampaignPayload("sent");
+    const sender = state.mailSenders.find((s) => s.id === state.emailSenderId);
 
-    void sendEmailCampaign(campaign)
+    void sendEmailCampaign(campaign, sender)
       .then(async (result) => {
         await saveEmailCampaign({
           ...campaign,

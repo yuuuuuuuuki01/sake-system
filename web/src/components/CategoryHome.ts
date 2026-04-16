@@ -40,7 +40,10 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "📱 モバイル受注", description: "ラウンダー外出先用。顧客選択→商品選択→確認の3ステップで即受注。", path: "/mobile-order" },
     { title: "🏭 酒蔵見学管理", description: "見学お問合せの一元管理。多言語対応、テンプレ返信、サイト埋め込みフォーム。", path: "/tour" },
     { title: "✉️ メール送信元管理", description: "複数のメールアドレス(営業/蔵見学等)を切り替えて送信。署名・返信先も個別設定。", path: "/mail-senders" },
-    { title: "📅 カレンダー", description: "納品/見学/商談/仕込予定を月表示で管理。クリックで予定追加・編集。", path: "/calendar" }
+    { title: "📅 カレンダー", description: "納品/見学/商談/仕込予定を月表示で管理。クリックで予定追加・編集。", path: "/calendar" },
+    { title: "🔌 外部連携設定", description: "Shopify / Googleカレンダー / Cloud Vision (FAX OCR) / Resend のAPIキー設定。", path: "/integrations" },
+    { title: "🛍️ Shopify注文", description: "Shopifyストアの注文を自動同期。EC売上を一元管理。", path: "/shopify" },
+    { title: "📠 FAX OCR", description: "FAX受信画像をOCRしてテキスト化。伝票自動起票。", path: "/fax" }
   ]
 };
 
