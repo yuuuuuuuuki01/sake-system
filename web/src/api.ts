@@ -1,4 +1,6 @@
 import { supabaseInsert, supabaseQuery } from "./supabase";
+import type { TourInquiry } from "./components/BreweryTour";
+export type { TourInquiry };
 
 export type PipelineStatus = "success" | "warning" | "error" | "running";
 export type PaymentState = "unpaid" | "partial" | "paid";
@@ -122,6 +124,11 @@ export interface MasterCustomer {
   closingDay: number;
   paymentDay: number;
   isActive: boolean;
+  lat?: number;
+  lng?: number;
+  address1?: string;
+  businessType?: string;
+  phone?: string;
 }
 
 export interface MasterProduct {
@@ -787,7 +794,12 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
           name: getString(row, ["name", "customer_name", "display_name"], `Customer ${index + 1}`),
           closingDay: getNumber(row, ["closing_day", "close_day"], 31),
           paymentDay: getNumber(row, ["payment_day", "due_day"], 15),
-          isActive: getBoolean(row, ["is_active", "active", "enabled"], true)
+          isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
+          lat: row["lat"] ? Number(row["lat"]) : undefined,
+          lng: row["lng"] ? Number(row["lng"]) : undefined,
+          address1: getString(row, ["address1"], ""),
+          businessType: getString(row, ["business_type"], ""),
+          phone: getString(row, ["phone"], "")
         }))
       : mockMasterStats.customers;
 
@@ -3150,4 +3162,100 @@ export async function convertLeadToProspect(item: LeadItem): Promise<Prospect | 
     await saveLeadItem({ ...item, status: "imported", convertedProspectId: prospect.id });
   }
   return saved;
+}
+
+// ─── 受注ワークフロー (DB版) ──────────────────────────────────────────────
+
+export async function fetchWorkflowOrdersFromDb(): Promise<WorkflowOrder[]> {
+  const rows = await supabaseQuery<LooseRow>("workflow_orders", { order: "order_date.desc" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    orderNo: getString(r, ["order_no"], ""),
+    customerName: getString(r, ["customer_name"], ""),
+    customerCode: getString(r, ["customer_code"], ""),
+    orderDate: getString(r, ["order_date"], ""),
+    deliveryDate: getString(r, ["delivery_date"], ""),
+    stage: (getString(r, ["stage"], "new") as WorkflowOrder["stage"]),
+    totalAmount: toNumber(r["total_amount"]),
+    itemCount: toNumber(r["item_count"]),
+    priority: (getString(r, ["priority"], "normal") as WorkflowOrder["priority"]),
+    staffName: getString(r, ["staff_name"], ""),
+    notes: getString(r, ["notes"], "")
+  }));
+}
+
+export async function saveWorkflowOrder(o: WorkflowOrder): Promise<WorkflowOrder | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const r = await supabaseInsert<LooseRow>("workflow_orders", {
+    id: o.id,
+    order_no: o.orderNo,
+    customer_name: o.customerName,
+    customer_code: o.customerCode || null,
+    order_date: o.orderDate,
+    delivery_date: o.deliveryDate || null,
+    stage: o.stage,
+    total_amount: o.totalAmount,
+    item_count: o.itemCount,
+    priority: o.priority,
+    staff_name: o.staffName || null,
+    notes: o.notes || null,
+    updated_at: new Date().toISOString()
+  });
+  return r ? o : null;
+}
+
+// Workflow order 型定義 (既存のOrderWorkflow.tsと合わせる)
+export interface WorkflowOrder {
+  id: string;
+  orderNo: string;
+  customerName: string;
+  customerCode?: string;
+  orderDate: string;
+  deliveryDate?: string;
+  stage: "new" | "picking" | "packed" | "shipped" | "delivered";
+  totalAmount: number;
+  itemCount: number;
+  priority: "normal" | "urgent";
+  staffName?: string;
+  notes?: string;
+}
+
+// ─── 蔵見学問合せ (DB版) ─────────────────────────────────────────────────
+
+export async function fetchTourInquiriesFromDb(): Promise<TourInquiry[]> {
+  const rows = await supabaseQuery<LooseRow>("tour_inquiries", { order: "created_at.desc" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    name: getString(r, ["name"], ""),
+    email: getString(r, ["email"], ""),
+    phone: getString(r, ["phone"], ""),
+    visitDate: getString(r, ["visit_date"], ""),
+    partySize: toNumber(r["party_size"]) || 1,
+    language: (getString(r, ["language"], "ja") as TourInquiry["language"]),
+    purpose: getString(r, ["purpose"], ""),
+    message: getString(r, ["message"], ""),
+    status: (getString(r, ["status"], "new") as TourInquiry["status"]),
+    repliedAt: getString(r, ["replied_at"], ""),
+    confirmedTime: getString(r, ["confirmed_time"], ""),
+    createdAt: getString(r, ["created_at"], new Date().toISOString())
+  }));
+}
+
+export async function saveTourInquiry(t: TourInquiry): Promise<TourInquiry | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const r = await supabaseInsert<LooseRow>("tour_inquiries", {
+    id: t.id,
+    name: t.name,
+    email: t.email,
+    phone: t.phone || null,
+    visit_date: t.visitDate || null,
+    party_size: t.partySize,
+    language: t.language,
+    purpose: t.purpose || null,
+    message: t.message || null,
+    status: t.status,
+    replied_at: t.repliedAt || null,
+    confirmed_time: t.confirmedTime || null
+  });
+  return r ? t : null;
 }

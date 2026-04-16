@@ -557,14 +557,7 @@ const state: AppState = {
   fdSavedPositions: null,
   fdActiveFieldId: null,
   mapRegionFilter: "",
-  workflowOrders: [
-    { id: "o1", orderNo: "ORD-240416-001", customerName: "青葉商事", orderDate: "2026-04-16", deliveryDate: "2026-04-18", stage: "new", totalAmount: 54000, itemCount: 3, priority: "urgent", staffName: "田中" },
-    { id: "o2", orderNo: "ORD-240416-002", customerName: "北斗酒販", orderDate: "2026-04-16", deliveryDate: "2026-04-20", stage: "new", totalAmount: 36000, itemCount: 2, priority: "normal" },
-    { id: "o3", orderNo: "ORD-240415-003", customerName: "中央フーズ", orderDate: "2026-04-15", deliveryDate: "2026-04-17", stage: "picking", totalAmount: 128000, itemCount: 6, priority: "urgent", staffName: "佐藤" },
-    { id: "o4", orderNo: "ORD-240415-001", customerName: "東海酒店", orderDate: "2026-04-15", stage: "packed", totalAmount: 72000, itemCount: 4, priority: "normal", staffName: "山田" },
-    { id: "o5", orderNo: "ORD-240414-002", customerName: "西川商店", orderDate: "2026-04-14", deliveryDate: "2026-04-15", stage: "shipped", totalAmount: 96000, itemCount: 5, priority: "normal" },
-    { id: "o6", orderNo: "ORD-240413-001", customerName: "南部酒販", orderDate: "2026-04-13", stage: "delivered", totalAmount: 48000, itemCount: 3, priority: "normal" }
-  ],
+  workflowOrders: [],
   mobileOrder: {
     step: "customer",
     selectedCustomer: null,
@@ -574,11 +567,7 @@ const state: AppState = {
     memo: "",
     submittedDocNo: null
   },
-  tourInquiries: [
-    { id: "t1", name: "鈴木 太郎", email: "suzuki@example.com", phone: "090-1234-5678", visitDate: "2026-04-22", partySize: 4, language: "ja", purpose: "家族旅行の記念に", message: "蔵見学と試飲を希望します。予算は1人5000円程度です。", status: "new", createdAt: "2026-04-16T09:00:00" },
-    { id: "t2", name: "John Smith", email: "john@example.com", visitDate: "2026-04-25", partySize: 2, language: "en", purpose: "Sake tourism research", message: "We are journalists writing about Japanese sake culture. Would love to interview the toji-san.", status: "replied", createdAt: "2026-04-15T14:30:00" },
-    { id: "t3", name: "田中 花子", email: "tanaka@example.com", phone: "03-9999-0000", visitDate: "2026-04-28", partySize: 8, language: "ja", purpose: "会社の親睦会", message: "団体での訪問になります。可能であればランチも一緒にお願いします。", status: "confirmed", createdAt: "2026-04-14T10:00:00", confirmedTime: "2026-04-28T14:00" }
-  ],
+  tourInquiries: [],
   tourActiveId: null,
   mailSenders: [],
   mailSenderEditingId: null,
@@ -1248,6 +1237,18 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
         }
         break;
+      case "/workflow":
+        {
+          const { fetchWorkflowOrdersFromDb } = await import("./api");
+          state.workflowOrders = await fetchWorkflowOrdersFromDb();
+        }
+        break;
+      case "/tour":
+        {
+          const { fetchTourInquiriesFromDb } = await import("./api");
+          state.tourInquiries = await fetchTourInquiriesFromDb();
+        }
+        break;
       case "/slack":
         {
           const { fetchSlackRules, fetchSlackLogs, fetchIntegrationSettings } = await import("./api");
@@ -1259,17 +1260,17 @@ async function loadRouteData(route: RoutePath): Promise<void> {
       case "/":
         {
           // ダッシュボード追加データ取得
-          if (state.prospects.length === 0) {
-            const { fetchProspects } = await import("./api");
-            state.prospects = await fetchProspects();
-          }
-          if (state.calendarEvents.length === 0) {
-            const { fetchCalendarEvents } = await import("./api");
-            state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
-          }
-          if (state.materialList.length === 0) {
-            state.materialList = await fetchMaterialList();
-          }
+          const {
+            fetchProspects,
+            fetchCalendarEvents,
+            fetchWorkflowOrdersFromDb,
+            fetchTourInquiriesFromDb
+          } = await import("./api");
+          if (state.prospects.length === 0) state.prospects = await fetchProspects();
+          if (state.calendarEvents.length === 0) state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
+          if (state.materialList.length === 0) state.materialList = await fetchMaterialList();
+          if (state.workflowOrders.length === 0) state.workflowOrders = await fetchWorkflowOrdersFromDb();
+          if (state.tourInquiries.length === 0) state.tourInquiries = await fetchTourInquiriesFromDb();
         }
         break;
       default:
@@ -1368,14 +1369,18 @@ function renderView(): string {
     case "/form-designer":
       return renderFormDesigner(state.printData, state.printCompany, state.printOptions, state.fdSavedPositions, state.fdDesignMode);
     case "/map": {
-      const mapCustomers: GeoCustomer[] = (state.masterStats?.customers ?? []).slice(0, 200).map((c, i) => ({
-        ...c,
-        lat: 35.37 + (i % 12) * 0.05 + (Math.random() - 0.5) * 0.02,
-        lng: 139.29 + Math.floor(i / 12) * 0.05 + (Math.random() - 0.5) * 0.02,
-        address1: ["神奈川県秦野市", "東京都新宿区", "横浜市西区", "川崎市幸区"][i % 4],
-        businessType: ["酒店", "飲食店", "百貨店", "スーパー"][i % 4],
-        lastOrderAmount: 50000 + (i % 10) * 20000
-      }));
+      // DBの実座標を優先、未設定の場合のみ仮配置
+      const mapCustomers: GeoCustomer[] = (state.masterStats?.customers ?? []).slice(0, 200).map((c, i) => {
+        const existing = c as unknown as { lat?: number; lng?: number; address1?: string; businessType?: string };
+        return {
+          ...c,
+          lat: existing.lat ?? 35.37 + (i % 12) * 0.05 + (Math.random() - 0.5) * 0.02,
+          lng: existing.lng ?? 139.29 + Math.floor(i / 12) * 0.05 + (Math.random() - 0.5) * 0.02,
+          address1: existing.address1 ?? "",
+          businessType: existing.businessType ?? "",
+          lastOrderAmount: 0
+        };
+      });
       const gmKey = state.integrations.find((i) => i.provider === "google_maps")?.config["api_key"];
       const useGoogleMaps = Boolean(gmKey);
       return renderCustomerMap(
