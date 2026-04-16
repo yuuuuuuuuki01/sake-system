@@ -2045,91 +2045,18 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
-  // ドラッグ処理
-  if (state.fdDesignMode) {
-    const canvas = root.querySelector<HTMLElement>(".fd-canvas");
-    if (canvas) {
-      const canvasRect = canvas.getBoundingClientRect();
-      const mmPerPx = 228.6 / canvasRect.width;
-
-      root.querySelectorAll<HTMLElement>(".fd-draggable").forEach((el) => {
-        el.addEventListener("mousedown", (e) => {
-          e.preventDefault();
-          const fieldId = el.dataset.fdId ?? "";
-
-          // アクティブ表示
-          root.querySelectorAll<HTMLElement>(".fd-active").forEach((a) => a.classList.remove("fd-active"));
-          el.classList.add("fd-active", "fd-dragging");
-          state.fdActiveFieldId = fieldId;
-
-          const info = root.querySelector<HTMLElement>("#fd-selected-info");
-          const selX = root.querySelector<HTMLInputElement>("#fd-sel-x");
-          const selY = root.querySelector<HTMLInputElement>("#fd-sel-y");
-          if (info) info.textContent = `選択中: ${el.title}`;
-          if (selX) selX.value = String(parseFloat(el.style.left) || 0);
-          if (selY) selY.value = String(parseFloat(el.style.top) || 0);
-
-          const startX = e.clientX;
-          const startY = e.clientY;
-          const origLeft = parseFloat(el.style.left) || 0;
-          const origTop = parseFloat(el.style.top) || 0;
-
-          const onMove = (ev: MouseEvent) => {
-            const dx = (ev.clientX - startX) * mmPerPx;
-            const dy = (ev.clientY - startY) * mmPerPx;
-            const newX = Math.round((origLeft + dx) * 2) / 2;
-            const newY = Math.round((origTop + dy) * 2) / 2;
-            el.style.left = newX + "mm";
-            el.style.top = newY + "mm";
-            el.title = `${el.dataset.fdId} (${newX.toFixed(1)}, ${newY.toFixed(1)})`;
-            if (selX) selX.value = String(newX);
-            if (selY) selY.value = String(newY);
-          };
-
-          const onUp = () => {
-            el.classList.remove("fd-dragging");
-            window.removeEventListener("mousemove", onMove);
-            window.removeEventListener("mouseup", onUp);
-          };
-
-          window.addEventListener("mousemove", onMove);
-          window.addEventListener("mouseup", onUp);
-        });
-      });
-
-      // X/Y入力で微調整
-      const selX = root.querySelector<HTMLInputElement>("#fd-sel-x");
-      const selY = root.querySelector<HTMLInputElement>("#fd-sel-y");
-      [selX, selY].forEach((input) => {
-        input?.addEventListener("change", () => {
-          if (!state.fdActiveFieldId) return;
-          const el = root.querySelector<HTMLElement>(`[data-fd-id="${state.fdActiveFieldId}"]`);
-          if (!el) return;
-          if (selX) el.style.left = selX.value + "mm";
-          if (selY) el.style.top = selY.value + "mm";
-        });
-      });
-
-      // キーボード方向キーで0.5mm移動
-      document.addEventListener("keydown", (e) => {
-        if (!state.fdDesignMode || !state.fdActiveFieldId) return;
-        const el = root.querySelector<HTMLElement>(`[data-fd-id="${state.fdActiveFieldId}"]`);
-        if (!el) return;
-        const step = 0.5;
-        let x = parseFloat(el.style.left) || 0;
-        let y = parseFloat(el.style.top) || 0;
-        if (e.key === "ArrowLeft") { x -= step; e.preventDefault(); }
-        else if (e.key === "ArrowRight") { x += step; e.preventDefault(); }
-        else if (e.key === "ArrowUp") { y -= step; e.preventDefault(); }
-        else if (e.key === "ArrowDown") { y += step; e.preventDefault(); }
-        else return;
-        el.style.left = x + "mm";
-        el.style.top = y + "mm";
-        if (selX) selX.value = String(x);
-        if (selY) selY.value = String(y);
-      });
-    }
-  }
+  // ドラッグ処理 — X/Y入力で微調整のみ（ドラッグはグローバルハンドラに移設）
+  const fdSelX = root.querySelector<HTMLInputElement>("#fd-sel-x");
+  const fdSelY = root.querySelector<HTMLInputElement>("#fd-sel-y");
+  [fdSelX, fdSelY].forEach((input) => {
+    input?.addEventListener("change", () => {
+      if (!state.fdActiveFieldId) return;
+      const el = document.querySelector<HTMLElement>(`[data-fd-id="${state.fdActiveFieldId}"]`);
+      if (!el) return;
+      if (fdSelX) el.style.left = fdSelX.value + "mm";
+      if (fdSelY) el.style.top = fdSelY.value + "mm";
+    });
+  });
 
   root.querySelector<HTMLButtonElement>("[data-action='import-execute']")?.addEventListener("click", async () => {
     if (!state.importPreview) return;
@@ -2448,5 +2375,96 @@ try {
   // 無視して既定値を使う
 }
 
+
+// ===== グローバルドラッグハンドラ（renderAppの外で常駐） =====
+// イベント委任: document上でmousedown → .fd-draggable を検出して処理
+(function setupGlobalDrag() {
+  let dragEl: HTMLElement | null = null;
+  let startX = 0;
+  let startY = 0;
+  let origLeft = 0;
+  let origTop = 0;
+  let mmPerPx = 1;
+
+  document.addEventListener("mousedown", (e) => {
+    const target = (e.target as HTMLElement).closest<HTMLElement>(".fd-draggable");
+    if (!target || !state.fdDesignMode) return;
+    e.preventDefault();
+
+    const canvas = target.closest<HTMLElement>(".fd-canvas");
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0) return;
+    mmPerPx = 228.6 / rect.width;
+
+    dragEl = target;
+    startX = e.clientX;
+    startY = e.clientY;
+    origLeft = parseFloat(target.style.left) || 0;
+    origTop = parseFloat(target.style.top) || 0;
+
+    // アクティブ表示
+    document.querySelectorAll<HTMLElement>(".fd-active").forEach((a) => a.classList.remove("fd-active"));
+    target.classList.add("fd-active", "fd-dragging");
+    state.fdActiveFieldId = target.dataset.fdId ?? null;
+
+    const info = document.querySelector<HTMLElement>("#fd-selected-info");
+    if (info) info.textContent = `選択中: ${target.title}`;
+    const selX = document.querySelector<HTMLInputElement>("#fd-sel-x");
+    const selY = document.querySelector<HTMLInputElement>("#fd-sel-y");
+    if (selX) selX.value = String(origLeft);
+    if (selY) selY.value = String(origTop);
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!dragEl) return;
+    const dx = (e.clientX - startX) * mmPerPx;
+    const dy = (e.clientY - startY) * mmPerPx;
+    const newX = Math.round((origLeft + dx) * 2) / 2;
+    const newY = Math.round((origTop + dy) * 2) / 2;
+    dragEl.style.left = newX + "mm";
+    dragEl.style.top = newY + "mm";
+
+    const selX = document.querySelector<HTMLInputElement>("#fd-sel-x");
+    const selY = document.querySelector<HTMLInputElement>("#fd-sel-y");
+    if (selX) selX.value = String(newX);
+    if (selY) selY.value = String(newY);
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (dragEl) {
+      dragEl.classList.remove("fd-dragging");
+      dragEl = null;
+    }
+  });
+
+  // キーボード方向キーで0.5mm移動
+  document.addEventListener("keydown", (e) => {
+    if (!state.fdDesignMode || !state.fdActiveFieldId) return;
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    // input内なら無視
+    if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
+
+    const el = document.querySelector<HTMLElement>(`[data-fd-id="${state.fdActiveFieldId}"]`);
+    if (!el) return;
+
+    e.preventDefault();
+    const step = 0.5;
+    let x = parseFloat(el.style.left) || 0;
+    let y = parseFloat(el.style.top) || 0;
+
+    if (e.key === "ArrowLeft") x -= step;
+    else if (e.key === "ArrowRight") x += step;
+    else if (e.key === "ArrowUp") y -= step;
+    else if (e.key === "ArrowDown") y += step;
+
+    el.style.left = x + "mm";
+    el.style.top = y + "mm";
+    const selX = document.querySelector<HTMLInputElement>("#fd-sel-x");
+    const selY = document.querySelector<HTMLInputElement>("#fd-sel-y");
+    if (selX) selX.value = String(x);
+    if (selY) selY.value = String(y);
+  });
+})();
 
 void loadData();
