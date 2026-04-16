@@ -46,7 +46,9 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "📠 FAX OCR", description: "FAX受信画像をOCRしてテキスト化。伝票自動起票。", path: "/fax" },
     { title: "👥 ユーザー管理", description: "担当者のアカウント・権限・部署を管理 (管理者専用)。", path: "/users" },
     { title: "👤 プロフィール", description: "自分のアカウント情報・パスワード変更・既定の送信元メール。", path: "/profile" },
-    { title: "🔍 操作ログ", description: "全ユーザーの操作履歴 (監査証跡)。", path: "/audit" }
+    { title: "🔍 操作ログ", description: "全ユーザーの操作履歴 (監査証跡)。", path: "/audit" },
+    { title: "🎯 新規営業", description: "見込客をカンバンで管理。パイプライン金額、確度、活動履歴。", path: "/prospects" },
+    { title: "💬 Slack通知", description: "受注/入金遅延/低在庫/問合せ等の通知をSlackに自動送信。", path: "/slack" }
   ]
 };
 

@@ -1,4 +1,5 @@
-import type { PipelineMeta, SalesSummary, SalesAnalytics } from "../api";
+import type { PipelineMeta, SalesSummary, SalesAnalytics, Prospect, CalendarEvent, TourInquiry } from "../api";
+import { PROSPECT_STAGE_COLORS, PROSPECT_STAGE_LABELS } from "../api";
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", {
@@ -136,10 +137,19 @@ function buildBars(dailySales: SalesSummary["dailySales"]): string {
   `;
 }
 
+export interface DashboardExtras {
+  prospects: Prospect[];
+  upcomingEvents: CalendarEvent[];
+  tourInquiries: TourInquiry[];
+  workflowOrdersCount: { new: number; picking: number; packed: number; shipped: number; total: number };
+  lowStockCount: number;
+}
+
 export function renderDashboard(
   summary: SalesSummary,
   pipeline: PipelineMeta,
-  analytics: SalesAnalytics | null
+  analytics: SalesAnalytics | null,
+  extras?: DashboardExtras
 ): string {
   const statusLabelMap = {
     success: "正常",
@@ -269,6 +279,92 @@ export function renderDashboard(
           <tbody>${recentSalesRows}</tbody>
         </table>
       </div>
+    </section>
+
+    ${extras ? renderExtraWidgets(extras) : ""}
+  `;
+}
+
+function renderExtraWidgets(extras: DashboardExtras): string {
+  // 新規営業パイプライン
+  const pipelineTotal = extras.prospects.reduce((s, p) => s + (p.expectedAmount * p.probability) / 100, 0);
+  const hotProspects = extras.prospects.filter((p) => p.stage === "hot" || p.stage === "negotiating").length;
+  // 今日/直近の予定
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = extras.upcomingEvents
+    .filter((e) => e.startsAt.slice(0, 10) >= today)
+    .slice(0, 5);
+  // 未対応 見学問合せ
+  const newTourInquiries = extras.tourInquiries.filter((i) => i.status === "new").length;
+
+  return `
+    <section class="kpi-grid compact">
+      <article class="panel kpi-card">
+        <p class="panel-title">受注処理中</p>
+        <p class="kpi-value">${extras.workflowOrdersCount.new + extras.workflowOrdersCount.picking + extras.workflowOrdersCount.packed}件</p>
+        <p class="kpi-sub">新規 ${extras.workflowOrdersCount.new} / ピッキング ${extras.workflowOrdersCount.picking} / 梱包 ${extras.workflowOrdersCount.packed}</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">新規営業</p>
+        <p class="kpi-value">¥${Math.round(pipelineTotal).toLocaleString("ja-JP")}</p>
+        <p class="kpi-sub">${extras.prospects.length}件 / ホット ${hotProspects}</p>
+      </article>
+      <article class="panel kpi-card ${newTourInquiries > 0 ? "kpi-alert" : ""}">
+        <p class="panel-title">未対応問合せ</p>
+        <p class="kpi-value">${newTourInquiries}件</p>
+        <p class="kpi-sub">蔵見学申込</p>
+      </article>
+      <article class="panel kpi-card ${extras.lowStockCount > 0 ? "kpi-alert" : ""}">
+        <p class="panel-title">低在庫</p>
+        <p class="kpi-value">${extras.lowStockCount}品目</p>
+        <p class="kpi-sub">要補充</p>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel">
+        <div class="panel-header">
+          <div><h2>🎯 営業パイプライン</h2><p class="panel-caption">ステージ別件数</p></div>
+          <button class="button secondary" data-link="/prospects">詳細を見る</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(100px, 1fr));gap:8px;">
+          ${(["cold", "warm", "hot", "contacted", "negotiating", "won"] as const)
+            .map((stage) => {
+              const count = extras.prospects.filter((p) => p.stage === stage).length;
+              const amount = extras.prospects.filter((p) => p.stage === stage).reduce((s, p) => s + p.expectedAmount, 0);
+              return `
+              <div style="background:${PROSPECT_STAGE_COLORS[stage]};color:white;padding:12px;border-radius:6px;text-align:center;">
+                <div style="font-size:11px;">${PROSPECT_STAGE_LABELS[stage]}</div>
+                <div style="font-size:20px;font-weight:700;margin:4px 0;">${count}</div>
+                <div style="font-size:10px;opacity:0.9;">¥${(amount / 10000).toFixed(0)}万</div>
+              </div>
+            `;
+            })
+            .join("")}
+        </div>
+      </article>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <div><h2>📅 直近の予定</h2></div>
+          <button class="button secondary" data-link="/calendar">カレンダー</button>
+        </div>
+        ${
+          upcoming.length === 0
+            ? '<p class="empty-note">予定なし</p>'
+            : `<div style="display:grid;gap:8px;">${upcoming
+                .map((e) => {
+                  const d = new Date(e.startsAt);
+                  return `
+                <div style="padding:8px 12px;background:var(--surface-alt);border-radius:6px;border-left:3px solid ${e.color || "#0F5B8D"};">
+                  <div style="font-size:11px;color:var(--text-secondary);">${d.getMonth() + 1}/${d.getDate()} ${e.isAllDay ? "終日" : d.toTimeString().slice(0, 5)}</div>
+                  <div style="font-weight:700;">${e.title}</div>
+                  ${e.location ? `<div style="font-size:11px;color:var(--text-secondary);">📍 ${e.location}</div>` : ""}
+                </div>`;
+                })
+                .join("")}</div>`
+        }
+      </aside>
     </section>
   `;
 }

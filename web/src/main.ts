@@ -60,6 +60,11 @@ import {
   type FaxRecord,
   type UserProfile,
   type AuditLog,
+  type Prospect,
+  type ProspectActivity,
+  type SlackNotificationRule,
+  type SlackNotificationLog,
+  type MaterialRecord,
   type StoreOrder,
   type StoreSale,
   type TankRecord,
@@ -115,6 +120,9 @@ import { renderFaxOcr } from "./components/FaxOcr";
 import { renderUserManagement } from "./components/UserManagement";
 import { renderUserProfile, renderAuditLogs } from "./components/UserProfile";
 import { updatePassword } from "./auth";
+import { renderProspects, type ProspectsViewState } from "./components/Prospects";
+import { renderSlackSettings } from "./components/SlackSettings";
+import { renderMaterialEditModal } from "./components/Materials";
 import { renderPrintCenter } from "./components/PrintCenter";
 import {
   DEFAULT_COMPANY_INFO,
@@ -178,7 +186,9 @@ type RoutePath =
   | "/fax"
   | "/users"
   | "/profile"
-  | "/audit";
+  | "/audit"
+  | "/prospects"
+  | "/slack";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -236,7 +246,9 @@ const ALL_ROUTES: RoutePath[] = [
   "/fax",
   "/users",
   "/profile",
-  "/audit"
+  "/audit",
+  "/prospects",
+  "/slack"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -284,7 +296,9 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/fax", title: "FAX OCR" },
   { path: "/users", title: "ユーザー管理" },
   { path: "/profile", title: "プロフィール" },
-  { path: "/audit", title: "操作ログ" }
+  { path: "/audit", title: "操作ログ" },
+  { path: "/prospects", title: "新規営業" },
+  { path: "/slack", title: "Slack通知" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -389,6 +403,14 @@ interface AppState {
   userEditingId: string | null;
   myProfile: UserProfile | null;
   auditLogs: AuditLog[];
+  prospects: Prospect[];
+  prospectActivities: ProspectActivity[];
+  prospectEditingId: string | null;
+  prospectViewMode: "kanban" | "list";
+  slackRules: SlackNotificationRule[];
+  slackLogs: SlackNotificationLog[];
+  materialEditing: MaterialRecord | null;
+  materialEditingIsNew: boolean;
   printTemplate: PrintTemplateKey;
   printOptions: PrintOptions;
   printCompany: PrintCompanyInfo;
@@ -551,6 +573,14 @@ const state: AppState = {
   userEditingId: null,
   myProfile: null,
   auditLogs: [],
+  prospects: [],
+  prospectActivities: [],
+  prospectEditingId: null,
+  prospectViewMode: "kanban",
+  slackRules: [],
+  slackLogs: [],
+  materialEditing: null,
+  materialEditingIsNew: false,
   printTemplate: "chain_store",
   printOptions: {
     ...DEFAULT_PRINT_OPTIONS,
@@ -1149,6 +1179,36 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           state.auditLogs = await fetchAuditLogs(200);
         }
         break;
+      case "/prospects":
+        {
+          const { fetchProspects } = await import("./api");
+          state.prospects = await fetchProspects();
+        }
+        break;
+      case "/slack":
+        {
+          const { fetchSlackRules, fetchSlackLogs, fetchIntegrationSettings } = await import("./api");
+          state.slackRules = await fetchSlackRules();
+          state.slackLogs = await fetchSlackLogs(50);
+          if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
+        }
+        break;
+      case "/":
+        {
+          // ダッシュボード追加データ取得
+          if (state.prospects.length === 0) {
+            const { fetchProspects } = await import("./api");
+            state.prospects = await fetchProspects();
+          }
+          if (state.calendarEvents.length === 0) {
+            const { fetchCalendarEvents } = await import("./api");
+            state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
+          }
+          if (state.materialList.length === 0) {
+            state.materialList = await fetchMaterialList();
+          }
+        }
+        break;
       default:
         break;
     }
@@ -1218,7 +1278,7 @@ function renderView(): string {
     case "/kentei":
       return renderKentei(state.kenteiList);
     case "/materials":
-      return renderMaterials(state.materialList);
+      return renderMaterials(state.materialList) + renderMaterialEditModal(state.materialEditing, state.materialEditingIsNew);
     case "/purchase":
       return renderPurchase(state.purchaseList, state.payableList);
     case "/raw-material":
@@ -1292,6 +1352,20 @@ function renderView(): string {
       );
     case "/audit":
       return renderAuditLogs(state.auditLogs);
+    case "/prospects": {
+      const vs: ProspectsViewState = {
+        prospects: state.prospects,
+        activeId: null,
+        activities: state.prospectActivities,
+        editingId: state.prospectEditingId,
+        viewMode: state.prospectViewMode
+      };
+      return renderProspects(vs);
+    }
+    case "/slack": {
+      const slack = state.integrations.find((i) => i.provider === "slack") ?? null;
+      return renderSlackSettings(slack, state.slackRules, state.slackLogs);
+    }
     default:
       break;
   }
@@ -1330,7 +1404,19 @@ function renderView(): string {
       return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab);
     case "/":
     default:
-      return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics);
+      return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
+        prospects: state.prospects,
+        upcomingEvents: state.calendarEvents,
+        tourInquiries: state.tourInquiries,
+        workflowOrdersCount: {
+          new: state.workflowOrders.filter((o) => o.stage === "new").length,
+          picking: state.workflowOrders.filter((o) => o.stage === "picking").length,
+          packed: state.workflowOrders.filter((o) => o.stage === "packed").length,
+          shipped: state.workflowOrders.filter((o) => o.stage === "shipped").length,
+          total: state.workflowOrders.length
+        },
+        lowStockCount: state.materialList.filter((m) => m.currentStock < m.minimumStock * 1.5).length
+      });
   }
 }
 
@@ -2550,6 +2636,228 @@ function bindEvents(root: HTMLElement): void {
     inq.confirmedTime = confirmedTimeEl?.value ?? "";
     alert("返信メールを下書き保存し、ステータスを確定にしました（実送信はSupabase連携で実装）");
     renderApp();
+  });
+
+  // ── 新規営業 ────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-prospect-view]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.prospectViewMode = btn.dataset.prospectView as "kanban" | "list";
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='prospect-new']")?.addEventListener("click", () => {
+    state.prospectEditingId = "__new__";
+    renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='prospect-edit']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? null;
+      state.prospectEditingId = id;
+      if (id) {
+        const { fetchProspectActivities } = await import("./api");
+        state.prospectActivities = await fetchProspectActivities(id);
+      }
+      renderApp();
+    });
+  });
+  // カードクリックで編集
+  root.querySelectorAll<HTMLElement>(".pk-card[data-prospect-id]").forEach((card) => {
+    card.addEventListener("click", async () => {
+      const id = card.dataset.prospectId ?? null;
+      state.prospectEditingId = id;
+      if (id) {
+        const { fetchProspectActivities } = await import("./api");
+        state.prospectActivities = await fetchProspectActivities(id);
+      }
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='prospect-close']").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      if (e.currentTarget !== e.target && !(e.target as HTMLElement).matches("button")) return;
+      state.prospectEditingId = null;
+      state.prospectActivities = [];
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='prospect-save']")?.addEventListener("click", async () => {
+    const isNew = state.prospectEditingId === "__new__";
+    const id = isNew ? `p_${Date.now()}` : state.prospectEditingId ?? "";
+    const p: Prospect = {
+      id,
+      companyName: root.querySelector<HTMLInputElement>("#prospect-company")?.value ?? "",
+      contactName: root.querySelector<HTMLInputElement>("#prospect-contact")?.value ?? "",
+      email: root.querySelector<HTMLInputElement>("#prospect-email")?.value ?? "",
+      phone: root.querySelector<HTMLInputElement>("#prospect-phone")?.value ?? "",
+      businessType: root.querySelector<HTMLSelectElement>("#prospect-business-type")?.value ?? "",
+      stage: (root.querySelector<HTMLSelectElement>("#prospect-stage")?.value as Prospect["stage"]) ?? "cold",
+      source: root.querySelector<HTMLSelectElement>("#prospect-source")?.value ?? "",
+      expectedAmount: Number(root.querySelector<HTMLInputElement>("#prospect-amount")?.value) || 0,
+      probability: Number(root.querySelector<HTMLInputElement>("#prospect-probability")?.value) || 0,
+      assignedStaffCode: root.querySelector<HTMLInputElement>("#prospect-staff")?.value ?? "",
+      nextActionDate: root.querySelector<HTMLInputElement>("#prospect-next-date")?.value ?? "",
+      nextAction: root.querySelector<HTMLInputElement>("#prospect-next-action")?.value ?? "",
+      note: root.querySelector<HTMLTextAreaElement>("#prospect-note")?.value ?? ""
+    };
+    if (!p.companyName) { alert("会社名は必須です"); return; }
+    const { saveProspect, fetchProspects, recordAudit, sendSlackNotification } = await import("./api");
+    const saved = await saveProspect(p);
+    if (saved) {
+      if (isNew) {
+        await sendSlackNotification("new_prospect", `新規見込客: ${p.companyName} / 想定 ¥${p.expectedAmount.toLocaleString("ja-JP")}`).catch(() => undefined);
+      }
+      await recordAudit({ action: isNew ? "prospect_create" : "prospect_update", entityType: "prospect", entityId: id, userEmail: state.user?.email });
+      state.prospects = await fetchProspects();
+      state.prospectEditingId = null;
+      renderApp();
+    } else alert("保存失敗");
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='prospect-delete']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("削除しますか？")) return;
+      const id = btn.dataset.id ?? "";
+      const { deleteProspect, fetchProspects } = await import("./api");
+      if (await deleteProspect(id)) {
+        state.prospects = await fetchProspects();
+        renderApp();
+      }
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='prospect-add-activity']")?.addEventListener("click", async () => {
+    const pid = (root.querySelector<HTMLButtonElement>("[data-action='prospect-add-activity']")?.dataset.id) ?? "";
+    const type = root.querySelector<HTMLSelectElement>("#prospect-activity-type")?.value ?? "call";
+    const title = root.querySelector<HTMLInputElement>("#prospect-activity-title")?.value ?? "";
+    if (!title) { alert("内容を入力してください"); return; }
+    const { saveProspectActivity, fetchProspectActivities } = await import("./api");
+    await saveProspectActivity({
+      id: `act_${Date.now()}`,
+      prospectId: pid,
+      activityType: type as ProspectActivity["activityType"],
+      title,
+      activityDate: new Date().toISOString(),
+      staffCode: state.myProfile?.staffCode
+    });
+    state.prospectActivities = await fetchProspectActivities(pid);
+    renderApp();
+  });
+  // カンバンドラッグ
+  root.querySelectorAll<HTMLElement>(".pk-card[data-prospect-id]").forEach((card) => {
+    card.addEventListener("dragstart", (e) => {
+      (e as DragEvent).dataTransfer?.setData("text/plain", card.dataset.prospectId ?? "");
+    });
+  });
+  root.querySelectorAll<HTMLElement>(".pk-col[data-prospect-stage]").forEach((col) => {
+    col.addEventListener("dragover", (e) => e.preventDefault());
+    col.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      const id = (e as DragEvent).dataTransfer?.getData("text/plain");
+      const stage = col.dataset.prospectStage as Prospect["stage"];
+      if (!id) return;
+      const p = state.prospects.find((x) => x.id === id);
+      if (p && p.stage !== stage) {
+        const updated = { ...p, stage };
+        const { saveProspect } = await import("./api");
+        await saveProspect(updated);
+        p.stage = stage;
+        renderApp();
+      }
+    });
+  });
+
+  // ── Slack通知設定 ────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='slack-save']")?.addEventListener("click", async () => {
+    const { fetchIntegrationSettings, saveIntegrationSetting } = await import("./api");
+    const settings = state.integrations.length > 0 ? state.integrations : await fetchIntegrationSettings();
+    const slack = settings.find((s) => s.provider === "slack");
+    if (!slack) return;
+    const webhookUrl = root.querySelector<HTMLInputElement>("#slack-webhook")?.value ?? "";
+    const defaultChannel = root.querySelector<HTMLInputElement>("#slack-default-channel")?.value ?? "";
+    const enabled = root.querySelector<HTMLInputElement>("#slack-enabled")?.checked ?? false;
+    await saveIntegrationSetting({
+      ...slack,
+      config: { ...slack.config, webhook_url: webhookUrl, default_channel: defaultChannel },
+      isEnabled: enabled
+    });
+    state.integrations = await fetchIntegrationSettings();
+    alert("保存しました");
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='slack-save-rules']")?.addEventListener("click", async () => {
+    const { saveSlackRule, fetchSlackRules } = await import("./api");
+    for (const rule of state.slackRules) {
+      const enabled = root.querySelector<HTMLInputElement>(`[data-slack-rule-id="${rule.id}"][data-slack-field="enabled"]`)?.checked ?? rule.enabled;
+      const channel = root.querySelector<HTMLInputElement>(`[data-slack-rule-id="${rule.id}"][data-slack-field="channel"]`)?.value ?? rule.channel;
+      await saveSlackRule({ ...rule, enabled, channel });
+    }
+    state.slackRules = await fetchSlackRules();
+    alert("ルールを保存しました");
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='slack-test']")?.addEventListener("click", async () => {
+    const { sendSlackNotification } = await import("./api");
+    const result = await sendSlackNotification("new_order", "🧪 これはテスト通知です (syusen-cloud)");
+    if (result.ok) alert("テスト送信成功");
+    else alert("送信失敗: " + (result.error ?? ""));
+  });
+
+  // ── 副資材 編集 ────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='material-receive']")?.addEventListener("click", () => {
+    state.materialEditing = null;
+    state.materialEditingIsNew = true;
+    renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='material-adjust']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id ?? "";
+      const m = state.materialList.find((x) => x.id === id);
+      if (m) {
+        state.materialEditing = m;
+        state.materialEditingIsNew = false;
+        renderApp();
+      }
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='material-close']").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      if (e.currentTarget !== e.target && !(e.target as HTMLElement).matches("button")) return;
+      state.materialEditing = null;
+      state.materialEditingIsNew = false;
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='material-save']")?.addEventListener("click", async () => {
+    const id = state.materialEditingIsNew ? `mat_${Date.now()}` : (state.materialEditing?.id ?? "");
+    const record: MaterialRecord = {
+      id,
+      code: root.querySelector<HTMLInputElement>("#mat-code")?.value ?? "",
+      name: root.querySelector<HTMLInputElement>("#mat-name")?.value ?? "",
+      unit: root.querySelector<HTMLInputElement>("#mat-unit")?.value ?? "個",
+      currentStock: Number(root.querySelector<HTMLInputElement>("#mat-stock")?.value) || 0,
+      minimumStock: Number(root.querySelector<HTMLInputElement>("#mat-min")?.value) || 0,
+      unitCost: Number(root.querySelector<HTMLInputElement>("#mat-cost")?.value) || 0,
+      lastUpdated: root.querySelector<HTMLInputElement>("#mat-last-date")?.value ?? new Date().toISOString().slice(0, 10)
+    };
+    (record as MaterialRecord & { materialType?: string }).materialType = root.querySelector<HTMLSelectElement>("#mat-type")?.value ?? "";
+    if (!record.code || !record.name) { alert("コードと品名は必須"); return; }
+    const { saveMaterial, fetchMaterialList } = await import("./api");
+    const saved = await saveMaterial(record);
+    if (saved) {
+      state.materialList = await fetchMaterialList();
+      state.materialEditing = null;
+      state.materialEditingIsNew = false;
+      alert("保存しました");
+      renderApp();
+    } else alert("保存失敗");
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='material-delete']")?.addEventListener("click", async () => {
+    const id = (document.querySelector<HTMLButtonElement>("[data-action='material-delete']")?.dataset.id) ?? "";
+    if (!id || !confirm("削除しますか？")) return;
+    const { deleteMaterial, fetchMaterialList } = await import("./api");
+    if (await deleteMaterial(id)) {
+      state.materialList = await fetchMaterialList();
+      state.materialEditing = null;
+      renderApp();
+    }
   });
 
   // ── ユーザー管理 ────────────────────────────────

@@ -1,4 +1,5 @@
 import type { MaterialRecord } from "../api";
+import { MATERIAL_CATEGORIES } from "../api";
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", {
@@ -6,6 +7,65 @@ function formatCurrency(amount: number): string {
     currency: "JPY",
     maximumFractionDigits: 0
   }).format(amount);
+}
+
+export function renderMaterialEditModal(editing: MaterialRecord | null, isNew: boolean): string {
+  if (!editing && !isNew) return "";
+  const m = editing;
+  return `
+    <div class="modal-backdrop" data-action="material-close">
+      <div class="modal-panel" onclick="event.stopPropagation()" style="width:min(600px, 100%);">
+        <div class="modal-header">
+          <h3>${isNew ? "新規 副資材登録" : `編集: ${m?.name ?? ""}`}</h3>
+          <button class="modal-close" data-action="material-close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="filter-grid filter-grid--wide">
+            <label class="field" style="flex:1 1 140px;">
+              <span>コード *</span>
+              <input id="mat-code" type="text" value="${m?.code ?? ""}" placeholder="M001" />
+            </label>
+            <label class="field" style="flex:1 1 240px;">
+              <span>品名 *</span>
+              <input id="mat-name" type="text" value="${m?.name ?? ""}" placeholder="720ml瓶" />
+            </label>
+            <label class="field" style="flex:1 1 160px;">
+              <span>カテゴリ</span>
+              <select id="mat-type">
+                <option value="">選択</option>
+                ${MATERIAL_CATEGORIES.map((c) => `<option ${(m as unknown as { materialType?: string })?.materialType === c ? "selected" : ""}>${c}</option>`).join("")}
+              </select>
+            </label>
+            <label class="field" style="flex:1 1 80px;">
+              <span>単位</span>
+              <input id="mat-unit" type="text" value="${m?.unit ?? "個"}" />
+            </label>
+            <label class="field" style="flex:1 1 120px;">
+              <span>現在庫</span>
+              <input id="mat-stock" type="number" value="${m?.currentStock ?? 0}" />
+            </label>
+            <label class="field" style="flex:1 1 120px;">
+              <span>最低在庫</span>
+              <input id="mat-min" type="number" value="${m?.minimumStock ?? 0}" />
+            </label>
+            <label class="field" style="flex:1 1 120px;">
+              <span>単価(円)</span>
+              <input id="mat-cost" type="number" value="${m?.unitCost ?? 0}" />
+            </label>
+            <label class="field" style="flex:1 1 140px;">
+              <span>最終入荷日</span>
+              <input id="mat-last-date" type="date" value="${m?.lastUpdated ?? ""}" />
+            </label>
+          </div>
+        </div>
+        <div class="action-bar" style="padding:12px 20px;border-top:1px solid var(--border);">
+          ${!isNew ? `<button class="button secondary" data-action="material-delete" data-id="${m!.id}" style="color:var(--danger);margin-right:auto;">削除</button>` : ""}
+          <button class="button secondary" data-action="material-close">キャンセル</button>
+          <button class="button primary" data-action="material-save" data-id="${m?.id ?? ""}">保存</button>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 export function renderMaterials(materials: MaterialRecord[]): string {

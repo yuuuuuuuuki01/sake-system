@@ -2945,3 +2945,49 @@ details.panel[open] > summary::before {
   .cal-cell { min-height: 60px; }
   .cal-event-title { display: none; }
 }
+
+/* ===== 見込客パイプライン (カンバン) ===== */
+.pk-board {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(160px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+}
+.pk-col { background: var(--surface-alt); border-radius: 6px; min-width: 160px; }
+.pk-col-header {
+  padding: 8px 10px;
+  background: var(--pk-color, var(--primary));
+  color: white;
+  border-radius: 6px 6px 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pk-col-label { font-weight: 700; font-size: 12px; }
+.pk-col-count {
+  background: rgba(255,255,255,0.3);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.pk-col-sub { padding: 4px 10px; font-size: 11px; color: var(--text-secondary); border-bottom: 1px solid var(--border); }
+.pk-col-body { padding: 6px; display: grid; gap: 6px; min-height: 160px; }
+.pk-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  cursor: grab;
+  transition: box-shadow 150ms;
+}
+.pk-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.pk-card-company { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+.pk-card-meta { font-size: 11px; color: var(--text-secondary); }
+.pk-card-amount { font-size: 12px; font-weight: 700; margin-top: 4px; color: var(--primary); }
+.pk-card-action { font-size: 11px; color: var(--warning); margin-top: 4px; }
+.pk-card-staff { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+@media (max-width: 1400px) {
+  .pk-board { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+}

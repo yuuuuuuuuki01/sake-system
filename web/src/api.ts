@@ -2461,3 +2461,333 @@ export async function fetchAuditLogs(limit = 100): Promise<AuditLog[]> {
     createdAt: getString(r, ["created_at"], "")
   }));
 }
+
+// ─── Slack通知 ────────────────────────────────────────────────────────────
+
+export type SlackEventType = "new_order" | "payment_overdue" | "low_stock" | "fax_received" | "tour_inquiry" | "new_prospect";
+
+export const SLACK_EVENT_LABELS: Record<SlackEventType, string> = {
+  new_order: "🛒 新規受注",
+  payment_overdue: "⚠️ 入金遅延",
+  low_stock: "📦 低在庫",
+  fax_received: "📠 FAX受信",
+  tour_inquiry: "🏭 見学問合せ",
+  new_prospect: "🎯 新規見込客"
+};
+
+export interface SlackNotificationRule {
+  id: string;
+  eventType: SlackEventType;
+  enabled: boolean;
+  channel: string;
+  condition: Record<string, unknown>;
+  lastTriggeredAt?: string;
+}
+
+export interface SlackNotificationLog {
+  id: string;
+  eventType: string;
+  channel: string;
+  message: string;
+  status: "sent" | "failed";
+  error?: string;
+  sentAt: string;
+}
+
+export async function fetchSlackRules(): Promise<SlackNotificationRule[]> {
+  const rows = await supabaseQuery<LooseRow>("slack_notifications", { order: "event_type.asc" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    eventType: (getString(r, ["event_type"], "new_order") as SlackEventType),
+    enabled: getBoolean(r, ["enabled"], true),
+    channel: getString(r, ["channel"], ""),
+    condition: (r["condition"] as Record<string, unknown>) ?? {},
+    lastTriggeredAt: getString(r, ["last_triggered_at"], "")
+  }));
+}
+
+export async function saveSlackRule(rule: SlackNotificationRule): Promise<SlackNotificationRule | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const r = await supabaseInsert<LooseRow>("slack_notifications", {
+    id: rule.id,
+    event_type: rule.eventType,
+    enabled: rule.enabled,
+    channel: rule.channel,
+    condition: rule.condition
+  });
+  return r ? rule : null;
+}
+
+export async function fetchSlackLogs(limit = 50): Promise<SlackNotificationLog[]> {
+  const rows = await supabaseQuery<LooseRow>("slack_notification_logs", {
+    order: "sent_at.desc",
+    limit: String(limit)
+  });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    eventType: getString(r, ["event_type"], ""),
+    channel: getString(r, ["channel"], ""),
+    message: getString(r, ["message"], ""),
+    status: (getString(r, ["status"], "sent") as "sent" | "failed"),
+    error: getString(r, ["error"], ""),
+    sentAt: getString(r, ["sent_at"], "")
+  }));
+}
+
+export async function sendSlackNotification(
+  eventType: SlackEventType,
+  message: string,
+  channel?: string
+): Promise<{ ok: boolean; error?: string }> {
+  const settings = await fetchIntegrationSettings();
+  const slack = settings.find((s) => s.provider === "slack");
+  if (!slack || !slack.isEnabled) {
+    return { ok: false, error: "Slack連携が無効です" };
+  }
+  const webhookUrl = slack.config["webhook_url"];
+  if (!webhookUrl) return { ok: false, error: "Webhook URL未設定" };
+
+  const rules = await fetchSlackRules();
+  const rule = rules.find((r) => r.eventType === eventType && r.enabled);
+  if (!rule) return { ok: false, error: "通知ルールが無効" };
+  const targetChannel = channel ?? rule.channel ?? slack.config["default_channel"] ?? "#general";
+
+  try {
+    const resp = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `${SLACK_EVENT_LABELS[eventType]} ${message}`,
+        channel: targetChannel
+      })
+    });
+    const ok = resp.ok;
+    const { supabaseInsert } = await import("./supabase");
+    await supabaseInsert("slack_notification_logs", {
+      id: `slack_${Date.now()}`,
+      event_type: eventType,
+      channel: targetChannel,
+      message,
+      status: ok ? "sent" : "failed",
+      error: ok ? null : `HTTP ${resp.status}`
+    });
+    return ok ? { ok: true } : { ok: false, error: `HTTP ${resp.status}` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ─── 見込客（新規営業）管理 ──────────────────────────────────────────────
+
+export type ProspectStage = "cold" | "warm" | "hot" | "contacted" | "negotiating" | "won" | "lost";
+
+export const PROSPECT_STAGE_LABELS: Record<ProspectStage, string> = {
+  cold: "❄️ 未接触",
+  warm: "🌡️ 関心あり",
+  hot: "🔥 見込み高",
+  contacted: "📞 アプローチ中",
+  negotiating: "💬 商談中",
+  won: "🎉 受注",
+  lost: "💔 失注"
+};
+
+export const PROSPECT_STAGE_COLORS: Record<ProspectStage, string> = {
+  cold: "#90A4AE",
+  warm: "#FFA726",
+  hot: "#EF5350",
+  contacted: "#42A5F5",
+  negotiating: "#AB47BC",
+  won: "#66BB6A",
+  lost: "#757575"
+};
+
+export interface Prospect {
+  id: string;
+  companyName: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  website?: string;
+  businessType?: string;
+  stage: ProspectStage;
+  source?: string;
+  expectedAmount: number;
+  probability: number;
+  assignedStaffCode?: string;
+  nextActionDate?: string;
+  nextAction?: string;
+  note?: string;
+  lastContactAt?: string;
+  wonAt?: string;
+  lostAt?: string;
+  lostReason?: string;
+  convertedCustomerCode?: string;
+  createdAt?: string;
+}
+
+export interface ProspectActivity {
+  id: string;
+  prospectId: string;
+  activityType: "call" | "visit" | "email" | "proposal" | "demo" | "sample";
+  title?: string;
+  description?: string;
+  activityDate: string;
+  result?: string;
+  staffCode?: string;
+}
+
+export async function fetchProspects(): Promise<Prospect[]> {
+  const rows = await supabaseQuery<LooseRow>("prospects", { order: "updated_at.desc" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    companyName: getString(r, ["company_name"], ""),
+    contactName: getString(r, ["contact_name"], ""),
+    email: getString(r, ["email"], ""),
+    phone: getString(r, ["phone"], ""),
+    address: getString(r, ["address"], ""),
+    website: getString(r, ["website"], ""),
+    businessType: getString(r, ["business_type"], ""),
+    stage: (getString(r, ["stage"], "cold") as ProspectStage),
+    source: getString(r, ["source"], ""),
+    expectedAmount: toNumber(r["expected_amount"]),
+    probability: toNumber(r["probability"]),
+    assignedStaffCode: getString(r, ["assigned_staff_code"], ""),
+    nextActionDate: getString(r, ["next_action_date"], ""),
+    nextAction: getString(r, ["next_action"], ""),
+    note: getString(r, ["note"], ""),
+    lastContactAt: getString(r, ["last_contact_at"], ""),
+    wonAt: getString(r, ["won_at"], ""),
+    lostAt: getString(r, ["lost_at"], ""),
+    lostReason: getString(r, ["lost_reason"], ""),
+    convertedCustomerCode: getString(r, ["converted_customer_code"], ""),
+    createdAt: getString(r, ["created_at"], "")
+  }));
+}
+
+export async function saveProspect(p: Prospect): Promise<Prospect | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const r = await supabaseInsert<LooseRow>("prospects", {
+    id: p.id,
+    company_name: p.companyName,
+    contact_name: p.contactName || null,
+    email: p.email || null,
+    phone: p.phone || null,
+    address: p.address || null,
+    website: p.website || null,
+    business_type: p.businessType || null,
+    stage: p.stage,
+    source: p.source || null,
+    expected_amount: p.expectedAmount,
+    probability: p.probability,
+    assigned_staff_code: p.assignedStaffCode || null,
+    next_action_date: p.nextActionDate || null,
+    next_action: p.nextAction || null,
+    note: p.note || null,
+    updated_at: new Date().toISOString()
+  });
+  return r ? p : null;
+}
+
+export async function deleteProspect(id: string): Promise<boolean> {
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+  if (!key) return false;
+  try {
+    const url = new URL(`/rest/v1/prospects`, "https://loarwnuyvfxiscjjsmiz.supabase.co");
+    url.searchParams.set("id", `eq.${id}`);
+    const r = await fetch(url.toString(), {
+      method: "DELETE",
+      headers: { apikey: key, Authorization: `Bearer ${key}` }
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchProspectActivities(prospectId: string): Promise<ProspectActivity[]> {
+  const rows = await supabaseQuery<LooseRow>("prospect_activities", {
+    prospect_id: `eq.${prospectId}`,
+    order: "activity_date.desc"
+  });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    prospectId: getString(r, ["prospect_id"], ""),
+    activityType: (getString(r, ["activity_type"], "call") as ProspectActivity["activityType"]),
+    title: getString(r, ["title"], ""),
+    description: getString(r, ["description"], ""),
+    activityDate: getString(r, ["activity_date"], ""),
+    result: getString(r, ["result"], ""),
+    staffCode: getString(r, ["staff_code"], "")
+  }));
+}
+
+export async function saveProspectActivity(activity: ProspectActivity): Promise<ProspectActivity | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const r = await supabaseInsert<LooseRow>("prospect_activities", {
+    id: activity.id,
+    prospect_id: activity.prospectId,
+    activity_type: activity.activityType,
+    title: activity.title || null,
+    description: activity.description || null,
+    activity_date: activity.activityDate,
+    result: activity.result || null,
+    staff_code: activity.staffCode || null
+  });
+  return r ? activity : null;
+}
+
+// ─── 副資材(瓶/ラベル/キャップ/箱等) 登録・編集 ──────────────────────────
+
+export const MATERIAL_CATEGORIES = [
+  "瓶 (720ml)",
+  "瓶 (1.8L)",
+  "瓶 (300ml)",
+  "瓶 (500ml)",
+  "キャップ・栓",
+  "ラベル(表)",
+  "ラベル(裏)",
+  "首掛け",
+  "化粧箱",
+  "ダンボール",
+  "包装紙",
+  "熨斗・水引",
+  "和紙",
+  "リボン",
+  "その他"
+];
+
+export async function saveMaterial(record: MaterialRecord): Promise<MaterialRecord | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const result = await supabaseInsert<LooseRow>("materials", {
+    id: record.id,
+    legacy_material_code: record.code,
+    material_code: record.code,
+    name: record.name,
+    unit: record.unit,
+    material_type: (record as MaterialRecord & { materialType?: string }).materialType || null,
+    current_stock: record.currentStock,
+    minimum_stock: record.minimumStock,
+    unit_cost: record.unitCost,
+    last_purchase_date: record.lastUpdated,
+    is_active: true,
+    updated_at: new Date().toISOString()
+  });
+  return result ? record : null;
+}
+
+export async function deleteMaterial(id: string): Promise<boolean> {
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+  if (!key) return false;
+  try {
+    const url = new URL(`/rest/v1/materials`, "https://loarwnuyvfxiscjjsmiz.supabase.co");
+    url.searchParams.set("id", `eq.${id}`);
+    const r = await fetch(url.toString(), {
+      method: "DELETE",
+      headers: { apikey: key, Authorization: `Bearer ${key}` }
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
