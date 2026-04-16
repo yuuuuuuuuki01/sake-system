@@ -2649,3 +2649,24 @@ tbody tr:hover {
     cursor: default !important;
   }
 }
+
+/* ===== FormDesigner レスポンシブ スケーリング ===== */
+.fd-canvas-scaler {
+  overflow: visible;
+  /* JS で transform: scale() と height を動的設定 */
+}
+@media (max-width: 1200px) {
+  .fd-canvas-panel { overflow: hidden; }
+}
+@media print {
+  .fd-canvas-scaler { transform: none !important; height: auto !important; }
+}
+
+/* 印刷プレビューもスケーリング対応 */
+.print-preview-scaler {
+  overflow: visible;
+}
+.print-preview-panel { overflow: hidden; }
+@media print {
+  .print-preview-scaler { transform: none !important; height: auto !important; }
+}

@@ -2248,6 +2248,26 @@ function renderApp(): void {
   if (shouldShowLogin()) {
     app.querySelector<HTMLInputElement>("#auth-email")?.focus();
   }
+  // フォームデザイナー + 印刷プレビューを画面幅に合わせてスケーリング
+  requestAnimationFrame(() => {
+    for (const scalerId of ["fd-scaler", "print-scaler"]) {
+      const scaler = app.querySelector<HTMLElement>(`#${scalerId}`);
+      const inner = scaler?.querySelector<HTMLElement>(".fd-canvas, .print-preview");
+      const printPage = inner?.querySelector<HTMLElement>(".print-page") ?? inner;
+      if (!scaler || !printPage) continue;
+      const panelWidth = scaler.parentElement?.clientWidth ?? 0;
+      const contentWidth = printPage.offsetWidth;
+      if (panelWidth > 0 && contentWidth > 0 && contentWidth > panelWidth - 24) {
+        const scale = (panelWidth - 24) / contentWidth;
+        scaler.style.transform = `scale(${scale})`;
+        scaler.style.transformOrigin = "top left";
+        scaler.style.height = `${(printPage.offsetHeight + 48) * scale}px`;
+      } else {
+        scaler.style.transform = "";
+        scaler.style.height = "";
+      }
+    }
+  });
 }
 
 async function loadData(): Promise<void> {

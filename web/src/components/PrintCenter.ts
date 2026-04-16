@@ -275,10 +275,12 @@ export function renderPrintCenter(
     <section class="panel print-preview-panel">
       <div class="panel-header no-print">
         <h2>プレビュー</h2>
-        <p class="panel-caption">実際に印刷されるイメージ</p>
+        <p class="panel-caption">実際に印刷されるイメージ（画面幅に自動縮小）</p>
       </div>
-      <div class="print-preview ${options.colorMode}">
-        ${preview}
+      <div class="print-preview-scaler" id="print-scaler">
+        <div class="print-preview ${options.colorMode}">
+          ${preview}
+        </div>
       </div>
     </section>
   `;

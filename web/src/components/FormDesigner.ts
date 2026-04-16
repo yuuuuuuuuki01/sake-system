@@ -141,8 +141,10 @@ export function renderFormDesigner(
     }
 
     <section class="panel fd-canvas-panel">
-      <div class="fd-canvas" style="${overlayBg}">
-        ${fieldBoxes}
+      <div class="fd-canvas-scaler" id="fd-scaler">
+        <div class="fd-canvas" style="${overlayBg}">
+          ${fieldBoxes}
+        </div>
       </div>
     </section>
 
