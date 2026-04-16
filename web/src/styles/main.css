@@ -75,8 +75,6 @@ a {
 
 .shell {
   min-height: 100vh;
-  display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
 }
 
 .menu-toggle,
@@ -85,14 +83,17 @@ a {
 }
 
 .sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 248px;
   background: linear-gradient(180deg, #14334b 0%, #102a43 100%);
   color: #f0f4f8;
   padding: 24px 18px;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
-  height: 100vh;
   overflow-y: auto;
-  position: sticky;
-  top: 0;
+  z-index: 10;
 }
 
 .brand {
@@ -196,9 +197,10 @@ a {
 }
 
 .main {
+  margin-left: 248px;
   padding: 24px;
   min-width: 0;
-  max-width: 1200px;
+  min-height: 100vh;
   background: var(--background);
 }
 
@@ -241,9 +243,10 @@ a {
 
 .page-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px 16px;
 }
 
 .page-head h1 {
@@ -554,10 +557,20 @@ a {
 }
 
 .filter-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 240px)) auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   align-items: end;
+}
+
+.filter-grid > .field {
+  min-width: 160px;
+  flex: 1 1 180px;
+  max-width: 280px;
+}
+
+.filter-grid > .filter-actions {
+  flex: 0 0 auto;
 }
 
 .invoice-filter-grid {
@@ -1108,6 +1121,7 @@ tbody tr:hover {
 /* ── Action bar ─────────────────────────────────────────────── */
 .action-bar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 12px;
   margin-top: 16px;
@@ -1421,8 +1435,8 @@ tbody tr:hover {
 }
 
 @media (max-width: 1100px) {
-  .shell {
-    grid-template-columns: 1fr;
+  .main {
+    margin-left: 0;
   }
 
   .sidebar {
@@ -1430,7 +1444,6 @@ tbody tr:hover {
     inset: 0 auto 0 0;
     z-index: 30;
     width: min(320px, calc(100vw - 40px));
-    max-height: 100vh;
     transform: translateX(-100%);
     transition: transform 180ms ease;
     box-shadow: 0 20px 40px rgba(16, 24, 40, 0.28);
