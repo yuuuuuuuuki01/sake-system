@@ -65,6 +65,8 @@ import {
   type SlackNotificationRule,
   type SlackNotificationLog,
   type MaterialRecord,
+  type DeliveryLocation,
+  type CallLog,
   type StoreOrder,
   type StoreSale,
   type TankRecord,
@@ -123,6 +125,8 @@ import { updatePassword } from "./auth";
 import { renderProspects, type ProspectsViewState } from "./components/Prospects";
 import { renderSlackSettings } from "./components/SlackSettings";
 import { renderMaterialEditModal } from "./components/Materials";
+import { renderCallLogs } from "./components/CallLogs";
+import type { MapFilters } from "./components/CustomerMap";
 import { renderPrintCenter } from "./components/PrintCenter";
 import {
   DEFAULT_COMPANY_INFO,
@@ -188,7 +192,8 @@ type RoutePath =
   | "/profile"
   | "/audit"
   | "/prospects"
-  | "/slack";
+  | "/slack"
+  | "/calls";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -248,7 +253,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/profile",
   "/audit",
   "/prospects",
-  "/slack"
+  "/slack",
+  "/calls"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -298,7 +304,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/profile", title: "プロフィール" },
   { path: "/audit", title: "操作ログ" },
   { path: "/prospects", title: "新規営業" },
-  { path: "/slack", title: "Slack通知" }
+  { path: "/slack", title: "Slack通知" },
+  { path: "/calls", title: "通話履歴(IVRy)" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -411,6 +418,9 @@ interface AppState {
   slackLogs: SlackNotificationLog[];
   materialEditing: MaterialRecord | null;
   materialEditingIsNew: boolean;
+  deliveryLocations: DeliveryLocation[];
+  callLogs: CallLog[];
+  mapFilters: MapFilters;
   printTemplate: PrintTemplateKey;
   printOptions: PrintOptions;
   printCompany: PrintCompanyInfo;
@@ -581,6 +591,15 @@ const state: AppState = {
   slackLogs: [],
   materialEditing: null,
   materialEditingIsNew: false,
+  deliveryLocations: [],
+  callLogs: [],
+  mapFilters: {
+    showCustomers: true,
+    showProspects: true,
+    showDelivery: true,
+    filterRegion: "",
+    filterBusinessType: ""
+  },
   printTemplate: "chain_store",
   printOptions: {
     ...DEFAULT_PRINT_OPTIONS,
@@ -1185,6 +1204,21 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           state.prospects = await fetchProspects();
         }
         break;
+      case "/map":
+        {
+          const { fetchProspects, fetchDeliveryLocations, fetchIntegrationSettings } = await import("./api");
+          state.prospects = await fetchProspects();
+          state.deliveryLocations = await fetchDeliveryLocations();
+          if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
+        }
+        break;
+      case "/calls":
+        {
+          const { fetchCallLogs, fetchIntegrationSettings } = await import("./api");
+          state.callLogs = await fetchCallLogs(100);
+          if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
+        }
+        break;
       case "/slack":
         {
           const { fetchSlackRules, fetchSlackLogs, fetchIntegrationSettings } = await import("./api");
@@ -1305,15 +1339,23 @@ function renderView(): string {
     case "/form-designer":
       return renderFormDesigner(state.printData, state.printCompany, state.printOptions, state.fdSavedPositions, state.fdDesignMode);
     case "/map": {
-      const mapCustomers: GeoCustomer[] = (state.masterStats?.customers ?? []).slice(0, 100).map((c, i) => ({
+      const mapCustomers: GeoCustomer[] = (state.masterStats?.customers ?? []).slice(0, 200).map((c, i) => ({
         ...c,
-        lat: 35.37 + (i % 10) * 0.02 + Math.random() * 0.01,
-        lng: 139.29 + (i % 10) * 0.02 + Math.random() * 0.01,
+        lat: 35.37 + (i % 12) * 0.05 + (Math.random() - 0.5) * 0.02,
+        lng: 139.29 + Math.floor(i / 12) * 0.05 + (Math.random() - 0.5) * 0.02,
         address1: ["神奈川県秦野市", "東京都新宿区", "横浜市西区", "川崎市幸区"][i % 4],
         businessType: ["酒店", "飲食店", "百貨店", "スーパー"][i % 4],
         lastOrderAmount: 50000 + (i % 10) * 20000
       }));
-      return renderCustomerMap(mapCustomers, state.mapRegionFilter);
+      const gmKey = state.integrations.find((i) => i.provider === "google_maps")?.config["api_key"];
+      const useGoogleMaps = Boolean(gmKey);
+      return renderCustomerMap(
+        mapCustomers,
+        state.prospects,
+        state.deliveryLocations,
+        state.mapFilters,
+        useGoogleMaps
+      );
     }
     case "/workflow":
       return renderOrderWorkflow(state.workflowOrders);
@@ -1365,6 +1407,15 @@ function renderView(): string {
     case "/slack": {
       const slack = state.integrations.find((i) => i.provider === "slack") ?? null;
       return renderSlackSettings(slack, state.slackRules, state.slackLogs);
+    }
+    case "/calls": {
+      const ivry = state.integrations.find((i) => i.provider === "ivry");
+      return renderCallLogs(
+        state.callLogs,
+        state.masterStats?.customers ?? [],
+        ivry?.lastSyncAt ?? null,
+        ivry?.isEnabled ?? false
+      );
     }
     default:
       break;
@@ -2638,6 +2689,84 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
+  // ── マップフィルタ ──────────────────────────────
+  root.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-map-filter]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const field = input.dataset.mapFilter as keyof MapFilters;
+      let value: unknown;
+      if (input.type === "checkbox") {
+        value = (input as HTMLInputElement).checked;
+      } else {
+        value = input.value;
+      }
+      state.mapFilters = { ...state.mapFilters, [field]: value } as MapFilters;
+      renderApp();
+    });
+  });
+
+  // ── IVRy 通話履歴 ──────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='ivry-sync']")?.addEventListener("click", async () => {
+    const setting = state.integrations.find((i) => i.provider === "ivry");
+    if (!setting || !setting.isEnabled) {
+      alert("IVRy連携が無効です。/integrations で有効化してください");
+      return;
+    }
+    const { syncIvryCallLogs, fetchCallLogs } = await import("./api");
+    const result = await syncIvryCallLogs(setting);
+    if (result.error) alert("同期失敗: " + result.error);
+    else {
+      alert(`${result.count}件の通話履歴を同期しました`);
+      state.callLogs = await fetchCallLogs(100);
+      renderApp();
+    }
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='ivry-push-phonebook']")?.addEventListener("click", async () => {
+    const setting = state.integrations.find((i) => i.provider === "ivry");
+    if (!setting || !setting.isEnabled) {
+      alert("IVRy連携が無効です");
+      return;
+    }
+    if (!confirm("全ての取引先と見込客の電話帳をIVRyに送信しますか？")) return;
+    const { syncPhoneBookToIvry } = await import("./api");
+    const contacts: Array<{ name: string; phone: string; customerCode?: string; note?: string }> = [];
+    state.masterStats?.customers.forEach((c) => {
+      contacts.push({ name: c.name, phone: "", customerCode: c.code, note: "既存取引先" });
+    });
+    state.prospects.forEach((p) => {
+      if (p.phone) contacts.push({ name: p.companyName, phone: p.phone, customerCode: p.id, note: `見込客 (${p.stage})` });
+    });
+    const result = await syncPhoneBookToIvry(setting, contacts);
+    if (result.error) alert("送信失敗: " + result.error);
+    else alert(`${result.synced}件の連絡先を送信しました`);
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='call-link-customer']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      const phone = btn.dataset.phone ?? "";
+      const code = prompt(`電話番号 ${phone} を顧客コードに紐付け\n顧客コードを入力:`);
+      if (!code) return;
+      const log = state.callLogs.find((l) => l.id === id);
+      if (!log) return;
+      const { saveCallLog, fetchCallLogs } = await import("./api");
+      await saveCallLog({ ...log, matchedCustomerCode: code });
+      state.callLogs = await fetchCallLogs(100);
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='call-memo']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      const log = state.callLogs.find((l) => l.id === id);
+      if (!log) return;
+      const note = prompt("メモを入力:", log.notes ?? "");
+      if (note === null) return;
+      const { saveCallLog, fetchCallLogs } = await import("./api");
+      await saveCallLog({ ...log, notes: note });
+      state.callLogs = await fetchCallLogs(100);
+      renderApp();
+    });
+  });
+
   // ── 新規営業 ────────────────────────────────
   root.querySelectorAll<HTMLButtonElement>("[data-prospect-view]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -3698,7 +3827,7 @@ declare const L: {
 
 let mapInstance: { setView: (latlng: [number, number], zoom: number) => unknown; remove: () => void } | null = null;
 function initCustomerMap(container: HTMLElement) {
-  const Lref = (window as unknown as { L?: typeof L }).L;
+  const Lref = (window as unknown as { L?: typeof L & { divIcon?: (opts: Record<string, unknown>) => unknown } }).L;
   if (!Lref) {
     container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary);">Leaflet読込中…</div>';
     setTimeout(() => initCustomerMap(container), 500);
@@ -3713,22 +3842,54 @@ function initCustomerMap(container: HTMLElement) {
     mapInstance = null;
   }
   container.innerHTML = "";
-  const m = Lref.map(container) as { setView: (l: [number, number], z: number) => unknown; remove: () => void; addLayer?: (layer: unknown) => unknown };
-  m.setView([35.378, 139.295], 11); // 秦野市中心
+  const m = Lref.map(container) as { setView: (l: [number, number], z: number) => unknown; remove: () => void };
+  m.setView([35.694, 139.769], 9); // 東京中心
   const tile = Lref.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap contributors",
     maxZoom: 19
   }) as { addTo: (m: unknown) => unknown };
   tile.addTo(m);
 
-  // ダミー顧客のマーカー配置
-  const customers = state.masterStats?.customers ?? [];
-  customers.slice(0, 50).forEach((c, i) => {
-    const lat = 35.37 + (i % 10) * 0.02 + (Math.random() - 0.5) * 0.01;
-    const lng = 139.29 + Math.floor(i / 10) * 0.04 + (Math.random() - 0.5) * 0.02;
-    const marker = (Lref.marker([lat, lng]) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
-    marker.bindPopup(`<strong>${c.name}</strong><br/><span style="color:#666;">${c.code}</span>`);
-  });
+  const makeIcon = (color: string, label: string) =>
+    Lref.divIcon!({
+      className: "custom-map-marker",
+      html: `<div style="background:${color};color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);font-weight:700;font-size:11px;">${label}</div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14]
+    });
+
+  // 既存取引先 (青) — サンプル座標で100件表示
+  if (state.mapFilters.showCustomers) {
+    const customers = state.masterStats?.customers ?? [];
+    customers.slice(0, 100).forEach((c, i) => {
+      if (state.mapFilters.filterBusinessType && state.mapFilters.filterBusinessType !== "酒店") return;
+      const lat = 35.37 + (i % 12) * 0.08 + (Math.random() - 0.5) * 0.03;
+      const lng = 139.29 + Math.floor(i / 12) * 0.08 + (Math.random() - 0.5) * 0.03;
+      const marker = (Lref.marker([lat, lng], { icon: makeIcon("#2196F3", "既") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
+      marker.bindPopup(`<div style="min-width:180px;"><strong>${c.name}</strong><br/><span style="color:#666;font-size:11px;">${c.code}</span><br/>🔵 既存取引先<br/>締日${c.closingDay}日 / 支払日${c.paymentDay}日</div>`);
+    });
+  }
+
+  // 新規見込客 (緑) — stage別に色分け
+  if (state.mapFilters.showProspects) {
+    state.prospects.forEach((p) => {
+      if (!p.lat || !p.lng) return;
+      if (state.mapFilters.filterBusinessType && p.businessType !== state.mapFilters.filterBusinessType) return;
+      const color = p.stage === "hot" || p.stage === "negotiating" ? "#EF5350" : p.stage === "won" ? "#66BB6A" : "#4CAF50";
+      const marker = (Lref.marker([p.lat, p.lng], { icon: makeIcon(color, "新") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
+      marker.bindPopup(`<div style="min-width:200px;"><strong>${p.companyName}</strong><br/><span style="color:#666;font-size:11px;">${p.contactName ?? ""}</span><br/>🟢 新規見込客 (${p.stage})<br/>想定 ¥${p.expectedAmount.toLocaleString("ja-JP")} / 確度 ${p.probability}%${p.nextAction ? `<br/>📌 ${p.nextAction}` : ""}</div>`);
+    });
+  }
+
+  // 納品先 (オレンジ)
+  if (state.mapFilters.showDelivery) {
+    state.deliveryLocations.forEach((d) => {
+      if (!d.lat || !d.lng) return;
+      const marker = (Lref.marker([d.lat, d.lng], { icon: makeIcon("#FF9800", "納") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
+      marker.bindPopup(`<div style="min-width:180px;"><strong>${d.name}</strong><br/>🟠 納品先${d.customerCode ? ` (${d.customerCode})` : ""}<br/>${d.address ?? ""}${d.contactName ? `<br/>📞 ${d.contactName}` : ""}${d.deliveryNote ? `<br/>📝 ${d.deliveryNote}` : ""}</div>`);
+    });
+  }
+
   mapInstance = m as typeof mapInstance;
 }
 

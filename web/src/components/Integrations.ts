@@ -30,6 +30,30 @@ const PROVIDER_DOCS: Record<string, { description: string; setupUrl: string; fie
     fields: [
       { key: "api_key", label: "Resend API Key", placeholder: "re_xxx..." }
     ]
+  },
+  slack: {
+    description: "Slackに各種業務通知を送信します (受注/入金遅延/低在庫 等)。",
+    setupUrl: "https://api.slack.com/messaging/webhooks",
+    fields: [
+      { key: "webhook_url", label: "Webhook URL", placeholder: "https://hooks.slack.com/services/..." },
+      { key: "default_channel", label: "デフォルトチャンネル", placeholder: "#general" }
+    ]
+  },
+  ivry: {
+    description: "IVRy電話システム連携。通話履歴取得と電話帳同期。",
+    setupUrl: "https://ivry.jp/",
+    fields: [
+      { key: "api_key", label: "IVRy API Key", placeholder: "sk_live_..." },
+      { key: "team_id", label: "チームID", placeholder: "team_..." },
+      { key: "phone_number", label: "代表電話番号", placeholder: "0463-88-1511" }
+    ]
+  },
+  google_maps: {
+    description: "Google Maps APIで地図表示。設定するとLeafletからGoogle Mapsに切替。",
+    setupUrl: "https://console.cloud.google.com/apis/credentials",
+    fields: [
+      { key: "api_key", label: "Google Maps API Key", placeholder: "AIzaSyxxx..." }
+    ]
   }
 };
 

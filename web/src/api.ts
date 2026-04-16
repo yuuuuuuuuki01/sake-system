@@ -2791,3 +2791,193 @@ export async function deleteMaterial(id: string): Promise<boolean> {
     return false;
   }
 }
+
+// ─── 納品先 (delivery_locations) ────────────────────────────────────────
+
+export interface DeliveryLocation {
+  id: string;
+  customerCode?: string;
+  name: string;
+  postalCode?: string;
+  address?: string;
+  lat?: number;
+  lng?: number;
+  contactName?: string;
+  phone?: string;
+  deliveryNote?: string;
+  isActive: boolean;
+}
+
+export async function fetchDeliveryLocations(): Promise<DeliveryLocation[]> {
+  const rows = await supabaseQuery<LooseRow>("delivery_locations", { order: "name.asc" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    customerCode: getString(r, ["customer_code"], ""),
+    name: getString(r, ["name"], ""),
+    postalCode: getString(r, ["postal_code"], ""),
+    address: getString(r, ["address"], ""),
+    lat: r["lat"] ? Number(r["lat"]) : undefined,
+    lng: r["lng"] ? Number(r["lng"]) : undefined,
+    contactName: getString(r, ["contact_name"], ""),
+    phone: getString(r, ["phone"], ""),
+    deliveryNote: getString(r, ["delivery_note"], ""),
+    isActive: getBoolean(r, ["is_active"], true)
+  }));
+}
+
+export async function saveDeliveryLocation(loc: DeliveryLocation): Promise<DeliveryLocation | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const r = await supabaseInsert<LooseRow>("delivery_locations", {
+    id: loc.id,
+    customer_code: loc.customerCode || null,
+    name: loc.name,
+    postal_code: loc.postalCode || null,
+    address: loc.address || null,
+    lat: loc.lat ?? null,
+    lng: loc.lng ?? null,
+    contact_name: loc.contactName || null,
+    phone: loc.phone || null,
+    delivery_note: loc.deliveryNote || null,
+    is_active: loc.isActive
+  });
+  return r ? loc : null;
+}
+
+// ─── 通話履歴 (IVRy連携) ──────────────────────────────────────────────
+
+export type CallDirection = "inbound" | "outbound";
+export type CallStatus = "answered" | "missed" | "busy" | "no_answer";
+
+export interface CallLog {
+  id: string;
+  callDirection: CallDirection;
+  fromNumber?: string;
+  toNumber?: string;
+  matchedCustomerCode?: string;
+  matchedProspectId?: string;
+  durationSeconds?: number;
+  callStatus?: CallStatus;
+  recordingUrl?: string;
+  transcript?: string;
+  ivryCallId?: string;
+  startedAt?: string;
+  endedAt?: string;
+  notes?: string;
+}
+
+export async function fetchCallLogs(limit = 50): Promise<CallLog[]> {
+  const rows = await supabaseQuery<LooseRow>("call_logs", {
+    order: "started_at.desc",
+    limit: String(limit)
+  });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    callDirection: (getString(r, ["call_direction"], "inbound") as CallDirection),
+    fromNumber: getString(r, ["from_number"], ""),
+    toNumber: getString(r, ["to_number"], ""),
+    matchedCustomerCode: getString(r, ["matched_customer_code"], ""),
+    matchedProspectId: getString(r, ["matched_prospect_id"], ""),
+    durationSeconds: toNumber(r["duration_seconds"]),
+    callStatus: (getString(r, ["call_status"], "answered") as CallStatus),
+    recordingUrl: getString(r, ["recording_url"], ""),
+    transcript: getString(r, ["transcript"], ""),
+    ivryCallId: getString(r, ["ivry_call_id"], ""),
+    startedAt: getString(r, ["started_at"], ""),
+    endedAt: getString(r, ["ended_at"], ""),
+    notes: getString(r, ["notes"], "")
+  }));
+}
+
+export async function saveCallLog(log: CallLog): Promise<CallLog | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const r = await supabaseInsert<LooseRow>("call_logs", {
+    id: log.id,
+    call_direction: log.callDirection,
+    from_number: log.fromNumber || null,
+    to_number: log.toNumber || null,
+    matched_customer_code: log.matchedCustomerCode || null,
+    matched_prospect_id: log.matchedProspectId || null,
+    duration_seconds: log.durationSeconds ?? 0,
+    call_status: log.callStatus ?? "answered",
+    started_at: log.startedAt || null,
+    ended_at: log.endedAt || null,
+    notes: log.notes || null,
+    ivry_call_id: log.ivryCallId || null
+  });
+  return r ? log : null;
+}
+
+// IVRy API から通話履歴同期
+export async function syncIvryCallLogs(setting: IntegrationSetting): Promise<{ count: number; error?: string }> {
+  const apiKey = setting.config["api_key"];
+  const teamId = setting.config["team_id"];
+  if (!apiKey || !teamId) {
+    return { count: 0, error: "IVRy API key または team_id 未設定" };
+  }
+  try {
+    // IVRy API想定エンドポイント (実際のAPI仕様に合わせて調整が必要)
+    const url = `https://api.ivry.jp/v1/teams/${teamId}/calls?limit=100`;
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }
+    });
+    if (!resp.ok) return { count: 0, error: `HTTP ${resp.status}` };
+    const data = (await resp.json()) as { calls: Array<Record<string, unknown>> };
+    const calls = data.calls ?? [];
+    let count = 0;
+    for (const c of calls) {
+      await saveCallLog({
+        id: `ivry_${c["id"]}`,
+        callDirection: (String(c["direction"] ?? "inbound") as CallDirection),
+        fromNumber: String(c["from"] ?? ""),
+        toNumber: String(c["to"] ?? ""),
+        durationSeconds: Number(c["duration"] ?? 0),
+        callStatus: (String(c["status"] ?? "answered") as CallStatus),
+        recordingUrl: String(c["recording_url"] ?? ""),
+        startedAt: String(c["started_at"] ?? ""),
+        endedAt: String(c["ended_at"] ?? ""),
+        ivryCallId: String(c["id"] ?? "")
+      });
+      count++;
+    }
+    await saveIntegrationSetting({
+      ...setting,
+      lastSyncAt: new Date().toISOString(),
+      lastStatus: `${count}件取得`
+    });
+    return { count };
+  } catch (e) {
+    return { count: 0, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// IVRy 電話帳へ顧客/見込客をpush
+export async function syncPhoneBookToIvry(
+  setting: IntegrationSetting,
+  contacts: Array<{ name: string; phone: string; customerCode?: string; note?: string }>
+): Promise<{ synced: number; error?: string }> {
+  const apiKey = setting.config["api_key"];
+  const teamId = setting.config["team_id"];
+  if (!apiKey || !teamId) {
+    return { synced: 0, error: "IVRy API key または team_id 未設定" };
+  }
+  try {
+    let synced = 0;
+    for (const c of contacts) {
+      if (!c.phone) continue;
+      const resp = await fetch(`https://api.ivry.jp/v1/teams/${teamId}/contacts`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: c.name,
+          phone_number: c.phone,
+          external_id: c.customerCode ?? "",
+          note: c.note ?? ""
+        })
+      });
+      if (resp.ok) synced++;
+    }
+    return { synced };
+  } catch (e) {
+    return { synced: 0, error: e instanceof Error ? e.message : String(e) };
+  }
+}

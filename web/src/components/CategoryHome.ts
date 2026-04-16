@@ -48,7 +48,8 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "👤 プロフィール", description: "自分のアカウント情報・パスワード変更・既定の送信元メール。", path: "/profile" },
     { title: "🔍 操作ログ", description: "全ユーザーの操作履歴 (監査証跡)。", path: "/audit" },
     { title: "🎯 新規営業", description: "見込客をカンバンで管理。パイプライン金額、確度、活動履歴。", path: "/prospects" },
-    { title: "💬 Slack通知", description: "受注/入金遅延/低在庫/問合せ等の通知をSlackに自動送信。", path: "/slack" }
+    { title: "💬 Slack通知", description: "受注/入金遅延/低在庫/問合せ等の通知をSlackに自動送信。", path: "/slack" },
+    { title: "📞 通話履歴 (IVRy)", description: "IVRy電話の通話履歴取得、電話帳同期。不在着信から顧客紐付け。", path: "/calls" }
   ]
 };
 
