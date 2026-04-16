@@ -30,16 +30,26 @@ export interface PrintLineItem {
   janCode?: string;
   productName: string;
   spec?: string; // 規格（720ml等）
+  color?: string; // 色
+  size?: string; // サイズ
+  caseQty?: number; // 入数
   quantity: number;
   unit: string;
-  unitPrice: number;
-  amount: number;
+  unitPrice: number; // 原単価
+  retailPrice?: number; // 売単価
+  amount: number; // 原価金額
+  discount?: number; // 引(引下)
+  correctedQuantity?: number; // 訂正後数量
+  receivedAmount?: number; // 受領金額
+  returnAmount?: number; // 返品金額
   note?: string;
 }
 
 export interface PrintDocumentData {
   documentNo: string;
   documentDate: string; // YYYY-MM-DD
+  orderDate?: string; // 発注日
+  deliveryDate?: string; // 納品日
   dueDate?: string;
   expireDate?: string;
   customerCode?: string;
@@ -47,6 +57,15 @@ export interface PrintDocumentData {
   customerPostalCode?: string;
   customerAddress?: string;
   customerHonorific: string; // "御中" / "様"
+  // チェーンストア統一伝票用
+  chainStoreCode?: string; // 柱店コード
+  categoryCode?: string; // 分類コード
+  slipTypeCode?: string; // 伝票区分
+  orderNo?: string; // 発注番号/受注No
+  vendorCode?: string; // 取引先コード
+  departmentCode?: string; // 部門コード
+  settlementPrint?: boolean; // 決算出力フラグ
+  // 共通
   title?: string; // 見積件名等
   remarks?: string;
   lines: PrintLineItem[];
@@ -56,7 +75,7 @@ export interface PrintDocumentData {
 }
 
 export interface PrintOptions {
-  pageSize: "A4" | "A5" | "B5";
+  pageSize: "A4" | "A5" | "B5" | "custom";
   orientation: "portrait" | "landscape";
   fontSize: "small" | "medium" | "large";
   showSeal: boolean;
@@ -67,6 +86,10 @@ export interface PrintOptions {
   showUnit: boolean;
   colorMode: "color" | "mono";
   copies: number; // 控え枚数（甲/乙/丙）
+  // チェーンストア伝票の画像下敷き機能
+  showReferenceOverlay: boolean;
+  overlayOpacity: number; // 0 - 1
+  overlayImageUrl: string; // /sake-system/reference/chainstore_ref.png
 }
 
 export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
@@ -80,7 +103,10 @@ export const DEFAULT_PRINT_OPTIONS: PrintOptions = {
   showJanCode: true,
   showUnit: true,
   colorMode: "color",
-  copies: 1
+  copies: 1,
+  showReferenceOverlay: false,
+  overlayOpacity: 0.4,
+  overlayImageUrl: "reference/chainstore_ref.png"
 };
 
 export const DEFAULT_COMPANY_INFO: PrintCompanyInfo = {

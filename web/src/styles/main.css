@@ -2305,3 +2305,239 @@ tbody tr:hover {
   color: #b2bec3;
   font-size: 8pt;
 }
+
+/* ===== チェーンストア統一伝票 BP1701 (ターンアラウンド用 1型) ===== */
+/* 実寸: 9インチ × 4インチ相当 228.6mm × 101.6mm */
+.bp1701.print-page {
+  width: 228.6mm;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.bp1701-slip {
+  position: relative;
+  width: 228.6mm;
+  height: 101.6mm;
+  background: white;
+  color: #000;
+  font-family: "Noto Sans JP", "Hiragino Sans", sans-serif;
+  font-size: 7pt;
+  line-height: 1.1;
+  padding: 2mm;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 参考画像オーバーレイ */
+.bp-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  z-index: 100;
+}
+
+/* 最上部バー */
+.bp-topbar {
+  display: grid;
+  grid-template-columns: 50mm 1fr 30mm 18mm;
+  gap: 1mm;
+  align-items: stretch;
+  margin-bottom: 0.5mm;
+  height: 7mm;
+}
+.bp-date-cell, .bp-settle, .bp-code-cell {
+  border: 0.5pt solid #000;
+  padding: 0.3mm 1mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.bp-title-main {
+  text-align: center;
+  padding: 1mm 0;
+}
+.bp-title-text {
+  font-size: 11pt;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+}
+.bp-title-sub {
+  font-size: 7pt;
+  margin-left: 4mm;
+}
+.bp-title-slip {
+  border: 0.5pt solid #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10pt;
+  font-weight: 700;
+}
+.bp-circle-1 {
+  display: inline-block;
+  width: 4mm; height: 4mm;
+  border: 1.2pt solid #000;
+  border-radius: 50%;
+  text-align: center;
+  line-height: 4mm;
+  font-size: 7pt;
+  margin-left: 1mm;
+}
+.bp-settle {
+  text-align: center;
+  font-size: 6pt;
+}
+.bp-settle-box {
+  width: 4mm; height: 4mm;
+  border: 0.5pt solid #000;
+  margin: 0 auto 0.5mm;
+  font-size: 8pt;
+  line-height: 4mm;
+}
+.bp-settle-box.checked { background: #333; color: white; }
+
+.bp-label {
+  font-size: 5.5pt;
+  color: #333;
+}
+.bp-val {
+  font-size: 8pt;
+  font-weight: 700;
+  margin-top: 0.3mm;
+}
+.bp-val-sub {
+  font-size: 6.5pt;
+  color: #333;
+  margin-top: 0.2mm;
+}
+
+.bp-date-boxes {
+  display: flex;
+  gap: 0.5mm;
+  margin-top: 0.3mm;
+}
+.bp-date-boxes span {
+  flex: 1;
+  border: 0.4pt solid #000;
+  padding: 0.3mm 0.5mm;
+  text-align: center;
+  font-family: "Courier New", monospace;
+  font-size: 7pt;
+  min-width: 4mm;
+}
+
+/* 社名行 */
+.bp-vendor-row {
+  display: grid;
+  grid-template-columns: 50mm 30mm 30mm 28mm 28mm 28mm;
+  gap: 0.3mm;
+  margin-bottom: 0.3mm;
+  min-height: 9mm;
+}
+.bp-vendor-name, .bp-vendor-address {
+  border: 0.5pt solid #000;
+  padding: 0.5mm 1mm;
+}
+.bp-vendor-row .bp-code-cell {
+  min-height: 9mm;
+}
+
+/* 明細テーブル */
+.bp-table {
+  width: 100%;
+  border-collapse: collapse;
+  flex: 1;
+  font-size: 7pt;
+  margin-top: 0.3mm;
+}
+.bp-table th, .bp-table td {
+  border: 0.4pt solid #000;
+  padding: 0.5mm 0.8mm;
+  vertical-align: middle;
+  line-height: 1.1;
+}
+.bp-table th {
+  background: #f0f0f0;
+  font-size: 6.5pt;
+  font-weight: 700;
+  text-align: center;
+  padding: 0.3mm;
+}
+.bp-table .bp-name { width: 44mm; text-align: left; }
+.bp-table .bp-pcode { width: 20mm; }
+.bp-table .bp-color { width: 8mm; }
+.bp-table .bp-size { width: 15mm; }
+.bp-table .bp-unit { width: 8mm; text-align: center; }
+.bp-table .bp-qty { width: 14mm; }
+.bp-table .bp-rowno { width: 5mm; text-align: center; background: #f0f0f0; color: #666; }
+.bp-table .bp-corr-qty { width: 14mm; }
+.bp-table .bp-discount { width: 10mm; }
+.bp-table .bp-cost-price { width: 15mm; }
+.bp-table .bp-cost-amount { width: 18mm; }
+.bp-table .bp-retail-price { width: 14mm; }
+.bp-table .bp-note { width: 18mm; }
+.bp-table .bp-spec {
+  font-size: 6pt;
+  color: #555;
+}
+.bp-table .bp-subdiv {
+  font-size: 5.5pt;
+  color: #333;
+  border-top: 0.3pt solid #999;
+  margin-top: 0.3mm;
+  padding-top: 0.2mm;
+}
+.bp-empty-row td { height: 5mm; }
+
+/* フッタ（OCR注記+合計） */
+.bp-footer {
+  display: grid;
+  grid-template-columns: 60mm 1fr;
+  gap: 1mm;
+  margin-top: 0.3mm;
+}
+.bp-ocr-notice {
+  border: 0.5pt solid #000;
+  padding: 1mm;
+  font-size: 6pt;
+  color: #333;
+  display: flex;
+  align-items: center;
+  text-align: center;
+  line-height: 1.3;
+}
+.bp-totals {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.3mm;
+}
+.bp-total-row {
+  border: 0.5pt solid #000;
+  padding: 0.5mm 1mm;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: center;
+  font-size: 6pt;
+}
+.bp-total-row .bp-val {
+  font-size: 8pt;
+  font-weight: 700;
+  font-family: "Courier New", monospace;
+}
+.bp-grand-cost { background: #fffcf0; }
+.bp-grand-retail { background: #f0f8ff; }
+
+/* 印刷時 */
+@media print {
+  .bp1701.print-page { box-shadow: none; }
+  .bp-overlay { display: none !important; }
+  @page {
+    size: 228.6mm 101.6mm;
+    margin: 0;
+  }
+}

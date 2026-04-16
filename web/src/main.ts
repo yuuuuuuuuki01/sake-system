@@ -419,21 +419,34 @@ const state: AppState = {
   importing: false,
   importResult: null,
   printTemplate: "chain_store",
-  printOptions: { ...DEFAULT_PRINT_OPTIONS },
+  printOptions: {
+    ...DEFAULT_PRINT_OPTIONS,
+    overlayImageUrl: `${import.meta.env.BASE_URL.replace(/\/$/, "")}/reference/chainstore_ref.png`
+  },
   printCompany: { ...DEFAULT_COMPANY_INFO },
   printData: {
     documentNo: "D" + new Date().toISOString().slice(0, 10).replaceAll("-", ""),
     documentDate: new Date().toISOString().slice(0, 10),
+    orderDate: new Date().toISOString().slice(0, 10),
+    deliveryDate: new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10),
     customerName: "株式会社〇〇商事",
     customerHonorific: "御中",
     customerPostalCode: "100-0001",
     customerAddress: "東京都千代田区〇〇1-2-3",
     customerCode: "C0001",
+    chainStoreCode: "0123",
+    categoryCode: "21",
+    slipTypeCode: "11",
+    orderNo: "PO-" + new Date().toISOString().slice(5, 10).replaceAll("-", ""),
+    vendorCode: "V0001",
+    departmentCode: "101",
+    settlementPrint: false,
     title: "",
     remarks: "",
     lines: [
-      { productCode: "P00012", productName: "純米吟醸", spec: "720ml", quantity: 12, unit: "本", unitPrice: 1800, amount: 21600, janCode: "4901234567891" },
-      { productCode: "P00008", productName: "本醸造", spec: "1.8L", quantity: 6, unit: "本", unitPrice: 2400, amount: 14400, janCode: "4901234567908" }
+      { productCode: "P00012", productName: "純米吟醸 金井の雫", spec: "720ml", quantity: 12, unit: "本", unitPrice: 1500, amount: 18000, retailPrice: 2200, janCode: "4901234567891", caseQty: 6 },
+      { productCode: "P00008", productName: "本醸造 辛口", spec: "1.8L", quantity: 6, unit: "本", unitPrice: 1800, amount: 10800, retailPrice: 2400, janCode: "4901234567908", caseQty: 6 },
+      { productCode: "P00021", productName: "梅酒 熟成", spec: "500ml", quantity: 12, unit: "本", unitPrice: 1200, amount: 14400, retailPrice: 1800, janCode: "4901234567915", caseQty: 12 }
     ],
     taxRate: 0.10,
     previousBalance: 0,
@@ -1897,19 +1910,23 @@ function bindEvents(root: HTMLElement): void {
   });
 
   root.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-print-opt]").forEach((input) => {
-    input.addEventListener("change", () => {
+    const handler = () => {
       const field = input.dataset.printOpt as keyof PrintOptions;
       let value: unknown;
       if (input.type === "checkbox") {
         value = (input as HTMLInputElement).checked;
       } else if (field === "copies") {
         value = Number(input.value) || 1;
+      } else if (field === "overlayOpacity") {
+        value = Number(input.value) || 0;
       } else {
         value = input.value;
       }
       state.printOptions = { ...state.printOptions, [field]: value } as PrintOptions;
       renderApp();
-    });
+    };
+    input.addEventListener("change", handler);
+    if (input.type === "range") input.addEventListener("input", handler);
   });
 
   root.querySelectorAll<HTMLInputElement>("[data-print-line][data-print-lfield]").forEach((input) => {

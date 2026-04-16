@@ -126,6 +126,20 @@ export function renderPrintCenter(
             ? `<label class="field"><span>件名</span><input type="text" data-print-field="title" value="${data.title ?? ""}" placeholder="純米吟醸 出荷見積" /></label>`
             : ""
         }
+        ${
+          template === "chain_store"
+            ? `
+              <label class="field"><span>発注日</span><input type="date" data-print-field="orderDate" value="${data.orderDate ?? ""}" /></label>
+              <label class="field"><span>納品日</span><input type="date" data-print-field="deliveryDate" value="${data.deliveryDate ?? ""}" /></label>
+              <label class="field"><span>柱店コード</span><input type="text" data-print-field="chainStoreCode" value="${data.chainStoreCode ?? ""}" placeholder="0123" /></label>
+              <label class="field"><span>分類コード</span><input type="text" data-print-field="categoryCode" value="${data.categoryCode ?? ""}" placeholder="21" /></label>
+              <label class="field"><span>取引コード</span><input type="text" data-print-field="slipTypeCode" value="${data.slipTypeCode ?? ""}" placeholder="11" /></label>
+              <label class="field"><span>受注No.</span><input type="text" data-print-field="orderNo" value="${data.orderNo ?? ""}" /></label>
+              <label class="field"><span>取引先コード</span><input type="text" data-print-field="vendorCode" value="${data.vendorCode ?? ""}" /></label>
+              <label class="field"><span>部門コード</span><input type="text" data-print-field="departmentCode" value="${data.departmentCode ?? ""}" /></label>
+            `
+            : ""
+        }
         <label class="field">
           <span>消費税率</span>
           <select data-print-field="taxRate">
@@ -219,6 +233,24 @@ export function renderPrintCenter(
         <label><input type="checkbox" data-print-opt="showUnit" ${options.showUnit ? "checked" : ""} /> 単位列</label>
         <label><input type="checkbox" data-print-opt="showRemarks" ${options.showRemarks ? "checked" : ""} /> 備考</label>
       </div>
+      ${
+        template === "chain_store"
+          ? `
+      <div style="margin-top:16px; padding:12px; background:var(--surface-alt); border-radius:8px; border:1px dashed var(--border-strong);">
+        <h3 style="margin:0 0 8px; font-size:13px;">📐 画像下敷き（位置合わせ用）</h3>
+        <div style="display:flex; flex-wrap:wrap; gap:16px; align-items:center;">
+          <label><input type="checkbox" data-print-opt="showReferenceOverlay" ${options.showReferenceOverlay ? "checked" : ""} /> 参考画像をオーバーレイ表示</label>
+          <label style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:12px;">不透明度</span>
+            <input type="range" min="0" max="1" step="0.05" value="${options.overlayOpacity}" data-print-opt="overlayOpacity" style="width:140px;" />
+            <span style="font-size:12px; min-width:32px;">${Math.round(options.overlayOpacity * 100)}%</span>
+          </label>
+        </div>
+        <p class="form-hint" style="margin-top:8px;">実際のBP1701伝票画像を半透明で重ねて、項目の位置ズレを確認できます。印刷時は自動で非表示になります。</p>
+      </div>
+      `
+          : ""
+      }
       <div class="action-bar" style="margin-top:12px;">
         <button class="button secondary" data-action="print-save-settings">💾 この設定を保存</button>
         <button class="button secondary" data-action="print-open-company">🏢 会社情報を編集</button>
