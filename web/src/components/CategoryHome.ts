@@ -33,7 +33,8 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "メール配信", description: "季節商品の案内メールを下書き保存し、顧客向け配信の準備を行います。", path: "/email" },
     { title: "連動設定", description: "WEB連動PC の設定手順と接続情報を確認して同期環境を整えます。", path: "/setup" },
     { title: "CSV/Excelインポート", description: "Excelで作成したマスタデータをアップロードして一括登録できます。", path: "/import" },
-    { title: "印刷センター", description: "チェーンストア伝票・見積書・請求書をテンプレートから選んでカスタマイズ印刷。", path: "/print" }
+    { title: "印刷センター", description: "チェーンストア伝票・見積書・請求書をテンプレートから選んでカスタマイズ印刷。", path: "/print" },
+    { title: "帳票デザイナー", description: "BP1701伝票の各フィールドをドラッグ＆ドロップで正確に配置。実物画像と重ねて位置合わせ。", path: "/form-designer" }
   ]
 };
 

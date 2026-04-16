@@ -2583,3 +2583,69 @@ tbody tr:hover {
     margin: 0;
   }
 }
+
+/* ===== FormDesigner (帳票ドラッグ配置) ===== */
+.fd-canvas-panel { padding: 0; overflow: auto; }
+.fd-canvas {
+  position: relative;
+  width: 228.6mm;
+  height: 101.6mm;
+  background-color: white;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  margin: 12px auto;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+  overflow: hidden;
+}
+.fd-field {
+  position: absolute;
+  white-space: nowrap;
+  line-height: 1;
+  font-family: "Noto Sans JP", sans-serif;
+  z-index: 10;
+}
+.fd-draggable {
+  cursor: grab;
+  border: 1px solid var(--fd-color, #999);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 0 2px;
+  transition: box-shadow 100ms ease;
+}
+.fd-draggable:hover {
+  box-shadow: 0 0 0 2px var(--fd-color, #999);
+  z-index: 20;
+}
+.fd-draggable.fd-active {
+  box-shadow: 0 0 0 3px var(--fd-color, #999), 0 2px 8px rgba(0,0,0,0.2);
+  z-index: 30;
+  border-style: dashed;
+}
+.fd-draggable.fd-dragging {
+  cursor: grabbing;
+  opacity: 0.8;
+}
+.fd-badge {
+  display: block;
+  font-size: 5pt;
+  color: var(--fd-color, #666);
+  line-height: 1;
+  margin-bottom: 1px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+}
+.fd-value {
+  pointer-events: none;
+}
+
+@media print {
+  .fd-canvas { box-shadow: none; margin: 0; background-image: none !important; }
+  .fd-badge { display: none !important; }
+  .fd-draggable {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    cursor: default !important;
+  }
+}

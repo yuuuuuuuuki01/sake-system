@@ -90,6 +90,7 @@ import { renderSalesReport } from "./components/SalesReport";
 import { renderSalesTable } from "./components/SalesTable";
 import { renderStorePOS } from "./components/StorePOS";
 import { renderDataImport } from "./components/DataImport";
+import { collectFieldPositions, renderFormDesigner } from "./components/FormDesigner";
 import { renderPrintCenter } from "./components/PrintCenter";
 import {
   DEFAULT_COMPANY_INFO,
@@ -140,7 +141,8 @@ type RoutePath =
   | "/setup"
   | "/email"
   | "/import"
-  | "/print";
+  | "/print"
+  | "/form-designer";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -185,7 +187,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/setup",
   "/email",
   "/import",
-  "/print"
+  "/print",
+  "/form-designer"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -220,7 +223,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/store", title: "店舗・直売所" },
   { path: "/setup", title: "連動設定" },
   { path: "/import", title: "CSV/Excelインポート" },
-  { path: "/print", title: "印刷センター" }
+  { path: "/print", title: "印刷センター" },
+  { path: "/form-designer", title: "帳票デザイナー" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -300,6 +304,9 @@ interface AppState {
   importPreview: ImportPreview | null;
   importing: boolean;
   importResult: string | null;
+  fdDesignMode: boolean;
+  fdSavedPositions: Record<string, { x: number; y: number }> | null;
+  fdActiveFieldId: string | null;
   printTemplate: PrintTemplateKey;
   printOptions: PrintOptions;
   printCompany: PrintCompanyInfo;
@@ -418,6 +425,9 @@ const state: AppState = {
   importPreview: null,
   importing: false,
   importResult: null,
+  fdDesignMode: true,
+  fdSavedPositions: null,
+  fdActiveFieldId: null,
   printTemplate: "chain_store",
   printOptions: {
     ...DEFAULT_PRINT_OPTIONS,
@@ -1049,6 +1059,8 @@ function renderView(): string {
       return renderDataImport(state.importEntity, state.importPreview, state.importing, state.importResult);
     case "/print":
       return renderPrintCenter(state.printTemplate, state.printOptions, state.printCompany, state.printData);
+    case "/form-designer":
+      return renderFormDesigner(state.printData, state.printCompany, state.printOptions, state.fdSavedPositions, state.fdDesignMode);
     default:
       break;
   }
@@ -2007,6 +2019,118 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
+  // ── フォームデザイナー（ドラッグ配置） ──────────────
+  root.querySelector<HTMLButtonElement>("[data-action='fd-toggle-design']")?.addEventListener("click", () => {
+    state.fdDesignMode = !state.fdDesignMode;
+    renderApp();
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='fd-save-positions']")?.addEventListener("click", () => {
+    const canvas = root.querySelector<HTMLElement>(".fd-canvas");
+    if (!canvas) return;
+    const positions = collectFieldPositions(canvas);
+    state.fdSavedPositions = positions;
+    try {
+      localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
+      alert(`${Object.keys(positions).length}件のフィールド位置を保存しました`);
+    } catch (e) {
+      alert("保存失敗: " + (e instanceof Error ? e.message : ""));
+    }
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='fd-reset-positions']")?.addEventListener("click", () => {
+    if (!confirm("フィールド位置を初期値に戻しますか？")) return;
+    state.fdSavedPositions = null;
+    localStorage.removeItem("sake_fd_positions");
+    renderApp();
+  });
+
+  // ドラッグ処理
+  if (state.fdDesignMode) {
+    const canvas = root.querySelector<HTMLElement>(".fd-canvas");
+    if (canvas) {
+      const canvasRect = canvas.getBoundingClientRect();
+      const mmPerPx = 228.6 / canvasRect.width;
+
+      root.querySelectorAll<HTMLElement>(".fd-draggable").forEach((el) => {
+        el.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          const fieldId = el.dataset.fdId ?? "";
+
+          // アクティブ表示
+          root.querySelectorAll<HTMLElement>(".fd-active").forEach((a) => a.classList.remove("fd-active"));
+          el.classList.add("fd-active", "fd-dragging");
+          state.fdActiveFieldId = fieldId;
+
+          const info = root.querySelector<HTMLElement>("#fd-selected-info");
+          const selX = root.querySelector<HTMLInputElement>("#fd-sel-x");
+          const selY = root.querySelector<HTMLInputElement>("#fd-sel-y");
+          if (info) info.textContent = `選択中: ${el.title}`;
+          if (selX) selX.value = String(parseFloat(el.style.left) || 0);
+          if (selY) selY.value = String(parseFloat(el.style.top) || 0);
+
+          const startX = e.clientX;
+          const startY = e.clientY;
+          const origLeft = parseFloat(el.style.left) || 0;
+          const origTop = parseFloat(el.style.top) || 0;
+
+          const onMove = (ev: MouseEvent) => {
+            const dx = (ev.clientX - startX) * mmPerPx;
+            const dy = (ev.clientY - startY) * mmPerPx;
+            const newX = Math.round((origLeft + dx) * 2) / 2;
+            const newY = Math.round((origTop + dy) * 2) / 2;
+            el.style.left = newX + "mm";
+            el.style.top = newY + "mm";
+            el.title = `${el.dataset.fdId} (${newX.toFixed(1)}, ${newY.toFixed(1)})`;
+            if (selX) selX.value = String(newX);
+            if (selY) selY.value = String(newY);
+          };
+
+          const onUp = () => {
+            el.classList.remove("fd-dragging");
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+          };
+
+          window.addEventListener("mousemove", onMove);
+          window.addEventListener("mouseup", onUp);
+        });
+      });
+
+      // X/Y入力で微調整
+      const selX = root.querySelector<HTMLInputElement>("#fd-sel-x");
+      const selY = root.querySelector<HTMLInputElement>("#fd-sel-y");
+      [selX, selY].forEach((input) => {
+        input?.addEventListener("change", () => {
+          if (!state.fdActiveFieldId) return;
+          const el = root.querySelector<HTMLElement>(`[data-fd-id="${state.fdActiveFieldId}"]`);
+          if (!el) return;
+          if (selX) el.style.left = selX.value + "mm";
+          if (selY) el.style.top = selY.value + "mm";
+        });
+      });
+
+      // キーボード方向キーで0.5mm移動
+      document.addEventListener("keydown", (e) => {
+        if (!state.fdDesignMode || !state.fdActiveFieldId) return;
+        const el = root.querySelector<HTMLElement>(`[data-fd-id="${state.fdActiveFieldId}"]`);
+        if (!el) return;
+        const step = 0.5;
+        let x = parseFloat(el.style.left) || 0;
+        let y = parseFloat(el.style.top) || 0;
+        if (e.key === "ArrowLeft") { x -= step; e.preventDefault(); }
+        else if (e.key === "ArrowRight") { x += step; e.preventDefault(); }
+        else if (e.key === "ArrowUp") { y -= step; e.preventDefault(); }
+        else if (e.key === "ArrowDown") { y += step; e.preventDefault(); }
+        else return;
+        el.style.left = x + "mm";
+        el.style.top = y + "mm";
+        if (selX) selX.value = String(x);
+        if (selY) selY.value = String(y);
+      });
+    }
+  }
+
   root.querySelector<HTMLButtonElement>("[data-action='import-execute']")?.addEventListener("click", async () => {
     if (!state.importPreview) return;
     state.importing = true;
@@ -2318,6 +2442,8 @@ try {
   if (savedOpts) state.printOptions = { ...state.printOptions, ...JSON.parse(savedOpts) };
   const savedCompany = localStorage.getItem("sake_print_company");
   if (savedCompany) state.printCompany = { ...state.printCompany, ...JSON.parse(savedCompany) };
+  const savedFdPos = localStorage.getItem("sake_fd_positions");
+  if (savedFdPos) state.fdSavedPositions = JSON.parse(savedFdPos);
 } catch {
   // 無視して既定値を使う
 }
