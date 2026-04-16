@@ -25,63 +25,65 @@ interface FieldPos {
   bold?: boolean;
 }
 
-// BP1701 実物から計測した座標 (ミリメートル)
-// 必要に応じて設定画面から微調整可能（calibrationOffsetX/Y）
+// BP1701 実物画像(4150×1892px)から計測した座標 (mm単位)
+// 用紙: 228.6mm × 101.6mm (9×4 inch)
+// 1mm ≈ 18.16px(横) / 18.62px(縦)
+// 微調整は opts.calibrationOffsetX/Y で可能
 const POS = {
-  // 上段: 当日日付 (3つの日付ボックス)
-  currentDateY: { x: 14, y: 4, size: 9 },
-  currentDateM: { x: 21, y: 4, size: 9 },
-  currentDateD: { x: 28, y: 4, size: 9 },
+  // 上段: 当日日付 (3つの小さい日付ボックス, 左上)
+  currentDateY: { x: 10, y: 3.5, size: 8 },
+  currentDateM: { x: 17, y: 3.5, size: 8 },
+  currentDateD: { x: 24, y: 3.5, size: 8 },
 
-  // タイトル右の仕入伝票番号
-  documentNo: { x: 195, y: 4, size: 10, bold: true },
+  // 仕入伝票番号 (タイトル右の丸①の周辺)
+  documentNo: { x: 155, y: 4, size: 9, bold: true },
 
-  // 決算出力チェック
-  settlementCheck: { x: 216, y: 5, size: 9 },
+  // 決算出力チェック (最右)
+  settlementCheck: { x: 217, y: 4, size: 9 },
 
-  // 社名行
-  vendorName: { x: 6, y: 17, size: 10, bold: true },
-  vendorAddress: { x: 6, y: 22, size: 7 },
-  chainStoreCode: { x: 64, y: 18, size: 9 },
-  categoryCode: { x: 89, y: 18, size: 9 },
-  slipNumber: { x: 127, y: 18, size: 9 },
-  vendorCode: { x: 163, y: 18, size: 9 },
+  // 社名行 (第2行 y=9-15mm)
+  vendorName: { x: 4, y: 12, size: 10, bold: true },
+  vendorAddress: { x: 4, y: 16.5, size: 6.5 },
+  chainStoreCode: { x: 63, y: 13, size: 9 },
+  categoryCode: { x: 87, y: 13, size: 9 },
+  slipNumber: { x: 117, y: 13, size: 9 },
+  vendorCode: { x: 151, y: 13, size: 9 },
+  orderDateY: { x: 180, y: 13, size: 7.5 },
+  orderDateM: { x: 186, y: 13, size: 7.5 },
+  orderDateD: { x: 192, y: 13, size: 7.5 },
+  deliveryDateY: { x: 204, y: 13, size: 7.5 },
+  deliveryDateM: { x: 211, y: 13, size: 7.5 },
+  deliveryDateD: { x: 218, y: 13, size: 7.5 },
 
-  // 取引先名行
-  customerName: { x: 6, y: 28, size: 10, bold: true },
-  orderDateY: { x: 82, y: 29, size: 8 },
-  orderDateM: { x: 87, y: 29, size: 8 },
-  orderDateD: { x: 92, y: 29, size: 8 },
-  deliveryDateY: { x: 106, y: 29, size: 8 },
-  deliveryDateM: { x: 111, y: 29, size: 8 },
-  deliveryDateD: { x: 116, y: 29, size: 8 },
-  orderNo: { x: 143, y: 29, size: 9 },
-  partnerCode: { x: 176, y: 29, size: 9 },
+  // 第3行: 取引先名/取引先コード (y=18-22mm)
+  customerName: { x: 4, y: 20, size: 10, bold: true },
+  partnerCode: { x: 94, y: 20, size: 10, bold: true },
+  orderNo: { x: 143, y: 20, size: 9 },
 
-  // 明細行の開始位置と行間
-  detailStartY: 42, // mm
-  detailRowH: 6.5, // mm
+  // 明細行 (y=32mm開始, 1行=8.5mm, 6行で=83mm終了)
+  detailStartY: 33,
+  detailRowH: 8.5,
   detailCols: {
-    productName: { x: 4, w: 40, align: "left" as const, size: 7.5 },
-    productCode: { x: 45, w: 18, align: "left" as const, size: 7.5 },
-    color: { x: 64, w: 8, align: "center" as const, size: 7.5 },
-    size: { x: 73, w: 14, align: "center" as const, size: 7.5 },
-    unit: { x: 88, w: 7, align: "center" as const, size: 7.5 },
-    quantity: { x: 96, w: 13, align: "right" as const, size: 8 },
-    correctedQty: { x: 115, w: 13, align: "right" as const, size: 8 },
-    discount: { x: 129, w: 9, align: "right" as const, size: 8 },
-    unitPrice: { x: 139, w: 14, align: "right" as const, size: 8 },
-    costAmount: { x: 154, w: 16, align: "right" as const, size: 8, bold: true },
-    retailPrice: { x: 171, w: 13, align: "right" as const, size: 8 },
-    note: { x: 185, w: 20, align: "right" as const, size: 8 }
+    productName: { x: 5, w: 58, align: "left" as const, size: 7.5 },
+    productCode: { x: 64, w: 25, align: "left" as const, size: 7.5 },
+    color: { x: 92, w: 6, align: "center" as const, size: 7 },
+    size: { x: 99, w: 15, align: "center" as const, size: 7 },
+    unit: { x: 115, w: 8, align: "center" as const, size: 7 },
+    quantity: { x: 124, w: 10, align: "right" as const, size: 8 },
+    correctedQty: { x: 137, w: 14, align: "right" as const, size: 8 },
+    discount: { x: 153, w: 9, align: "right" as const, size: 7.5 },
+    unitPrice: { x: 163, w: 12, align: "right" as const, size: 8 },
+    costAmount: { x: 176, w: 16, align: "right" as const, size: 8, bold: true },
+    retailPrice: { x: 193, w: 12, align: "right" as const, size: 8 },
+    note: { x: 206, w: 18, align: "right" as const, size: 8 }
   } as Record<string, FieldPos>,
 
-  // 合計エリア
-  totalQty: { x: 105, y: 92, size: 9, bold: true },
-  receivedTotal: { x: 128, y: 92, size: 9 },
-  returnTotal: { x: 152, y: 92, size: 9 },
-  correctedCostTotal: { x: 176, y: 92, size: 10, bold: true },
-  correctedRetailTotal: { x: 205, y: 92, size: 10, bold: true }
+  // 合計エリア (y=87-93mm)
+  totalQty: { x: 125, y: 89, size: 9, bold: true },
+  receivedTotal: { x: 150, y: 89, size: 9 },
+  returnTotal: { x: 165, y: 89, size: 9 },
+  correctedCostTotal: { x: 179, y: 89, size: 10, bold: true },
+  correctedRetailTotal: { x: 207, y: 89, size: 10, bold: true }
 };
 
 function pos(p: FieldPos, value: string): string {
