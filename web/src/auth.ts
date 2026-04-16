@@ -121,3 +121,21 @@ export function currentUser(): { email: string } | null {
   const email = typeof payload?.email === "string" ? payload.email : null;
   return email ? { email } : null;
 }
+
+export async function updatePassword(newPassword: string): Promise<void> {
+  const session = getSession();
+  if (!session) throw new Error("not signed in");
+  const resp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    method: "PUT",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${session.access_token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ password: newPassword })
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error((err as { msg?: string }).msg ?? `HTTP ${resp.status}`);
+  }
+}

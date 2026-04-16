@@ -58,6 +58,8 @@ import {
   type IntegrationSetting,
   type ShopifyOrder,
   type FaxRecord,
+  type UserProfile,
+  type AuditLog,
   type StoreOrder,
   type StoreSale,
   type TankRecord,
@@ -110,6 +112,9 @@ import { renderCalendar, type CalendarEditState } from "./components/Calendar";
 import { renderIntegrations } from "./components/Integrations";
 import { renderShopifyOrders } from "./components/ShopifyOrders";
 import { renderFaxOcr } from "./components/FaxOcr";
+import { renderUserManagement } from "./components/UserManagement";
+import { renderUserProfile, renderAuditLogs } from "./components/UserProfile";
+import { updatePassword } from "./auth";
 import { renderPrintCenter } from "./components/PrintCenter";
 import {
   DEFAULT_COMPANY_INFO,
@@ -170,7 +175,10 @@ type RoutePath =
   | "/calendar"
   | "/integrations"
   | "/shopify"
-  | "/fax";
+  | "/fax"
+  | "/users"
+  | "/profile"
+  | "/audit";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -225,7 +233,10 @@ const ALL_ROUTES: RoutePath[] = [
   "/calendar",
   "/integrations",
   "/shopify",
-  "/fax"
+  "/fax",
+  "/users",
+  "/profile",
+  "/audit"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -270,7 +281,10 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/calendar", title: "カレンダー" },
   { path: "/integrations", title: "外部連携設定" },
   { path: "/shopify", title: "Shopify注文" },
-  { path: "/fax", title: "FAX OCR" }
+  { path: "/fax", title: "FAX OCR" },
+  { path: "/users", title: "ユーザー管理" },
+  { path: "/profile", title: "プロフィール" },
+  { path: "/audit", title: "操作ログ" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -371,6 +385,10 @@ interface AppState {
   faxRecords: FaxRecord[];
   faxProcessing: boolean;
   faxOcrText: string | null;
+  userProfiles: UserProfile[];
+  userEditingId: string | null;
+  myProfile: UserProfile | null;
+  auditLogs: AuditLog[];
   printTemplate: PrintTemplateKey;
   printOptions: PrintOptions;
   printCompany: PrintCompanyInfo;
@@ -529,6 +547,10 @@ const state: AppState = {
   faxRecords: [],
   faxProcessing: false,
   faxOcrText: null,
+  userProfiles: [],
+  userEditingId: null,
+  myProfile: null,
+  auditLogs: [],
   printTemplate: "chain_store",
   printOptions: {
     ...DEFAULT_PRINT_OPTIONS,
@@ -1106,6 +1128,27 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
         }
         break;
+      case "/users":
+        {
+          const { fetchUserProfiles } = await import("./api");
+          state.userProfiles = await fetchUserProfiles();
+        }
+        break;
+      case "/profile":
+        {
+          const { fetchMyProfile, fetchAuditLogs, fetchMailSenders } = await import("./api");
+          const email = state.user?.email ?? state.myProfile?.email ?? "";
+          if (email) state.myProfile = await fetchMyProfile(email);
+          if (state.mailSenders.length === 0) state.mailSenders = await fetchMailSenders();
+          state.auditLogs = await fetchAuditLogs(50);
+        }
+        break;
+      case "/audit":
+        {
+          const { fetchAuditLogs } = await import("./api");
+          state.auditLogs = await fetchAuditLogs(200);
+        }
+        break;
       default:
         break;
     }
@@ -1239,6 +1282,16 @@ function renderView(): string {
     }
     case "/fax":
       return renderFaxOcr(state.faxRecords, state.faxProcessing, state.faxOcrText);
+    case "/users":
+      return renderUserManagement(state.userProfiles, state.userEditingId, state.myProfile);
+    case "/profile":
+      return renderUserProfile(
+        state.myProfile,
+        state.auditLogs.filter((l) => l.userEmail === state.myProfile?.email),
+        state.mailSenders
+      );
+    case "/audit":
+      return renderAuditLogs(state.auditLogs);
     default:
       break;
   }
@@ -1610,11 +1663,14 @@ function bindEvents(root: HTMLElement): void {
     state.authError = null;
     renderApp();
     void signIn(email, password)
-      .then((user) => {
+      .then(async (user) => {
         state.user = user;
         state.authSkipped = false;
         state.authSubmitting = false;
         state.authError = null;
+        const { fetchMyProfile, recordAudit } = await import("./api");
+        state.myProfile = await fetchMyProfile(user.email);
+        await recordAudit({ action: "sign_in", userEmail: user.email });
         renderApp();
       })
       .catch(async (error) => {
@@ -1623,6 +1679,8 @@ function bindEvents(root: HTMLElement): void {
           state.user = user;
           state.authSkipped = false;
           state.authError = null;
+          const { fetchMyProfile } = await import("./api");
+          state.myProfile = await fetchMyProfile(user.email);
         } catch {
           state.authError = error instanceof Error ? error.message : "ログインに失敗しました。";
         } finally {
@@ -2494,6 +2552,107 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
+  // ── ユーザー管理 ────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='user-new']")?.addEventListener("click", () => {
+    state.userEditingId = "__new__";
+    renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='user-edit']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.userEditingId = btn.dataset.id ?? null;
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='user-cancel']")?.addEventListener("click", () => {
+    state.userEditingId = null;
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='user-save']")?.addEventListener("click", async () => {
+    const isNew = state.userEditingId === "__new__";
+    const id = isNew ? crypto.randomUUID() : (state.userEditingId ?? "");
+    const email = root.querySelector<HTMLInputElement>("#user-email")?.value.trim() ?? "";
+    const name = root.querySelector<HTMLInputElement>("#user-name")?.value.trim() ?? "";
+    if (!email || !name) {
+      alert("名前とメールアドレスは必須です");
+      return;
+    }
+    const profile: UserProfile = {
+      id,
+      email,
+      displayName: name,
+      staffCode: root.querySelector<HTMLInputElement>("#user-code")?.value ?? "",
+      department: (root.querySelector<HTMLSelectElement>("#user-dept")?.value as UserProfile["department"]) ?? "all",
+      role: (root.querySelector<HTMLSelectElement>("#user-role")?.value as UserProfile["role"]) ?? "staff",
+      phone: root.querySelector<HTMLInputElement>("#user-phone")?.value ?? "",
+      isActive: root.querySelector<HTMLInputElement>("#user-active")?.checked ?? true
+    };
+    if (isNew) {
+      const password = root.querySelector<HTMLInputElement>("#user-password")?.value ?? "";
+      if (password.length < 8) {
+        alert("パスワードは8文字以上必要です");
+        return;
+      }
+      try {
+        await signUp(email, password);
+      } catch (e) {
+        alert("Auth登録失敗: " + (e instanceof Error ? e.message : ""));
+        return;
+      }
+    }
+    const { saveUserProfile, fetchUserProfiles, recordAudit } = await import("./api");
+    const saved = await saveUserProfile(profile);
+    if (saved) {
+      await recordAudit({
+        action: isNew ? "user_create" : "user_update",
+        entityType: "user",
+        entityId: id,
+        userEmail: state.user?.email
+      });
+      state.userProfiles = await fetchUserProfiles();
+      state.userEditingId = null;
+      alert("保存しました");
+      renderApp();
+    } else alert("保存失敗");
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='user-delete']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("削除しますか？")) return;
+      const id = btn.dataset.id ?? "";
+      const { deleteUserProfile, fetchUserProfiles, recordAudit } = await import("./api");
+      const ok = await deleteUserProfile(id);
+      if (ok) {
+        await recordAudit({ action: "user_delete", entityType: "user", entityId: id, userEmail: state.user?.email });
+        state.userProfiles = await fetchUserProfiles();
+        renderApp();
+      } else alert("削除失敗");
+    });
+  });
+
+  // ── プロフィール ──────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='profile-save-sender']")?.addEventListener("click", async () => {
+    if (!state.myProfile) return;
+    const senderId = root.querySelector<HTMLSelectElement>("#profile-sender")?.value ?? "";
+    const updated: UserProfile = { ...state.myProfile, defaultMailSenderId: senderId };
+    const { saveUserProfile } = await import("./api");
+    await saveUserProfile(updated);
+    state.myProfile = updated;
+    alert("保存しました");
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='profile-change-password']")?.addEventListener("click", async () => {
+    const pw = root.querySelector<HTMLInputElement>("#profile-new-password")?.value ?? "";
+    if (pw.length < 8) {
+      alert("8文字以上のパスワードを入力してください");
+      return;
+    }
+    try {
+      await updatePassword(pw);
+      alert("パスワードを変更しました");
+    } catch (e) {
+      alert("変更失敗: " + (e instanceof Error ? e.message : ""));
+    }
+  });
+
   // ── 外部連携設定 ────────────────────────────────
   root.querySelectorAll<HTMLButtonElement>("[data-action='int-edit']").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -3108,6 +3267,15 @@ window.addEventListener("keydown", (event) => {
 });
 
 state.user = getSession() ? currentUser() : null;
+
+// ログイン済みならプロフィールをロード
+if (state.user?.email) {
+  void (async () => {
+    const { fetchMyProfile } = await import("./api");
+    state.myProfile = await fetchMyProfile(state.user!.email);
+    renderApp();
+  })();
+}
 
 // localStorage から印刷設定を復元
 try {

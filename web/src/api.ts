@@ -2310,3 +2310,154 @@ export async function saveFaxRecord(record: FaxRecord): Promise<FaxRecord | null
   if (!result) return null;
   return record;
 }
+
+// ─── ユーザー管理 ──────────────────────────────────────────────────────────
+
+export type UserRole = "admin" | "manager" | "staff";
+export type UserDepartment = "all" | "sales" | "brewery" | "management";
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  admin: "👑 管理者",
+  manager: "📋 マネージャー",
+  staff: "👤 スタッフ"
+};
+
+export const DEPT_LABELS: Record<UserDepartment, string> = {
+  all: "全体",
+  sales: "営業",
+  brewery: "蔵人",
+  management: "管理"
+};
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  displayName: string;
+  staffCode?: string;
+  department: UserDepartment;
+  role: UserRole;
+  defaultMailSenderId?: string;
+  phone?: string;
+  avatarUrl?: string;
+  isActive: boolean;
+  lastSignInAt?: string;
+  createdAt?: string;
+}
+
+export async function fetchUserProfiles(): Promise<UserProfile[]> {
+  const rows = await supabaseQuery<LooseRow>("user_profiles", { order: "display_name.asc" });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    email: getString(r, ["email"], ""),
+    displayName: getString(r, ["display_name"], ""),
+    staffCode: getString(r, ["staff_code"], ""),
+    department: (getString(r, ["department"], "all") as UserDepartment) || "all",
+    role: (getString(r, ["role"], "staff") as UserRole) || "staff",
+    defaultMailSenderId: getString(r, ["default_mail_sender_id"], ""),
+    phone: getString(r, ["phone"], ""),
+    avatarUrl: getString(r, ["avatar_url"], ""),
+    isActive: getBoolean(r, ["is_active"], true),
+    lastSignInAt: getString(r, ["last_sign_in_at"], ""),
+    createdAt: getString(r, ["created_at"], "")
+  }));
+}
+
+export async function fetchMyProfile(email: string): Promise<UserProfile | null> {
+  if (!email) return null;
+  const rows = await supabaseQuery<LooseRow>("user_profiles", { email: `eq.${email}` });
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: getString(r, ["id"], ""),
+    email: getString(r, ["email"], ""),
+    displayName: getString(r, ["display_name"], ""),
+    staffCode: getString(r, ["staff_code"], ""),
+    department: (getString(r, ["department"], "all") as UserDepartment) || "all",
+    role: (getString(r, ["role"], "staff") as UserRole) || "staff",
+    defaultMailSenderId: getString(r, ["default_mail_sender_id"], ""),
+    phone: getString(r, ["phone"], ""),
+    avatarUrl: getString(r, ["avatar_url"], ""),
+    isActive: getBoolean(r, ["is_active"], true),
+    lastSignInAt: getString(r, ["last_sign_in_at"], "")
+  };
+}
+
+export async function saveUserProfile(profile: UserProfile): Promise<UserProfile | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const result = await supabaseInsert<LooseRow>("user_profiles", {
+    id: profile.id,
+    email: profile.email,
+    display_name: profile.displayName,
+    staff_code: profile.staffCode || null,
+    department: profile.department,
+    role: profile.role,
+    default_mail_sender_id: profile.defaultMailSenderId || null,
+    phone: profile.phone || null,
+    avatar_url: profile.avatarUrl || null,
+    is_active: profile.isActive,
+    updated_at: new Date().toISOString()
+  });
+  if (!result) return null;
+  return profile;
+}
+
+export async function deleteUserProfile(id: string): Promise<boolean> {
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+  if (!key) return false;
+  try {
+    const url = new URL(`/rest/v1/user_profiles`, "https://loarwnuyvfxiscjjsmiz.supabase.co");
+    url.searchParams.set("id", `eq.${id}`);
+    const r = await fetch(url.toString(), {
+      method: "DELETE",
+      headers: { apikey: key, Authorization: `Bearer ${key}` }
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ─── 操作ログ（audit_logs） ───────────────────────────────────────────────
+
+export interface AuditLog {
+  id: string;
+  action: string;
+  entityType?: string;
+  entityId?: string;
+  userEmail?: string;
+  changes?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export async function recordAudit(log: {
+  action: string;
+  entityType?: string;
+  entityId?: string;
+  userEmail?: string;
+  changes?: Record<string, unknown>;
+}): Promise<void> {
+  const { supabaseInsert } = await import("./supabase");
+  await supabaseInsert("audit_logs", {
+    action: log.action,
+    entity_type: log.entityType ?? null,
+    entity_id: log.entityId ?? null,
+    user_email: log.userEmail ?? null,
+    changes: log.changes ?? null
+  });
+}
+
+export async function fetchAuditLogs(limit = 100): Promise<AuditLog[]> {
+  const rows = await supabaseQuery<LooseRow>("audit_logs", {
+    order: "created_at.desc",
+    limit: String(limit)
+  });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    action: getString(r, ["action"], ""),
+    entityType: getString(r, ["entity_type"], ""),
+    entityId: getString(r, ["entity_id"], ""),
+    userEmail: getString(r, ["user_email"], ""),
+    changes: (r["changes"] as Record<string, unknown>) ?? {},
+    createdAt: getString(r, ["created_at"], "")
+  }));
+}

@@ -43,7 +43,10 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "📅 カレンダー", description: "納品/見学/商談/仕込予定を月表示で管理。クリックで予定追加・編集。", path: "/calendar" },
     { title: "🔌 外部連携設定", description: "Shopify / Googleカレンダー / Cloud Vision (FAX OCR) / Resend のAPIキー設定。", path: "/integrations" },
     { title: "🛍️ Shopify注文", description: "Shopifyストアの注文を自動同期。EC売上を一元管理。", path: "/shopify" },
-    { title: "📠 FAX OCR", description: "FAX受信画像をOCRしてテキスト化。伝票自動起票。", path: "/fax" }
+    { title: "📠 FAX OCR", description: "FAX受信画像をOCRしてテキスト化。伝票自動起票。", path: "/fax" },
+    { title: "👥 ユーザー管理", description: "担当者のアカウント・権限・部署を管理 (管理者専用)。", path: "/users" },
+    { title: "👤 プロフィール", description: "自分のアカウント情報・パスワード変更・既定の送信元メール。", path: "/profile" },
+    { title: "🔍 操作ログ", description: "全ユーザーの操作履歴 (監査証跡)。", path: "/audit" }
   ]
 };
 
