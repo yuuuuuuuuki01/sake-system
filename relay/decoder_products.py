@@ -133,21 +133,27 @@ def _extract_fields_from_slot(slot_data: bytes, data_start: int, remaining: int)
     if not code:
         return None
 
+    import re
+
+    # テキスト領域 @7-75 (68バイト): kana + short + name が連結
+    # 後半(@43-)に正式名が入る。末尾ゴミ除去して使う。
     kana = _read_clean(slot_data, data_start + 7, 10)
-    short_name = _read_clean(slot_data, data_start + 17, 26)
-    name = _read_clean(slot_data, data_start + 43, 32)
 
-    # フィールド境界が曖昧な場合: 7-75の全体テキストから最長の意味あるテキストを取得
-    full_text = _read_clean(slot_data, data_start + 7, 68)
-    # nameが容量だけ(数字+ml)の場合、full_textから商品名を復元
-    if not name or (len(name) < 8 and "ml" in name.lower()):
-        name = full_text
-    # short_nameが壊れている場合も復元
-    if short_name and len(short_name) < 4:
-        short_name = None
+    # 全体テキスト(@7-75, 68バイト)を常に使う — 前半kana+後半nameが連結
+    full = _read_clean(slot_data, data_start + 7, 68)
+    full = re.sub(r"[\s\u3000]*[ﾐｴ,ｸHPF@]{1,4}\s*$", "", full).strip()
 
-    if not name and not short_name:
+    # full textをスペース4個以上で分割 → 前半を使う（重複除去）
+    clean = re.sub(r"[\ufffd]", "", full)  # replace文字除去
+    parts = re.split(r"\s{4,}", clean)
+    name = parts[0].strip() if parts else clean
+    # 末尾のゴミ半角カナ/記号除去
+    name = re.sub(r"[\s\u3000]*[ﾐｴ,ｸHPF@\x01-\x08]{1,4}\s*$", "", name).strip()
+
+    if not name:
         return None
+
+    short_name = None
 
     category_code = None
     if remaining > 86:

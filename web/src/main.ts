@@ -2205,6 +2205,11 @@ function bindEvents(root: HTMLElement): void {
       element.addEventListener("input", () => {
         collectInvoiceFormFromDom(root);
         state.invoiceSavedDocNo = null;
+        // 数量・単価変更時は金額を即時反映
+        const field = element.dataset.field;
+        if (field === "quantity" || field === "unitPrice") {
+          renderApp();
+        }
       });
     });
 
