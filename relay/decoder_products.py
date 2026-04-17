@@ -1,15 +1,15 @@
 """SHSYO.MST (商品マスタ) のデコーダ。
 
-Magic ISAM の B-Tree leaf ページから商品レコードを抽出し、
+sake_products_sh の _raw_b64 から商品レコードをデコードし、
 Supabase の products テーブルに UPSERT する。
 
-方針:
-- 固定オフセットではなく、マーカーパターン (\t.8\t + コード) を検索
-- マーカーの後に続くフィールドを相対オフセットで抽出
-- レイアウトは decoder_customers.py と同パターン
+2つのモード:
+  --from-supabase (デフォルト): Supabase上のrawデータから直接デコード
+  --from-file: ローカルのMSTファイルから直接読み込み
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import struct
@@ -21,7 +21,6 @@ from typing import Any
 
 import requests
 
-# 決定的UUID生成用の名前空間 (顧客デコーダと同じ)
 SAKE_UUID_NS = uuid.UUID("b7e3f1a0-4c2d-4e8f-9a1b-0c3d5e7f9a2b")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -30,7 +29,6 @@ CONFIG_PATH = BASE_DIR / "relay_config.json"
 LOG_PATH = BASE_DIR / "relay_log.txt"
 
 HEADER_SIZE = 0x200
-# マーカー: TAB + ".8" + TAB (Magic内部のフィールド区切り)
 RECORD_MARKER = b"\x09\x2e\x38\x09"
 
 
@@ -54,8 +52,7 @@ def load_config() -> dict[str, Any]:
 
 
 def decode_cp932(raw: bytes) -> str:
-    """CP932バイト列をデコードして前後の空白を除去。"""
-    return raw.decode("cp932", errors="replace").strip()
+    return raw.decode("cp932", errors="replace").replace("\x00", "").strip()
 
 
 def decode_cp932_or_none(raw: bytes) -> str | None:
@@ -63,89 +60,50 @@ def decode_cp932_or_none(raw: bytes) -> str | None:
     return text if text else None
 
 
-def extract_products(filepath: Path) -> list[dict[str, Any]]:
-    """SHSYO.MST からマーカーベースで商品レコードを抽出。"""
-    data = filepath.read_bytes()
-    if len(data) < HEADER_SIZE or data[:2] != b"FC":
-        raise ValueError(f"Not a Magic ISAM file: {filepath}")
+def fetch_raw_records(config: dict[str, Any], logger: logging.Logger) -> list[dict[str, Any]]:
+    """sake_products_sh テーブルから全rawレコードを取得。"""
+    url = config["supabase_url"].rstrip("/")
+    session = requests.Session()
+    session.headers.update({
+        "apikey": config["supabase_anon_key"],
+        "Authorization": f"Bearer {config['supabase_anon_key']}",
+        "Accept": "application/json",
+    })
 
-    record_size = struct.unpack_from("<H", data, 0x18)[0]
-    total_slots = (len(data) - HEADER_SIZE) // record_size
+    all_rows: list[dict[str, Any]] = []
+    offset = 0
+    batch = 1000
+    while True:
+        resp = session.get(
+            f"{url}/rest/v1/sake_products_sh",
+            params={
+                "select": "_record_index,_raw_b64,_record_size",
+                "order": "_source_file.asc,_record_index.asc",
+                "limit": str(batch),
+                "offset": str(offset),
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        if not rows:
+            break
+        all_rows.extend(rows)
+        offset += len(rows)
+        logger.info("Fetched %d raw records (total: %d)", len(rows), len(all_rows))
+        if len(rows) < batch:
+            break
 
-    products: list[dict[str, Any]] = []
-    seen_codes: set[str] = set()
-
-    for slot_idx in range(total_slots):
-        slot_start = HEADER_SIZE + slot_idx * record_size
-        slot_data = data[slot_start : slot_start + record_size]
-
-        search_from = 0
-        while True:
-            marker_pos = slot_data.find(RECORD_MARKER, search_from)
-            if marker_pos < 0:
-                break
-
-            data_start = marker_pos + len(RECORD_MARKER)
-            remaining = len(slot_data) - data_start
-
-            if remaining < 50:
-                search_from = marker_pos + 1
-                continue
-
-            # 商品コード (7 bytes ASCII)
-            code_bytes = slot_data[data_start : data_start + 7]
-            code_str = code_bytes.decode("ascii", errors="replace").strip()
-
-            if not code_str or not code_str.replace(" ", "").isdigit():
-                search_from = marker_pos + 1
-                continue
-
-            code = code_str.strip()
-
-            if code in seen_codes:
-                search_from = marker_pos + 1
-                continue
-
-            try:
-                rec = _extract_fields(slot_data, data_start, remaining)
-            except Exception:
-                search_from = marker_pos + 1
-                continue
-
-            if rec and rec.get("legacy_product_code"):
-                seen_codes.add(code)
-                products.append(rec)
-
-            search_from = marker_pos + 1
-
-    return products
+    return all_rows
 
 
-def _extract_fields(slot_data: bytes, start: int, remaining: int) -> dict[str, Any] | None:
-    """マーカー直後のバイト列からフィールドを抽出。
-
-    相対オフセット（マーカー+4 からの距離）:
-      0:   商品コード (7 bytes, ASCII)
-      7:   カナ名 (10 bytes, CP932半角カナ)
-     17:   商品名略称 (26 bytes, CP932)
-     43:   商品名 (40 bytes, CP932)
-     83:   規格 (20 bytes, CP932)
-    103:   単位 (4 bytes, CP932)
-    107:   分類コード (3 bytes, ASCII)
-    110:   税区分 (2 bytes, ASCII)
-    112:   JANコード (13 bytes, ASCII)
-    125:   仕入単価 (4 bytes, little-endian int32)
-    129:   定価 (4 bytes, little-endian int32)
-    133:   売価 (4 bytes, little-endian int32)
-    137:   原価 (4 bytes, little-endian int32)
-
-    ※ オフセットは推定値。実データで検証が必要。
-    """
-    if remaining < 100:
+def _extract_fields_from_slot(slot_data: bytes, data_start: int, remaining: int) -> dict[str, Any] | None:
+    """マーカー直後のバイト列からフィールドを抽出。"""
+    if remaining < 50:
         return None
 
     def s(offset: int, length: int) -> bytes:
-        return slot_data[start + offset : start + offset + length]
+        return slot_data[data_start + offset : data_start + offset + length]
 
     code = decode_cp932(s(0, 7))
     if not code:
@@ -153,9 +111,8 @@ def _extract_fields(slot_data: bytes, start: int, remaining: int) -> dict[str, A
 
     kana = decode_cp932(s(7, 10))
     short_name = decode_cp932(s(17, 26))
-    name = decode_cp932(s(43, 40))
+    name = decode_cp932(s(43, 40)) if remaining > 82 else ""
 
-    # 名前が空なら無効レコード
     if not name and not short_name:
         return None
 
@@ -165,8 +122,6 @@ def _extract_fields(slot_data: bytes, start: int, remaining: int) -> dict[str, A
     tax_code = decode_cp932_or_none(s(110, 2)) if remaining > 111 else None
     jan_code = decode_cp932_or_none(s(112, 13)) if remaining > 124 else None
 
-    # 価格フィールド (4 bytes little-endian int32)
-    # 推定オフセット - 値が妥当な範囲かチェック
     purchase_price = None
     list_price = None
     sale_price = None
@@ -174,11 +129,10 @@ def _extract_fields(slot_data: bytes, start: int, remaining: int) -> dict[str, A
 
     if remaining > 140:
         try:
-            pp = struct.unpack_from("<i", slot_data, start + 125)[0]
-            lp = struct.unpack_from("<i", slot_data, start + 129)[0]
-            sp = struct.unpack_from("<i", slot_data, start + 133)[0]
-            cp = struct.unpack_from("<i", slot_data, start + 137)[0]
-            # 価格は0〜999999の範囲が妥当
+            pp = struct.unpack_from("<i", slot_data, data_start + 125)[0]
+            lp = struct.unpack_from("<i", slot_data, data_start + 129)[0]
+            sp = struct.unpack_from("<i", slot_data, data_start + 133)[0]
+            cp = struct.unpack_from("<i", slot_data, data_start + 137)[0]
             if 0 <= pp <= 999999:
                 purchase_price = pp
             if 0 <= lp <= 999999:
@@ -190,15 +144,8 @@ def _extract_fields(slot_data: bytes, start: int, remaining: int) -> dict[str, A
         except (struct.error, IndexError):
             pass
 
-    # JAN コードの妥当性チェック (数字のみ、8桁 or 13桁)
     if jan_code and not (jan_code.isdigit() and len(jan_code) in (8, 13)):
         jan_code = None
-
-    # デバッグ用: 未確定フィールドの生バイトをhexで保存
-    raw_hint = None
-    if remaining > 141:
-        raw_tail = slot_data[start + 141 : start + min(remaining, 200)]
-        raw_hint = raw_tail.hex()
 
     return {
         "id": str(uuid.uuid5(SAKE_UUID_NS, f"product:{code}")),
@@ -217,11 +164,116 @@ def _extract_fields(slot_data: bytes, start: int, remaining: int) -> dict[str, A
         "default_sale_price": sale_price,
         "default_cost_price": cost_price,
         "is_active": True,
-        "memo": json.dumps({
-            "raw_tail_hex": raw_hint,
-        }, ensure_ascii=False) if raw_hint else None,
         "updated_at": datetime.now(tz=UTC).isoformat(),
     }
+
+
+def decode_products_from_raw(raw_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Supabase rawレコードから商品データをデコード。"""
+    products: list[dict[str, Any]] = []
+    seen_codes: set[str] = set()
+
+    for row in raw_rows:
+        raw_b64 = row.get("_raw_b64", "")
+        if not raw_b64:
+            continue
+
+        slot_data = base64.b64decode(raw_b64)
+        search_from = 0
+
+        while True:
+            marker_pos = slot_data.find(RECORD_MARKER, search_from)
+            if marker_pos < 0:
+                break
+
+            data_start = marker_pos + len(RECORD_MARKER)
+            remaining = len(slot_data) - data_start
+
+            if remaining < 50:
+                search_from = marker_pos + 1
+                continue
+
+            code_bytes = slot_data[data_start : data_start + 7]
+            code_str = code_bytes.decode("ascii", errors="replace").strip()
+
+            if not code_str or not code_str.replace(" ", "").isdigit():
+                search_from = marker_pos + 1
+                continue
+
+            code = code_str.strip()
+            if code in seen_codes:
+                search_from = marker_pos + 1
+                continue
+
+            try:
+                rec = _extract_fields_from_slot(slot_data, data_start, remaining)
+            except Exception:
+                search_from = marker_pos + 1
+                continue
+
+            if rec and rec.get("legacy_product_code"):
+                seen_codes.add(code)
+                products.append(rec)
+
+            search_from = marker_pos + 1
+
+    return products
+
+
+def extract_products_from_file(filepath: Path) -> list[dict[str, Any]]:
+    """ローカルMSTファイルからマーカーベースで商品レコードを抽出。"""
+    data = filepath.read_bytes()
+    if len(data) < HEADER_SIZE or data[:2] != b"FC":
+        raise ValueError(f"Not a Magic ISAM file: {filepath}")
+
+    record_size = struct.unpack_from("<H", data, 0x18)[0]
+    total_slots = (len(data) - HEADER_SIZE) // record_size
+
+    products: list[dict[str, Any]] = []
+    seen_codes: set[str] = set()
+
+    for slot_idx in range(total_slots):
+        slot_start = HEADER_SIZE + slot_idx * record_size
+        slot_data = data[slot_start : slot_start + record_size]
+        search_from = 0
+
+        while True:
+            marker_pos = slot_data.find(RECORD_MARKER, search_from)
+            if marker_pos < 0:
+                break
+
+            data_start = marker_pos + len(RECORD_MARKER)
+            remaining = len(slot_data) - data_start
+
+            if remaining < 50:
+                search_from = marker_pos + 1
+                continue
+
+            code_bytes = slot_data[data_start : data_start + 7]
+            code_str = code_bytes.decode("ascii", errors="replace").strip()
+
+            if not code_str or not code_str.replace(" ", "").isdigit():
+                search_from = marker_pos + 1
+                continue
+
+            code = code_str.strip()
+            if code in seen_codes:
+                search_from = marker_pos + 1
+                continue
+
+            try:
+                rec = _extract_fields_from_slot(slot_data, data_start, remaining)
+            except Exception:
+                search_from = marker_pos + 1
+                continue
+
+            if rec and rec.get("legacy_product_code"):
+                seen_codes.add(code)
+                products.append(rec)
+
+            search_from = marker_pos + 1
+
+    return products
 
 
 def upsert_to_supabase(
@@ -230,20 +282,17 @@ def upsert_to_supabase(
     logger: logging.Logger,
     dry_run: bool = False,
 ) -> int:
-    """products テーブルへ UPSERT。"""
     if not products:
         return 0
 
     url = config["supabase_url"].rstrip("/")
     session = requests.Session()
-    session.headers.update(
-        {
-            "apikey": config["supabase_anon_key"],
-            "Authorization": f"Bearer {config['supabase_anon_key']}",
-            "Content-Type": "application/json",
-            "Prefer": "resolution=merge-duplicates,missing=default",
-        }
-    )
+    session.headers.update({
+        "apikey": config["supabase_anon_key"],
+        "Authorization": f"Bearer {config['supabase_anon_key']}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates,missing=default",
+    })
 
     batch_size = 200
     total = 0
@@ -270,15 +319,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="SHSYO.MST → products テーブルデコーダ")
     parser.add_argument("--dry-run", action="store_true", help="Supabaseに書かず表示のみ")
     parser.add_argument("--show-sample", type=int, default=0, help="デコード結果のサンプルN件を表示")
+    parser.add_argument("--from-file", action="store_true", help="ローカルMSTファイルから読み込み（デフォルト: Supabase raw）")
     args = parser.parse_args()
 
     logger = setup_logging()
     config = load_config()
 
-    filepath = Path(config["z_drive_path"]) / "sh" / "mst" / "SHSYO.MST"
-    logger.info("Decoding: %s", filepath)
+    if args.from_file:
+        filepath = Path(config["z_drive_path"]) / "sh" / "mst" / "SHSYO.MST"
+        logger.info("Decoding from file: %s", filepath)
+        products = extract_products_from_file(filepath)
+    else:
+        logger.info("Decoding from Supabase raw (sake_products_sh)...")
+        raw_rows = fetch_raw_records(config, logger)
+        logger.info("Fetched %d raw records", len(raw_rows))
+        products = decode_products_from_raw(raw_rows)
 
-    products = extract_products(filepath)
     logger.info("Decoded: %d unique products", len(products))
 
     if args.show_sample and products:
