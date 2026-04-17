@@ -312,12 +312,71 @@ def import_products() -> None:
     print(f"  → {t}件 upserted")
 
 
+CHECKPOINT_PATH = BASE_DIR / ".csv_import_checkpoint.json"
+
+CSV_FILES = {
+    "customers": r"Z:\得意先ﾏｽﾀﾘｽﾄ.csv",
+    "suppliers": r"Z:\仕入先ﾏｽﾀﾘｽﾄ.csv",
+    "delivery": r"Z:\納品先ﾏｽﾀﾘｽﾄ.csv",
+    "products": r"Z:\商品ﾏｽﾀﾘｽﾄ.csv",
+}
+
+IMPORTERS = {
+    "customers": import_customers,
+    "suppliers": import_suppliers,
+    "delivery": import_delivery_destinations,
+    "products": import_products,
+}
+
+
+def get_csv_mtimes() -> dict[str, float]:
+    """各CSVファイルの最終更新時刻を取得。"""
+    result: dict[str, float] = {}
+    for key, path in CSV_FILES.items():
+        p = Path(path)
+        if p.exists():
+            result[key] = p.stat().st_mtime
+    return result
+
+
+def load_checkpoint() -> dict[str, float]:
+    if CHECKPOINT_PATH.exists():
+        return json.loads(CHECKPOINT_PATH.read_text())
+    return {}
+
+
+def save_checkpoint(data: dict[str, float]) -> None:
+    CHECKPOINT_PATH.write_text(json.dumps(data))
+
+
 if __name__ == "__main__":
-    print("=== CSVマスタインポート（全テーブル一括） ===")
-    print()
-    import_customers()
-    import_suppliers()
-    import_delivery_destinations()
-    import_products()
-    print()
-    print("全マスタインポート完了")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="CSVマスタインポート")
+    parser.add_argument("--force", action="store_true", help="変更チェックをスキップして全件投入")
+    args = parser.parse_args()
+
+    print("=== CSVマスタインポート ===")
+
+    current_mtimes = get_csv_mtimes()
+    prev_mtimes = {} if args.force else load_checkpoint()
+
+    changed = []
+    for key in CSV_FILES:
+        cur = current_mtimes.get(key, 0)
+        prev = prev_mtimes.get(key, 0)
+        if cur != prev:
+            changed.append(key)
+
+    if not changed:
+        print("全CSVファイルに変更なし — スキップ")
+    else:
+        print(f"変更検出: {changed}")
+        print()
+        for key in changed:
+            if key in IMPORTERS:
+                IMPORTERS[key]()
+
+        save_checkpoint(current_mtimes)
+        print()
+        print("インポート完了")
