@@ -4,6 +4,7 @@ setlocal EnableDelayedExpansion
 
 REM ============================================================
 REM  酒仙iリレー — タスクスケジューラ自動登録
+REM  改善版: バックグラウンド実行（ウィンドウ非表示・UAC不要）
 REM ============================================================
 
 echo.
@@ -56,18 +57,36 @@ if not exist "%SCRIPT_DIR%relay_agent.py" (
     pause
     exit /b 1
 )
+
+if not exist "%SCRIPT_DIR%run_silent.vbs" (
+    echo [エラー] run_silent.vbs が見つかりません。
+    echo   relay フォルダに run_silent.vbs があることを確認してください。
+    echo.
+    pause
+    exit /b 1
+)
+
 echo [OK] relay_agent.py 確認
+echo [OK] run_silent.vbs 確認
 echo.
 
-REM --- タスク登録 ---
+REM --- 既存タスクを削除（あれば） ---
+schtasks /Delete /TN "SakeRelay" /F >nul 2>&1
+
+REM --- 新タスク登録 ---
+REM  ポイント:
+REM   1. wscript.exe で run_silent.vbs を呼び出し → ウィンドウが開かない
+REM   2. /RL LIMITED → UACダイアログが出ない（管理者権限不要）
+REM   3. /SC MINUTE /MO 5 → 5分ごとに実行
 set TASK_NAME=SakeRelay
-set TASK_CMD=cmd.exe /c "cd /d ""%SCRIPT_DIR%"" ^&^& python relay_agent.py"
+set TASK_CMD=wscript.exe "%SCRIPT_DIR%run_silent.vbs"
 
 echo [INFO] タスク名: %TASK_NAME%
+echo [INFO] 実行方法: wscript.exe (バックグラウンド・ウィンドウ非表示)
 echo [INFO] 実行間隔: 5分毎
 echo.
 
-schtasks /Create /TN "%TASK_NAME%" /TR "%TASK_CMD%" /SC MINUTE /MO 5 /RL HIGHEST /F
+schtasks /Create /TN "%TASK_NAME%" /TR "%TASK_CMD%" /SC MINUTE /MO 5 /RL LIMITED /F
 
 if %errorlevel% neq 0 (
     echo.
@@ -85,9 +104,8 @@ if %errorlevel% neq 0 (
     echo   3. 名前: SakeRelay
     echo   4. トリガー: 毎日、5 分毎 に繰り返し
     echo   5. 操作: プログラムの開始
-    echo        プログラム: python
-    echo        引数: relay_agent.py
-    echo        開始: %SCRIPT_DIR%
+    echo        プログラム: wscript.exe
+    echo        引数: "%SCRIPT_DIR%run_silent.vbs"
     echo.
     pause
     exit /b 1
@@ -98,16 +116,18 @@ echo ========================================================
 echo [成功] タスク登録が完了しました！
 echo ========================================================
 echo.
-echo 次の確認方法:
+echo 変更点（旧バージョンとの違い）:
+echo   - ウィンドウが開かずバックグラウンドで実行されます
+echo   - 管理者確認（UACダイアログ）が毎回出なくなります
+echo   - 同期後に自動でデコーダ（商品・仕入先・特価・得意先）も実行します
+echo.
+echo 確認方法:
 echo   1. スタートメニューで「タスク スケジューラ」を開く
 echo   2. 左の「タスク スケジューラ ライブラリ」をクリック
 echo   3. 一覧に 「SakeRelay」 があれば OK
 echo.
-echo 手動テスト:
-echo   今すぐ動作確認したい場合は、コマンドプロンプトで:
-echo     cd /d "%SCRIPT_DIR%"
-echo     python relay_agent.py
-echo   を実行してください。relay_log.txt にログが出ます。
+echo ログ確認:
+echo   relay_log.txt を開くとリアルタイムで同期状況が確認できます
 echo.
 echo このウィンドウは何かキーを押すと閉じます。
 pause >nul
