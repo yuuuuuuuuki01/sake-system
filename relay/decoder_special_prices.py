@@ -112,8 +112,8 @@ def decode_special_prices(raw_rows: list[dict[str, Any]]) -> list[dict[str, Any]
                 search_from = mpos + 1
                 continue
 
-            group = data[ds + 2 : ds + 9].decode("ascii", errors="replace").strip()
-            product = data[ds + 9 : ds + 16].decode("ascii", errors="replace").strip()
+            group = data[ds + 2 : ds + 9].decode("ascii", errors="replace").strip().lstrip("0") or "0"
+            product = data[ds + 9 : ds + 16].decode("ascii", errors="replace").strip().lstrip("0") or "0"
 
             if not group or not group.replace(" ", "").isdigit():
                 search_from = mpos + 1
