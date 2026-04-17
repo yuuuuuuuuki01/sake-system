@@ -1550,7 +1550,13 @@ function renderView(): string {
           shipped: state.workflowOrders.filter((o) => o.stage === "shipped").length,
           total: state.workflowOrders.length
         },
-        lowStockCount: state.materialList.filter((m) => m.currentStock < m.minimumStock * 1.5).length
+        lowStockCount: state.materialList.filter((m) => m.currentStock < m.minimumStock * 1.5).length,
+        masterCounts: state.masterStats ? {
+          customers: state.masterStats.summary.customerCount,
+          products: state.masterStats.summary.productCount,
+          suppliers: state.syncDashboard?.tables.find((t) => t.tableName === "suppliers")?.rowCount ?? 0,
+          specialPrices: state.syncDashboard?.tables.find((t) => t.tableName === "customer_product_prices")?.rowCount ?? 0
+        } : undefined
       });
   }
 }

@@ -150,6 +150,8 @@ export interface MasterProduct {
   name: string;
   category: string;
   isActive: boolean;
+  purchasePrice: number;
+  salePrice: number;
 }
 
 export interface MasterStatsSummary {
@@ -382,7 +384,9 @@ const mockMasterStats: MasterStatsSummary = {
     janCode: `4901234567${String(index).padStart(3, "0")}`,
     name: ["純米吟醸 720ml", "本醸造 1.8L", "特別純米 300ml", "梅酒 500ml"][index % 4],
     category: ["清酒", "焼酎", "リキュール"][index % 3],
-    isActive: index % 6 !== 0
+    isActive: index % 6 !== 0,
+    purchasePrice: [1200, 1800, 600, 800][index % 4],
+    salePrice: [1500, 2200, 750, 1000][index % 4]
   }))
 };
 
@@ -842,11 +846,13 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
     const products = productRows.length
       ? productRows.map((row, index) => ({
           id: getString(row, ["id", "product_id", "code"], `product-${index + 1}`),
-          code: getString(row, ["code", "product_code"], `P${String(index + 1).padStart(5, "0")}`),
+          code: getString(row, ["code", "product_code", "legacy_product_code"], `P${String(index + 1).padStart(5, "0")}`),
           janCode: getString(row, ["jan_code", "jan", "barcode"], ""),
           name: getString(row, ["name", "product_name", "display_name"], `Product ${index + 1}`),
-          category: getString(row, ["category", "category_name"], "未分類"),
-          isActive: getBoolean(row, ["is_active", "active", "enabled"], true)
+          category: getString(row, ["category", "category_name", "category_code"], "未分類"),
+          isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
+          purchasePrice: getNumber(row, ["purchase_price"], 0),
+          salePrice: getNumber(row, ["default_sale_price", "sale_price"], 0)
         }))
       : mockMasterStats.products;
 

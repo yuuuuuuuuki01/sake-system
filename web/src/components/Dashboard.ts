@@ -143,6 +143,7 @@ export interface DashboardExtras {
   tourInquiries: TourInquiry[];
   workflowOrdersCount: { new: number; picking: number; packed: number; shipped: number; total: number };
   lowStockCount: number;
+  masterCounts?: { customers: number; products: number; suppliers: number; specialPrices: number };
 }
 
 export function renderDashboard(
@@ -205,6 +206,31 @@ export function renderDashboard(
         <p class="kpi-sub">売上分析データから集計</p>
       </article>
     </section>
+
+    ${extras?.masterCounts ? `
+    <section class="kpi-grid compact">
+      <article class="panel kpi-card">
+        <p class="panel-title">得意先マスタ</p>
+        <p class="kpi-value">${extras.masterCounts.customers.toLocaleString("ja-JP")}</p>
+        <p class="kpi-sub">Supabase正規化済み</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">商品マスタ</p>
+        <p class="kpi-value">${extras.masterCounts.products.toLocaleString("ja-JP")}</p>
+        <p class="kpi-sub">Supabase正規化済み</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">仕入先</p>
+        <p class="kpi-value">${extras.masterCounts.suppliers.toLocaleString("ja-JP")}</p>
+        <p class="kpi-sub">Supabase正規化済み</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">得意先別特価</p>
+        <p class="kpi-value">${extras.masterCounts.specialPrices.toLocaleString("ja-JP")}</p>
+        <p class="kpi-sub">単価グループ連動</p>
+      </article>
+    </section>
+    ` : ""}
 
     <section class="content-grid">
       <article class="panel">

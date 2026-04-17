@@ -159,9 +159,10 @@ function renderProductRows(products: MasterProduct[]): string {
       (product) => `
         <tr>
           <td class="mono">${product.code}</td>
-          <td class="mono">${product.janCode}</td>
-          <td>${product.name}</td>
+          <td>${truncate(product.name, 30)}</td>
           <td>${product.category}</td>
+          <td class="numeric">${product.purchasePrice ? product.purchasePrice.toLocaleString("ja-JP") : "―"}</td>
+          <td class="numeric">${product.salePrice ? product.salePrice.toLocaleString("ja-JP") : "―"}</td>
           <td><span class="status-pill ${product.isActive ? "success" : "neutral"}">${product.isActive ? "有効" : "停止"}</span></td>
         </tr>
       `
@@ -244,9 +245,10 @@ export function renderMasterStats(
             <thead>
               <tr>
                 <th>商品コード</th>
-                <th>JAN</th>
                 <th>商品名</th>
-                <th>カテゴリ</th>
+                <th>分類</th>
+                <th class="numeric">仕入単価</th>
+                <th class="numeric">売価</th>
                 <th>状態</th>
               </tr>
             </thead>
