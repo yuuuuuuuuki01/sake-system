@@ -143,16 +143,19 @@ def decode_suppliers(raw_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _extract_fields(slot_data: bytes, start: int, remaining: int, code: str) -> dict[str, Any] | None:
     """仕入先フィールドを抽出。
 
-    H5TKI.MSTはSHTKI.MSTと類似構造を想定:
-      0:   仕入先コード (7 bytes)
-      7:   カナ (10 bytes)
-     17:   略称 (26 bytes)
-     43:   仕入先名 (40 bytes)
-     83:   郵便番号 (8 bytes)
-     91:   住所1 (40 bytes)
-    131:   住所2 (32 bytes)
-    171:   電話番号 (12 bytes)
-    184:   FAX (12 bytes)
+    H5TKI.MST / SHTKI.MST 共通レイアウト:
+      0:   コード (7 bytes, ASCII)
+      7:   カナ (10 bytes, CP932)
+     17:   略称 (26 bytes, CP932)
+     43:   名前 (40 bytes, CP932)
+     83:   郵便番号 (8 bytes, ASCII)
+     91:   住所1 (40 bytes, CP932)
+    131:   住所2 (32 bytes, CP932)
+    163:   電話番号 (16 bytes, ASCII) ← SHTKI: @171だがH5TKIは@163
+    179:   FAX (16 bytes, ASCII)
+    195:   担当コード (2 bytes)
+    197:   業態 (2 bytes)
+    199:   締日 (1 byte, binary)
     """
     if remaining < 50:
         return None
@@ -168,10 +171,33 @@ def _extract_fields(slot_data: bytes, start: int, remaining: int, code: str) -> 
         return None
 
     postal_code = decode_cp932(s(83, 8)) if remaining > 90 else None
+    if postal_code and not any(c.isdigit() for c in postal_code):
+        postal_code = None
+
     address1 = decode_cp932(s(91, 40)) if remaining > 130 else None
     address2 = decode_cp932(s(131, 32)) if remaining > 162 else None
-    phone = decode_cp932(s(171, 12)) if remaining > 182 else None
-    fax = decode_cp932(s(184, 12)) if remaining > 195 else None
+
+    # 電話/FAXは163 or 171 — 数字が見つかる位置を自動検出
+    phone = None
+    fax = None
+    for ph_off in [163, 171]:
+        if remaining > ph_off + 12:
+            ph = decode_cp932(s(ph_off, 16))
+            if ph and any(c.isdigit() for c in ph):
+                if phone is None:
+                    phone = ph
+                else:
+                    fax = ph
+                    break
+
+    # 締日 (バイナリ 1バイト)
+    closing_day = None
+    for cd_off in [195, 199, 222]:
+        if remaining > cd_off:
+            val = slot_data[start + cd_off]
+            if 1 <= val <= 31:
+                closing_day = val
+                break
 
     return {
         "id": str(uuid.uuid5(SAKE_UUID_NS, f"supplier:{code}")),
@@ -183,6 +209,7 @@ def _extract_fields(slot_data: bytes, start: int, remaining: int, code: str) -> 
         "address2": address2 or None,
         "phone": phone or None,
         "fax": fax or None,
+        "closing_day": closing_day,
         "is_active": True,
         "updated_at": datetime.now(tz=UTC).isoformat(),
     }

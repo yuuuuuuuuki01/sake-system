@@ -179,6 +179,27 @@ def _extract_fields_from_slot(slot_data: bytes, data_start: int, remaining: int)
         except (struct.error, IndexError):
             pass
 
+    # 定価 (double @ 106)
+    list_price = None
+    if remaining > 114:
+        try:
+            lp = struct.unpack_from("<d", slot_data, data_start + 106)[0]
+            if 1 < lp < 9999999:
+                list_price = int(lp)
+        except (struct.error, IndexError):
+            pass
+
+    # 容量(ml)を商品名から抽出
+    volume_ml = None
+    if name:
+        m = re.search(r"(\d+)\s*ml", name, re.IGNORECASE)
+        if m:
+            volume_ml = int(m.group(1))
+        else:
+            m = re.search(r"(\d+\.?\d*)\s*L(?![a-z])", name)
+            if m:
+                volume_ml = int(float(m.group(1)) * 1000)
+
     return {
         "id": str(uuid.uuid5(SAKE_UUID_NS, f"product:{code}")),
         "legacy_product_code": code,
@@ -189,6 +210,8 @@ def _extract_fields_from_slot(slot_data: bytes, data_start: int, remaining: int)
         "category_code": category_code,
         "purchase_price": purchase_price,
         "default_sale_price": sale_price,
+        "list_price": list_price,
+        "volume_ml": volume_ml,
         "is_active": True,
         "updated_at": datetime.now(tz=UTC).isoformat(),
     }
