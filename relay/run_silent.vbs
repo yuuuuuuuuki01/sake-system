@@ -27,9 +27,10 @@ objShell.Run "python relay_agent.py", 0, True
 objShell.Run "python decoder_customers.py", 0, True
 objShell.Run "python decoder_products.py --from-file", 0, True
 
-' 3. 売上伝票デコーダ（DATファイル直読み）
-objShell.Run "python decoder_sales.py", 0, True
-objShell.Run "python decoder_sales_lines.py", 0, True
+' 3. 売上伝票（売掛金元帳CSVが正）
+If fso.FileExists("Z:\売掛金元帳.csv") Then
+    objShell.Run "python import_urikake.py", 0, True
+End If
 
 ' 4. Supabase raw経由デコーダ
 objShell.Run "python decoder_suppliers.py", 0, True

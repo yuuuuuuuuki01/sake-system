@@ -32,8 +32,8 @@ LOCAL_CONFIG_PATH = BASE_DIR / "relay_config.local.json"
 CONFIG_PATH = BASE_DIR / "relay_config.json"
 LOG_PATH = BASE_DIR / "relay_log.txt"
 
-# 得意先(6桁) + 1-15バイト + 取引区分(500/600/700) + 商品(5桁)
-ENTRY_PATTERN = re.compile(rb"(\d{6})\x20.{0,10}(500|600|700)(\d{5})")
+# 得意先(5-6桁、先頭スペース可) + 数バイト + 取引区分(500/600/700) + 商品(5桁)
+ENTRY_PATTERN = re.compile(rb"(\s?\d{5,6})\x20.{0,10}(500|600|700)(\d{5})")
 
 
 def setup_logging() -> logging.Logger:
