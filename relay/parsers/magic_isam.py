@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import binascii
 import struct
 from pathlib import Path
@@ -7,6 +8,31 @@ from typing import Any
 
 MAGIC_SIGNATURE_PREFIX = b"FC"
 HEADER_SIZE = 0x200
+FREELIST_MARKER = b"\xfe\xff\xff\xff"
+
+
+def is_empty_or_freelist(raw: bytes) -> bool:
+    """削除済/空/フリーリストのスロットを検出する。
+
+    Magic ISAM では、削除レコードは byte[0] == 0x01 でマーク、
+    未使用/空きスロットは全ゼロ、あるいは fe ff ff ff のフリーリスト
+    ポインタで埋められている。これらを全て除外する。
+    """
+    if not raw:
+        return True
+    if raw[0] == 0x01:
+        return True
+    # 全ゼロ（完全に空のスロット）
+    if not any(raw):
+        return True
+    # フリーリストマーカが支配的 (32バイトに1個以上の fe ff ff ff)
+    if raw.count(FREELIST_MARKER) > max(len(raw) // 32, 1):
+        return True
+    # 非ゼロバイトが極少 = 実質空
+    nonzero_ratio = sum(1 for b in raw if b != 0) / len(raw)
+    if nonzero_ratio < 0.05:
+        return True
+    return False
 
 
 def _decode_cp932(value: bytes) -> str:
@@ -241,10 +267,22 @@ FILE_TABLE_MAP: dict[str, str] = {
 
 
 class MagicISAMReader:
-    """Read records from a Magic/eDeveloper ISAM file."""
+    """Read records from a Magic/eDeveloper ISAM file.
 
-    def __init__(self, filepath: str | Path) -> None:
+    デフォルトは raw-preserve モード: 各レコードの生バイト列を
+    そのまま base64 として保持する。既存の KNOWN_LAYOUTS 解釈は
+    オフセット不正であることが確認されているため使用しない。
+    正しいレイアウトが確定したファイルについてのみ、
+    use_layout=True で個別適用する。
+    """
+
+    def __init__(
+        self,
+        filepath: str | Path,
+        use_layout: bool = False,
+    ) -> None:
         self.filepath = Path(filepath)
+        self.use_layout = use_layout
         self.file = self.filepath.open("rb")
         self.header = self.file.read(HEADER_SIZE)
         if len(self.header) < HEADER_SIZE:
@@ -256,7 +294,12 @@ class MagicISAMReader:
         self.field_count = struct.unpack_from("<H", self.header, 0x14)[0]
         self.data_area_size = struct.unpack_from("<H", self.header, 0x16)[0]
         self.record_size = struct.unpack_from("<H", self.header, 0x18)[0]
-        self.layout = KNOWN_LAYOUTS.get(self.filepath.name.upper()) or self.guess_fields(self.record_size)
+        # レイアウト適用は明示指定時のみ
+        self.layout = (
+            KNOWN_LAYOUTS.get(self.filepath.name.upper())
+            if use_layout
+            else None
+        )
 
     def close(self) -> None:
         self.file.close()
@@ -298,6 +341,11 @@ class MagicISAMReader:
         return binascii.hexlify(chunk).decode("ascii")
 
     def read_records(self) -> Any:
+        """有効レコードだけを順次 yield する。
+
+        raw-preserve モード時はレイアウト解釈を行わず、
+        生バイトを base64 として持たせる（Supabase側で後日デコード可能）。
+        """
         self.file.seek(HEADER_SIZE)
         index = 0
         while True:
@@ -305,21 +353,26 @@ class MagicISAMReader:
             if not raw_record or len(raw_record) < self.record_size:
                 break
             index += 1
-            deleted_flag = raw_record[0]
-            if deleted_flag == 0x01:
+
+            # 削除/空/フリーリストを除外
+            if is_empty_or_freelist(raw_record):
                 continue
 
             record: dict[str, Any] = {
                 "_record_index": index,
                 "_source_file": self.filepath.name,
+                "_record_size": self.record_size,
+                "_raw_b64": base64.b64encode(raw_record).decode("ascii"),
             }
-            for field in self.layout:
-                start = field["offset"]
-                end = start + field["length"]
-                if end > len(raw_record):
-                    continue
-                chunk = raw_record[start:end]
-                record[field["name"]] = self._decode_field(chunk, field["type"])
 
-            record["_raw_hex"] = binascii.hexlify(raw_record[1:]).decode("ascii")
+            # レイアウト指定がある場合のみフィールド展開
+            if self.layout:
+                for field in self.layout:
+                    start = field["offset"]
+                    end = start + field["length"]
+                    if end > len(raw_record):
+                        continue
+                    chunk = raw_record[start:end]
+                    record[field["name"]] = self._decode_field(chunk, field["type"])
+
             yield record

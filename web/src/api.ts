@@ -121,8 +121,20 @@ export interface MasterCustomer {
   id: string;
   code: string;
   name: string;
+  kanaName: string;
+  shortName: string;
+  postalCode: string;
+  address1: string;
+  address2: string;
+  phone: string;
+  fax: string;
+  staffCode: string;
+  businessType: string;
+  areaCode: string;
   closingDay: number;
   paymentDay: number;
+  billingCycleType: string;
+  priceGroup: string;
   isActive: boolean;
   lat?: number;
   lng?: number;
@@ -348,8 +360,20 @@ const mockMasterStats: MasterStatsSummary = {
     id: `customer-${index + 1}`,
     code: `C${String(index + 1).padStart(4, "0")}`,
     name: ["青葉商事", "北斗酒販", "中央フーズ", "東海酒店", "三和物産", "南星リカー"][index % 6],
+    kanaName: "",
+    shortName: "",
+    postalCode: "",
+    address1: "",
+    address2: "",
+    phone: "",
+    fax: "",
+    staffCode: "",
+    businessType: "",
+    areaCode: "",
     closingDay: [15, 20, 25, 31][index % 4],
     paymentDay: [5, 10, 15, 20][index % 4],
+    billingCycleType: "",
+    priceGroup: "",
     isActive: index % 5 !== 0
   })),
   products: Array.from({ length: 12 }, (_, index) => ({
@@ -784,23 +808,35 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
 
   if (customerRows.length > 0 || productRows.length > 0) {
     const customers = customerRows.length
-      ? customerRows.map((row, index) => ({
-          id: getString(row, ["id", "customer_id", "code"], `customer-${index + 1}`),
-          code: getString(
-            row,
-            ["code", "customer_code", "legacy_customer_code"],
-            `C${String(index + 1).padStart(4, "0")}`
-          ),
-          name: getString(row, ["name", "customer_name", "display_name"], `Customer ${index + 1}`),
-          closingDay: getNumber(row, ["closing_day", "close_day"], 31),
-          paymentDay: getNumber(row, ["payment_day", "due_day"], 15),
-          isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
-          lat: row["lat"] ? Number(row["lat"]) : undefined,
-          lng: row["lng"] ? Number(row["lng"]) : undefined,
-          address1: getString(row, ["address1"], ""),
-          businessType: getString(row, ["business_type"], ""),
-          phone: getString(row, ["phone"], "")
-        }))
+      ? customerRows.map((row, index) => {
+          const memo = typeof row.memo === "string" ? JSON.parse(row.memo || "{}") : (row.memo ?? {});
+          return {
+            id: getString(row, ["id", "customer_id", "code"], `customer-${index + 1}`),
+            code: getString(
+              row,
+              ["code", "customer_code", "legacy_customer_code"],
+              `C${String(index + 1).padStart(4, "0")}`
+            ),
+            name: getString(row, ["name", "customer_name", "display_name"], `Customer ${index + 1}`),
+            kanaName: getString(row, ["kana_name"], ""),
+            shortName: getString(row, ["short_name"], ""),
+            postalCode: getString(row, ["postal_code"], ""),
+            address1: getString(row, ["address1"], ""),
+            address2: getString(row, ["address2"], ""),
+            phone: getString(row, ["phone"], ""),
+            fax: getString(row, ["fax"], ""),
+            staffCode: getString(row, ["staff_code"], ""),
+            businessType: getString(row, ["business_type"], ""),
+            areaCode: getString(row, ["delivery_area_code"], ""),
+            closingDay: getNumber(row, ["closing_day", "close_day"], 31),
+            paymentDay: getNumber(row, ["payment_day", "due_day"], 15),
+            billingCycleType: getString(row, ["billing_cycle_type"], ""),
+            priceGroup: String(memo.price_group ?? ""),
+            isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
+            lat: row["lat"] ? Number(row["lat"]) : undefined,
+            lng: row["lng"] ? Number(row["lng"]) : undefined
+          };
+        })
       : mockMasterStats.customers;
 
     const products = productRows.length

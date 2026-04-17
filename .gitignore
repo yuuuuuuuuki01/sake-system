@@ -2,4 +2,10 @@ node_modules/
 data/runs/
 .env
 *.log
+relay/relay_config.local.json
+relay/.last_run
+relay/.last_run.json
+relay/relay_log.txt
+relay/__pycache__/
+relay/parsers/__pycache__/
 

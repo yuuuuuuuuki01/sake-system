@@ -7,8 +7,11 @@ function renderCustomerRows(customers: MasterCustomer[]): string {
         <tr>
           <td class="mono">${customer.code}</td>
           <td>${customer.name}</td>
+          <td>${customer.phone}</td>
+          <td>${customer.areaCode}</td>
+          <td>${customer.staffCode}</td>
+          <td class="mono">${customer.priceGroup}</td>
           <td class="numeric">${customer.closingDay}日</td>
-          <td class="numeric">${customer.paymentDay}日</td>
           <td><span class="status-pill ${customer.isActive ? "success" : "neutral"}">${customer.isActive ? "有効" : "停止"}</span></td>
         </tr>
       `
@@ -75,10 +78,13 @@ export function renderMasterStats(summary: MasterStatsSummary, activeTab: Master
           <table>
             <thead>
               <tr>
-                <th>得意先コード</th>
+                <th>コード</th>
                 <th>得意先名</th>
+                <th>電話番号</th>
+                <th>地区</th>
+                <th>担当</th>
+                <th>単価G</th>
                 <th class="numeric">締日</th>
-                <th class="numeric">入金日</th>
                 <th>状態</th>
               </tr>
             </thead>
