@@ -18,6 +18,9 @@ import {
   fetchPayableList,
   fetchPaymentStatus,
   fetchPipelineMeta,
+  fetchRawRecords,
+  fetchRawTableList,
+  fetchSyncDashboard,
   fetchPurchaseList,
   fetchRawMaterialStock,
   fetchSalesAnalytics,
@@ -48,6 +51,7 @@ import {
   type PayableRecord,
   type PaymentStatusSummary,
   type PipelineMeta,
+  type SyncDashboard,
   type PurchaseRecord,
   type RawMaterialStock,
   type SalesAnalytics,
@@ -64,7 +68,6 @@ import {
   type ProspectActivity,
   type SlackNotificationRule,
   type SlackNotificationLog,
-  type MaterialRecord,
   type DeliveryLocation,
   type CallLog,
   type LeadList,
@@ -94,7 +97,7 @@ import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
 import { renderKentei } from "./components/Kentei";
 import { renderLoginScreen } from "./components/LoginScreen";
-import { renderMasterStats } from "./components/MasterStats";
+import { renderMasterStats, defaultMasterFilter, type MasterFilterState } from "./components/MasterStats";
 import { renderMaterials } from "./components/Materials";
 import { renderPaymentStatus } from "./components/PaymentStatus";
 import { renderProductPicker } from "./components/ProductPicker";
@@ -147,6 +150,7 @@ import {
   type ImportPreview,
   type ImportableEntity
 } from "./utils/import";
+import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./components/RawBrowser";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase";
@@ -197,7 +201,8 @@ type RoutePath =
   | "/prospects"
   | "/slack"
   | "/calls"
-  | "/list-builder";
+  | "/list-builder"
+  | "/raw-browser";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -259,7 +264,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/prospects",
   "/slack",
   "/calls",
-  "/list-builder"
+  "/list-builder",
+  "/raw-browser"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -311,7 +317,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/prospects", title: "新規営業" },
   { path: "/slack", title: "Slack通知" },
   { path: "/calls", title: "通話履歴(IVRy)" },
-  { path: "/list-builder", title: "リスト取得ツール" }
+  { path: "/list-builder", title: "リスト取得ツール" },
+  { path: "/raw-browser", title: "データブラウザ" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -357,6 +364,12 @@ interface AppState {
   paymentStatus: PaymentStatusSummary | null;
   masterStats: MasterStatsSummary | null;
   pipelineMeta: PipelineMeta | null;
+  syncDashboard: SyncDashboard | null;
+  rawTableList: RawTableInfo[];
+  rawRecords: RawRecord[];
+  rawSelectedTable: string | null;
+  rawPage: number;
+  rawTotalCount: number;
   invoiceRecords: InvoiceRecord[];
   customerLedger: CustomerLedger | null;
   salesAnalytics: SalesAnalytics | null;
@@ -447,6 +460,7 @@ interface AppState {
   invoiceFilter: InvoiceFilter;
   ledgerCustomerCode: string;
   masterTab: MasterTab;
+  masterFilter: MasterFilterState;
   analyticsTab: AnalyticsTab;
   emailAudienceMode: EmailAudienceMode;
   emailRegion: string;
@@ -504,6 +518,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/tax":
     case "/store":
     case "/setup":
+    case "/raw-browser":
       return "more";
     case "/email":
       return "email";
@@ -519,6 +534,12 @@ const state: AppState = {
   paymentStatus: null,
   masterStats: null,
   pipelineMeta: null,
+  syncDashboard: null,
+  rawTableList: [],
+  rawRecords: [],
+  rawSelectedTable: null,
+  rawPage: 1,
+  rawTotalCount: 0,
   invoiceRecords: [],
   customerLedger: null,
   salesAnalytics: null,
@@ -653,6 +674,7 @@ const state: AppState = {
   invoiceFilter: { documentNo: "", startDate: "", endDate: "", customerCode: "" },
   ledgerCustomerCode: defaultLedgerCustomerCode,
   masterTab: "customers",
+  masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
   emailAudienceMode: defaultEmailState.mode,
   emailRegion: defaultEmailState.region,
@@ -1360,8 +1382,16 @@ function renderView(): string {
       );
     case "/setup":
       return state.pipelineMeta
-        ? renderRelaySetup(state.pipelineMeta, SUPABASE_URL, SUPABASE_ANON_KEY)
+        ? renderRelaySetup(state.pipelineMeta, SUPABASE_URL, SUPABASE_ANON_KEY, state.syncDashboard)
         : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+    case "/raw-browser":
+      return renderRawBrowser(
+        state.rawSelectedTable,
+        state.rawRecords,
+        state.rawTableList,
+        state.rawPage,
+        state.rawTotalCount
+      );
     case "/import":
       return renderDataImport(state.importEntity, state.importPreview, state.importing, state.importResult);
     case "/print":
@@ -1493,7 +1523,7 @@ function renderView(): string {
         )
       );
     case "/master":
-      return renderMasterStats(state.masterStats, state.masterTab);
+      return renderMasterStats(state.masterStats, state.masterTab, state.masterFilter);
     case "/invoice":
       return renderInvoiceSearch(state.invoiceRecords, state.invoiceFilter);
     case "/ledger":
@@ -1586,7 +1616,8 @@ function renderShell(): string {
           { path: "/analytics", label: "売上分析", kicker: "Analytics" },
           { path: "/master", label: "マスタ", kicker: "Master" },
           { path: "/email", label: "メール配信", kicker: "Mail" },
-          { path: "/setup", label: "連動設定", kicker: "Setup" }
+          { path: "/setup", label: "連動設定", kicker: "Setup" },
+          { path: "/raw-browser", label: "データブラウザ", kicker: "RawData" }
         ]
       }
     ],
@@ -1932,8 +1963,69 @@ function bindEvents(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.masterTab = button.dataset.tab as MasterTab;
+      state.masterFilter = { ...defaultMasterFilter };
       renderApp();
     });
+  });
+
+  // マスタ検索・フィルタ
+  root.querySelector<HTMLButtonElement>("[data-action='master-filter']")?.addEventListener("click", () => {
+    state.masterFilter = {
+      query: root.querySelector<HTMLInputElement>("#master-search")?.value ?? "",
+      businessType: root.querySelector<HTMLSelectElement>("#master-business-type")?.value ?? "",
+      areaCode: root.querySelector<HTMLSelectElement>("#master-area-code")?.value ?? "",
+      activeOnly: root.querySelector<HTMLSelectElement>("#master-active-only")?.value ?? "",
+      page: 1
+    };
+    renderApp();
+  });
+
+  root.querySelector<HTMLInputElement>("#master-search")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      root.querySelector<HTMLButtonElement>("[data-action='master-filter']")?.click();
+    }
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-action='master-page']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const page = Number(button.dataset.page);
+      if (page >= 1) {
+        state.masterFilter = { ...state.masterFilter, page };
+        renderApp();
+      }
+    });
+  });
+
+  // rawデータブラウザ
+  root.querySelectorAll<HTMLButtonElement>("[data-action='raw-select-table']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const table = button.dataset.table;
+      if (!table) return;
+      state.rawSelectedTable = table;
+      state.rawPage = 1;
+      const result = await fetchRawRecords(table, 1);
+      state.rawRecords = result.records;
+      state.rawTotalCount = result.total;
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='raw-page-prev']")?.addEventListener("click", async () => {
+    if (!state.rawSelectedTable || state.rawPage <= 1) return;
+    state.rawPage -= 1;
+    const result = await fetchRawRecords(state.rawSelectedTable, state.rawPage);
+    state.rawRecords = result.records;
+    state.rawTotalCount = result.total;
+    renderApp();
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='raw-page-next']")?.addEventListener("click", async () => {
+    if (!state.rawSelectedTable) return;
+    state.rawPage += 1;
+    const result = await fetchRawRecords(state.rawSelectedTable, state.rawPage);
+    state.rawRecords = result.records;
+    state.rawTotalCount = result.total;
+    renderApp();
   });
 
   root.querySelectorAll<HTMLButtonElement>("[data-analytics-tab]").forEach((button) => {
@@ -3775,7 +3867,8 @@ async function loadData(): Promise<void> {
       pipelineMeta,
       invoiceRecords,
       customerLedger,
-      salesAnalytics
+      salesAnalytics,
+      syncDashboard
     ] = await Promise.all([
       fetchSalesSummary(),
       fetchPaymentStatus(),
@@ -3783,7 +3876,8 @@ async function loadData(): Promise<void> {
       fetchPipelineMeta(),
       fetchInvoices(state.invoiceFilter),
       fetchCustomerLedger(state.ledgerCustomerCode),
-      fetchSalesAnalytics()
+      fetchSalesAnalytics(),
+      fetchSyncDashboard()
     ]);
 
     state.salesSummary = salesSummary;
@@ -3793,6 +3887,15 @@ async function loadData(): Promise<void> {
     state.invoiceRecords = invoiceRecords;
     state.customerLedger = customerLedger;
     state.salesAnalytics = salesAnalytics;
+    state.syncDashboard = syncDashboard;
+
+    // rawブラウザのテーブル一覧をバックグラウンドで取得
+    if (state.rawTableList.length === 0) {
+      fetchRawTableList().then((list) => {
+        state.rawTableList = list;
+        if (state.route === "/raw-browser") renderApp();
+      });
+    }
 
     if (!state.salesFilter.startDate || !state.salesFilter.endDate) {
       const sortedRecords = [...salesSummary.salesRecords].sort(

@@ -1,4 +1,4 @@
-import { supabaseInsert, supabaseQuery } from "./supabase";
+import { supabaseCount, supabaseInsert, supabaseQuery, supabaseRpc } from "./supabase";
 import type { TourInquiry } from "./components/BreweryTour";
 export type { TourInquiry };
 
@@ -872,6 +872,63 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
 
 export function fetchPipelineMeta(): Promise<PipelineMeta> {
   return fetchJson("data/api/latest/pipeline-meta.json", mockPipelineMeta);
+}
+
+// ── 同期ダッシュボード ──────────────────────────────────
+
+export interface SyncTableStatus {
+  tableName: string;
+  displayName: string;
+  rowCount: number;
+  lastSyncAt: string | null;
+  tableType: "raw" | "normalized";
+}
+
+export interface SyncDashboard {
+  tables: SyncTableStatus[];
+  totalRawRecords: number;
+  totalNormalizedRecords: number;
+  lastOverallSync: string | null;
+}
+
+interface SyncSummaryRpc {
+  total_raw_records: number;
+  total_normalized_records: number;
+  tables: Array<{
+    name: string;
+    display_name: string;
+    count: number;
+    last_sync: string | null;
+    type: "raw" | "normalized";
+  }>;
+  overall_freshness: string | null;
+  generated_at: string;
+}
+
+export async function fetchSyncDashboard(): Promise<SyncDashboard> {
+  const rpcResult = await supabaseRpc<SyncSummaryRpc>("get_sync_summary");
+
+  if (rpcResult && rpcResult.tables) {
+    return {
+      tables: rpcResult.tables.map((t) => ({
+        tableName: t.name,
+        displayName: t.display_name,
+        rowCount: t.count,
+        lastSyncAt: t.last_sync,
+        tableType: t.type
+      })),
+      totalRawRecords: rpcResult.total_raw_records,
+      totalNormalizedRecords: rpcResult.total_normalized_records,
+      lastOverallSync: rpcResult.overall_freshness
+    };
+  }
+
+  return {
+    tables: [],
+    totalRawRecords: 0,
+    totalNormalizedRecords: 0,
+    lastOverallSync: null
+  };
 }
 
 export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecord[]> {
@@ -3294,4 +3351,70 @@ export async function saveTourInquiry(t: TourInquiry): Promise<TourInquiry | nul
     confirmed_time: t.confirmedTime || null
   });
   return r ? t : null;
+}
+
+// ── rawデータブラウザ ────────────────────────────────────
+
+export type { RawTableInfo, RawRecord } from "./components/RawBrowser";
+
+const RAW_TABLE_DEFS: { table: string; display: string }[] = [
+  { table: "sake_sales_document_lines", display: "売上伝票明細" },
+  { table: "sake_purchase_document_lines", display: "仕入伝票明細" },
+  { table: "sake_sales_document_headers", display: "売上伝票ヘッダ" },
+  { table: "sake_purchase_document_headers", display: "仕入伝票ヘッダ" },
+  { table: "sake_inventory_movements_sk", display: "在庫移動(SK)" },
+  { table: "sake_current_stock_sh", display: "在庫(SH)" },
+  { table: "sake_inventory_movements_k5", display: "在庫移動(K5)" },
+  { table: "sake_current_stock_h5", display: "在庫(H5)" },
+  { table: "sake_special_prices_sh", display: "特価(SH)" },
+  { table: "sake_products_sh", display: "商品(SH)" },
+  { table: "sake_special_prices_h5", display: "特価(H5)" },
+  { table: "sake_products_sk", display: "商品(SK)" },
+  { table: "sake_products_k5", display: "商品(K5)" },
+  { table: "sake_products_h5", display: "商品(H5)" },
+  { table: "sake_customers", display: "得意先" },
+  { table: "sake_suppliers", display: "仕入先" },
+  { table: "sake_delivery_destinations", display: "納品先" },
+  { table: "sake_trading_partners", display: "取引先" },
+  { table: "sake_current_stock_sk", display: "在庫(SK)" },
+];
+
+export async function fetchRawTableList(): Promise<import("./components/RawBrowser").RawTableInfo[]> {
+  const results = await Promise.all(
+    RAW_TABLE_DEFS.map(async (def) => {
+      const [count, latestRows] = await Promise.all([
+        supabaseCount(def.table),
+        supabaseQuery<{ _synced_at?: string }>(def.table, {
+          select: "_synced_at",
+          order: "_synced_at.desc",
+          limit: "1"
+        })
+      ]);
+      return {
+        tableName: def.table,
+        displayName: def.display,
+        rowCount: count,
+        lastSyncAt: latestRows[0]?._synced_at ?? null
+      };
+    })
+  );
+  return results.sort((a, b) => b.rowCount - a.rowCount);
+}
+
+export async function fetchRawRecords(
+  table: string,
+  page: number,
+  pageSize = 100
+): Promise<{ records: import("./components/RawBrowser").RawRecord[]; total: number }> {
+  const offset = (page - 1) * pageSize;
+  const [records, total] = await Promise.all([
+    supabaseQuery<import("./components/RawBrowser").RawRecord>(table, {
+      select: "_source_file,_record_index,_record_size,_raw_b64,_source_path,_source_file_mtime,_synced_at",
+      order: "_record_index.asc",
+      limit: String(pageSize),
+      offset: String(offset)
+    }),
+    supabaseCount(table)
+  ]);
+  return { records, total };
 }

@@ -27,6 +27,58 @@ export async function supabaseInsert<T>(
   }
 }
 
+export async function supabaseRpc<T>(
+  fnName: string,
+  params: Record<string, unknown> = {}
+): Promise<T | null> {
+  if (!SUPABASE_ANON_KEY) return null;
+  try {
+    const url = new URL(`/rest/v1/rpc/${fnName}`, SUPABASE_URL);
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify(params)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return (await response.json()) as T;
+  } catch (error) {
+    console.warn(`Failed to call Supabase RPC ${fnName}`, error);
+    return null;
+  }
+}
+
+export async function supabaseCount(table: string): Promise<number> {
+  if (!SUPABASE_ANON_KEY) return 0;
+  try {
+    const url = new URL(`/rest/v1/${table}`, SUPABASE_URL);
+    url.searchParams.set("select", "*");
+    url.searchParams.set("limit", "0");
+    const response = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        Accept: "application/json",
+        Prefer: "count=exact"
+      }
+    });
+    if (!response.ok) return 0;
+    const range = response.headers.get("Content-Range");
+    if (range) {
+      const match = range.match(/\/(\d+)/);
+      if (match) return parseInt(match[1], 10);
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
 export async function supabaseQuery<T>(
   table: string,
   params: Record<string, string> = {}
