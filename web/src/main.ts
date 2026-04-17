@@ -17,7 +17,9 @@ import {
   fetchMaterialList,
   fetchPayableList,
   fetchPaymentStatus,
+  fetchCustomerPriceGroup,
   fetchPipelineMeta,
+  fetchProductPrice,
   fetchRawRecords,
   fetchRawTableList,
   fetchSyncDashboard,
@@ -376,6 +378,7 @@ interface AppState {
   invoiceForm: InvoiceFormData;
   invoiceSaving: boolean;
   invoiceSavedDocNo: string | null;
+  invoicePriceGroup: string;
   pickerMode: "customer" | "product" | null;
   pickerQuery: string;
   pickerTargetLine: number | null;
@@ -546,6 +549,7 @@ const state: AppState = {
   invoiceForm: makeDefaultInvoiceForm(),
   invoiceSaving: false,
   invoiceSavedDocNo: null,
+  invoicePriceGroup: "",
   pickerMode: null,
   pickerQuery: "",
   pickerTargetLine: null,
@@ -712,6 +716,7 @@ function closePicker(): void {
 function clearInvoiceForm(): void {
   state.invoiceForm = makeDefaultInvoiceForm();
   state.invoiceSavedDocNo = null;
+  state.invoicePriceGroup = "";
   state.invoiceErrors = {};
   closePicker();
 }
@@ -791,6 +796,7 @@ function tryAutofillCustomerByCode(code: string): boolean {
   if (!customer) return false;
   state.invoiceForm.customerCode = customer.code;
   state.invoiceForm.customerName = customer.name;
+  state.invoicePriceGroup = customer.priceGroup || "";
   return true;
 }
 
@@ -799,6 +805,7 @@ function tryAutofillCustomerByName(name: string): boolean {
   if (!customer) return false;
   state.invoiceForm.customerCode = customer.code;
   state.invoiceForm.customerName = customer.name;
+  state.invoicePriceGroup = customer.priceGroup || "";
   return true;
 }
 
@@ -2108,7 +2115,7 @@ function bindEvents(root: HTMLElement): void {
   });
 
   root.querySelectorAll<HTMLElement>("[data-action='picker-select']").forEach((row) => {
-    const selectHandler = () => {
+    const selectHandler = async () => {
       const code = row.dataset.code ?? "";
       const name = row.dataset.name ?? "";
 
@@ -2116,11 +2123,22 @@ function bindEvents(root: HTMLElement): void {
         state.invoiceForm.customerCode = code;
         state.invoiceForm.customerName = name;
         delete state.invoiceErrors.customerCode;
+        // 得意先の単価グループを取得
+        const customer = state.masterStats?.customers.find((c) => c.code === code);
+        state.invoicePriceGroup = customer?.priceGroup || "";
+        if (!state.invoicePriceGroup && code) {
+          state.invoicePriceGroup = await fetchCustomerPriceGroup(code);
+        }
       } else if (state.pickerMode === "product" && state.pickerTargetLine !== null) {
         const line = state.invoiceForm.lines[state.pickerTargetLine];
         if (line) {
           line.productCode = code;
           line.productName = name;
+          // 単価グループから特価を自動取得
+          const price = await fetchProductPrice(state.invoicePriceGroup, code);
+          if (price > 0) {
+            line.unitPrice = price;
+          }
           line.amount = line.quantity * line.unitPrice;
           delete state.invoiceErrors[`lines.${state.pickerTargetLine}.productCode`];
           delete state.invoiceErrors[`lines.${state.pickerTargetLine}.productName`];
@@ -2153,10 +2171,14 @@ function bindEvents(root: HTMLElement): void {
     persistInvoice(root);
   });
 
-  root.querySelector<HTMLInputElement>("#inv-customer-code")?.addEventListener("blur", () => {
+  root.querySelector<HTMLInputElement>("#inv-customer-code")?.addEventListener("blur", async () => {
     collectInvoiceFormFromDom(root);
     if (tryAutofillCustomerByCode(state.invoiceForm.customerCode)) {
       delete state.invoiceErrors.customerCode;
+      // priceGroupがローカルになければSupabaseから取得
+      if (!state.invoicePriceGroup && state.invoiceForm.customerCode) {
+        state.invoicePriceGroup = await fetchCustomerPriceGroup(state.invoiceForm.customerCode);
+      }
       renderApp();
     }
   });

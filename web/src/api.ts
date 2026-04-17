@@ -3418,3 +3418,62 @@ export async function fetchRawRecords(
   ]);
   return { records, total };
 }
+
+// ── 単価グループ / 特価検索 ─────────────────────────────
+
+export async function fetchCustomerPriceGroup(customerCode: string): Promise<string> {
+  const rows = await supabaseQuery<LooseRow>("customers", {
+    select: "memo",
+    or: `legacy_customer_code.eq.${customerCode},customer_code.eq.${customerCode}`,
+    limit: "1"
+  });
+  if (rows.length === 0) return "";
+  const memo = rows[0].memo;
+  if (typeof memo === "string" && memo) {
+    try {
+      const parsed = JSON.parse(memo);
+      return String(parsed.price_group ?? "");
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+interface SpecialPriceRow {
+  special_price?: number | string | null;
+}
+
+interface ProductPriceRow {
+  default_sale_price?: number | string | null;
+}
+
+export async function fetchProductPrice(
+  priceGroup: string,
+  productCode: string
+): Promise<number> {
+  // 1. 特価テーブルを優先
+  if (priceGroup) {
+    const specialRows = await supabaseQuery<SpecialPriceRow>("customer_product_prices", {
+      select: "special_price",
+      price_group: `eq.${priceGroup}`,
+      legacy_product_code: `eq.${productCode}`,
+      limit: "1"
+    });
+    if (specialRows.length > 0 && specialRows[0].special_price) {
+      return toNumber(specialRows[0].special_price);
+    }
+  }
+
+  // 2. 商品マスタの標準単価にフォールバック
+  const productRows = await supabaseQuery<ProductPriceRow>("products", {
+    select: "default_sale_price",
+    or: `legacy_product_code.eq.${productCode},product_code.eq.${productCode}`,
+    limit: "1"
+  });
+  if (productRows.length > 0 && productRows[0].default_sale_price) {
+    return toNumber(productRows[0].default_sale_price);
+  }
+
+  return 0;
+}

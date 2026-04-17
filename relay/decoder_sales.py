@@ -74,13 +74,13 @@ def fetch_raw_records(
 
     all_rows: list[dict[str, Any]] = []
     offset = 0
-    batch = 1000
+    batch = 200  # 売上テーブルは大きいので小バッチ
     while True:
         resp = session.get(
             f"{url}/rest/v1/{table}",
             params={
                 "select": "_record_index,_raw_b64,_record_size",
-                "order": "_record_index.asc",
+                "order": "_source_file.asc,_record_index.asc",
                 "limit": str(batch),
                 "offset": str(offset),
             },

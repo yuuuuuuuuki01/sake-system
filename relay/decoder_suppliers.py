@@ -178,7 +178,6 @@ def _extract_fields(slot_data: bytes, start: int, remaining: int, code: str) -> 
         "legacy_supplier_code": code,
         "name": name or short_name,
         "kana_name": kana or None,
-        "short_name": short_name if short_name != name else None,
         "postal_code": postal_code or None,
         "address1": address1 or None,
         "address2": address2 or None,
