@@ -1,24 +1,19 @@
-"""SHTOR.DAT (売上伝票明細) のデコーダ。
+"""SHTOR.DAT (売上伝票明細) のデコーダ — パターンマッチ方式。
 
-Z:\sh\dat\SHTOR.DAT からデータレコードを抽出し、
-sales_document_lines テーブルに UPSERT する。
+B-Treeの全スロットをスキャンし、
+得意先コード + 取引区分 + 商品コード のパターンを検出。
+商品名(CP932)が後続するエントリをデータとして抽出。
 
-SHTOR.DATはB-Tree構造。データノード判定:
-  @47にint16日付(2020-2027年範囲)があるレコード
-
-フィールドマップ (確定済み):
-  @47:  計上日 (int16, 1900/1/1からの日数)
-  @73:  得意先コード (6B ASCII)
-  @86:  取引区分 (3B ASCII, 500=売上)
-  @89:  商品コード (5B ASCII)
-  @96:  商品名 (36B CP932)
-  @140: 数量 (int32 LE)
-  @148: 金額 (double LE)
+フィールドパターン (可変オフセット):
+  得意先コード(6B数字) + 空白 + ... + 取引区分(3B: 500/600/700) + 商品コード(5B数字)
+  商品コードの+2Bに商品名(CP932)、その後に数量(int32)・金額(double)
 """
 from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 import struct
 import sys
 import uuid
@@ -36,6 +31,9 @@ BASE_DIR = Path(__file__).resolve().parent
 LOCAL_CONFIG_PATH = BASE_DIR / "relay_config.local.json"
 CONFIG_PATH = BASE_DIR / "relay_config.json"
 LOG_PATH = BASE_DIR / "relay_log.txt"
+
+# 得意先(6桁) + 1-15バイト + 取引区分(500/600/700) + 商品(5桁)
+ENTRY_PATTERN = re.compile(rb"(\d{6})\x20.{0,10}(500|600|700)(\d{5})")
 
 
 def setup_logging() -> logging.Logger:
@@ -66,81 +64,90 @@ def extract_lines(filepath: Path, logger: logging.Logger) -> list[dict[str, Any]
     total_slots = (len(data) - HEADER_SIZE) // record_size
     logger.info("File: %s, record_size=%d, slots=%d", filepath.name, record_size, total_slots)
 
-    min_days = (date(2020, 1, 1) - EPOCH).days
+    min_days = (date(2000, 1, 1) - EPOCH).days
     max_days = (date(2027, 12, 31) - EPOCH).days
 
     lines: list[dict[str, Any]] = []
     seen: set[str] = set()
+    scanned = 0
 
     for i in range(total_slots):
         offset = HEADER_SIZE + i * record_size
         rec = data[offset : offset + record_size]
-
-        if len(rec) < 160:
+        if rec[0] == 0x01:
             continue
 
-        # データノード判定: @47 に妥当な日付
-        day_val = struct.unpack_from("<H", rec, 47)[0]
-        if not (min_days <= day_val <= max_days):
-            continue
+        for m in ENTRY_PATTERN.finditer(rec):
+            cust_code = m.group(1).decode("ascii").strip()
+            trade_type = m.group(2).decode("ascii")
+            prod_code = m.group(3).decode("ascii").strip()
 
-        sales_date = EPOCH + timedelta(days=day_val)
+            prod_end = m.end()
 
-        # 得意先コード
-        cust_code = rec[73:79].decode("ascii", errors="replace").strip()
-        if not cust_code or not cust_code[0].isdigit():
-            continue
+            # データノード判定: 商品コードの+2Bに CP932テキスト(>0x80)があるか
+            if prod_end + 4 >= len(rec):
+                continue
+            next_bytes = rec[prod_end + 2 : prod_end + 6]
+            if not any(b > 0x80 for b in next_bytes):
+                continue  # インデックスノード(テキストなし)
 
-        # 取引区分 (500=売上, 600=返品, 700=値引等)
-        trade_type = rec[86:89].decode("ascii", errors="replace").strip()
-        if not trade_type or not trade_type.isdigit():
-            continue
+            # 商品名 (商品コード+2Bの後、36B CP932)
+            name_start = prod_end + 2
+            prod_name_raw = rec[name_start : name_start + 36].decode("cp932", errors="replace")
+            prod_name = "".join(c for c in prod_name_raw if c.isprintable() or c in " \u3000").strip()
 
-        # 商品コード
-        prod_code = rec[89:94].decode("ascii", errors="replace").strip()
-        if not prod_code or not prod_code.replace(" ", "").isdigit():
-            continue
+            # 数量・金額: 商品名の後に配置
+            # 固定オフセットから相対計算: @140=数量, @148=金額 (slot[20891]で確認)
+            # 商品コード@89→数量@140 = +51B。prod_pos(m.start(3))から+51B
+            qty_offset = m.start(3) + 51
+            amt_offset = m.start(3) + 59
 
-        # 商品名 (NULLバイト + 制御文字除去)
-        prod_name_raw = rec[96:132].decode("cp932", errors="replace")
-        prod_name = "".join(c for c in prod_name_raw if c.isprintable() or c in " \u3000").strip()
+            qty = 0
+            if qty_offset + 4 <= len(rec):
+                qty = struct.unpack_from("<i", rec, qty_offset)[0]
+                if qty < -999 or qty > 9999:
+                    qty = 0
 
-        # 数量 (妥当な範囲チェック)
-        qty = struct.unpack_from("<i", rec, 140)[0] if len(rec) > 143 else 0
-        if qty < -9999 or qty > 99999:
-            continue  # B-Treeノードの誤判定
+            amount = 0.0
+            if amt_offset + 8 <= len(rec):
+                amount = struct.unpack_from("<d", rec, amt_offset)[0]
+                if math.isnan(amount) or math.isinf(amount) or abs(amount) > 999999999:
+                    amount = 0.0
 
-        # 金額
-        amount = 0.0
-        if len(rec) > 155:
-            amount = struct.unpack_from("<d", rec, 148)[0]
-            import math
-            if math.isnan(amount) or math.isinf(amount) or abs(amount) > 999999999:
-                amount = 0.0
+            # 日付: 得意先コードの-26B(= @47 for cust@73)
+            sales_date = None
+            date_offset = m.start(1) - 26
+            if 0 <= date_offset and date_offset + 2 <= len(rec):
+                day_val = struct.unpack_from("<H", rec, date_offset)[0]
+                if min_days <= day_val <= max_days:
+                    sales_date = EPOCH + timedelta(days=day_val)
 
-        # 重複チェック
-        key = f"{sales_date}:{cust_code}:{prod_code}:{i}"
-        if key in seen:
-            continue
-        seen.add(key)
+            # 重複チェック
+            key = f"{i}:{m.start()}"
+            if key in seen:
+                continue
+            seen.add(key)
 
-        amt_int = int(amount) if amount else 0
-        unit_price = int(amount / qty) if qty and amount else 0
+            amt_int = int(amount) if amount else 0
+            unit_price = int(amount / qty) if qty and amount else 0
 
-        doc_id = f"L{i}"
-        lines.append({
-            "id": str(uuid.uuid5(SAKE_UUID_NS, f"sales_line:{i}")),
-            "legacy_document_no": doc_id,
-            "document_no": doc_id,
-            "line_no": 1,
-            "legacy_product_code": prod_code.lstrip("0") or prod_code,
-            "product_name": prod_name or None,
-            "quantity": qty,
-            "unit_price": unit_price,
-            "line_amount": amt_int,
-            "amount": amt_int,
-            "note": f"date:{sales_date.isoformat()} cust:{cust_code.lstrip('0')} type:{trade_type}",
-        })
+            lines.append({
+                "id": str(uuid.uuid5(SAKE_UUID_NS, f"sales_line:{i}:{m.start()}")),
+                "legacy_document_no": f"L{i}",
+                "document_no": f"L{i}",
+                "line_no": 1,
+                "legacy_product_code": prod_code.lstrip("0") or prod_code,
+                "product_name": prod_name or None,
+                "quantity": qty if qty else 1,
+                "unit_price": unit_price,
+                "line_amount": amt_int,
+                "amount": amt_int,
+                "note": f"date:{sales_date.isoformat() if sales_date else 'unknown'} cust:{cust_code.lstrip('0')} type:{trade_type}",
+            })
+
+        scanned += 1
+        if scanned % 500000 == 0:
+            logger.info("Scanned %d/%d slots, found %d lines", scanned, total_slots, len(lines))
 
     return lines
 
@@ -169,10 +176,11 @@ def upsert(config: dict[str, Any], records: list[dict[str, Any]], logger: loggin
                 json=batch, timeout=120,
             )
             if not resp.ok:
-                logger.error("UPSERT error: %s %s", resp.status_code, resp.text[:300])
+                logger.error("UPSERT error: %s %s", resp.status_code, resp.text[:200])
                 resp.raise_for_status()
         total += len(batch)
-        logger.info("UPSERT sales_lines: batch=%d total=%d", len(batch), total)
+        if total % 5000 == 0:
+            logger.info("UPSERT sales_lines: total=%d/%d", total, len(records))
 
     return total
 
