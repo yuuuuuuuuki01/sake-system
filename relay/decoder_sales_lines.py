@@ -77,7 +77,9 @@ def extract_lines(filepath: Path, logger: logging.Logger) -> list[dict[str, Any]
         if rec[0] == 0x01:
             continue
 
+        entry_in_slot = 0
         for m in ENTRY_PATTERN.finditer(rec):
+            entry_in_slot += 1
             cust_code = m.group(1).decode("ascii").strip()
             trade_type = m.group(2).decode("ascii")
             prod_code = m.group(3).decode("ascii").strip()
@@ -135,7 +137,7 @@ def extract_lines(filepath: Path, logger: logging.Logger) -> list[dict[str, Any]
                 "id": str(uuid.uuid5(SAKE_UUID_NS, f"sales_line:{i}:{m.start()}")),
                 "legacy_document_no": f"L{i}",
                 "document_no": f"L{i}",
-                "line_no": 1,
+                "line_no": entry_in_slot,
                 "legacy_product_code": prod_code.lstrip("0") or prod_code,
                 "product_name": prod_name or None,
                 "quantity": qty if qty else 1,
