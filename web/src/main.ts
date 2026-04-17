@@ -155,6 +155,8 @@ import {
 import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./components/RawBrowser";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
+import { showToast } from "./components/Toast";
+import { showConfirm } from "./components/ConfirmModal";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase";
 import "./styles/main.css";
 import { downloadCSV, type CSVColumn } from "./utils/csv";
@@ -1319,15 +1321,25 @@ function renderView(): string {
   }
 
   if (state.loading) {
-    return `<section class="panel"><p>データを読み込んでいます。</p></section>`;
+    return `
+      <section class="panel">
+        <div class="loading-overlay">
+          <div class="loading-spinner"></div>
+          <p class="loading-text">データを読み込んでいます…</p>
+        </div>
+      </section>`;
   }
 
   if (state.error) {
     return `
       <section class="panel error-card">
+        <div class="empty-state-icon" style="background:#fbe9e9;color:var(--danger);">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" stroke="currentColor" stroke-width="1.5"/><path d="M8 8L16 16M16 8L8 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </div>
         <p class="eyebrow">読込失敗</p>
         <h1>画面の初期化に失敗しました</h1>
         <p>${state.error}</p>
+        <button class="button primary" onclick="location.reload()">再読込する</button>
       </section>
     `;
   }
@@ -1353,15 +1365,15 @@ function renderView(): string {
     case "/delivery":
       return state.deliveryNote
         ? renderDeliveryNote(state.deliveryNote, state.deliverySearchDocNo)
-        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/billing":
       return state.billingSummary
         ? renderBilling(state.billingSummary, state.billingYearMonth)
-        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/report":
       return state.salesReport
         ? renderSalesReport(state.salesReport)
-        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/jikomi":
       return state.jikomiView === "calendar"
         ? `${renderJikomi(state.jikomiList, state.jikomiView)}${renderJikomiCalendar(state.jikomiList)}`
@@ -1379,7 +1391,7 @@ function renderView(): string {
     case "/tax":
       return state.taxDeclaration
         ? renderTaxDeclaration(state.taxDeclaration, state.taxYear, state.taxMonth)
-        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/store":
       return renderStorePOS(
         state.storeSales,
@@ -1390,7 +1402,7 @@ function renderView(): string {
     case "/setup":
       return state.pipelineMeta
         ? renderRelaySetup(state.pipelineMeta, SUPABASE_URL, SUPABASE_ANON_KEY, state.syncDashboard)
-        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/raw-browser":
       return renderRawBrowser(
         state.rawSelectedTable,
@@ -2296,9 +2308,9 @@ function bindEvents(root: HTMLElement): void {
     const { saveTaxDeclaration } = await import("./api");
     try {
       await saveTaxDeclaration(state.taxDeclaration);
-      alert("下書き保存しました（Supabase tax_declarationsに保存）");
+      showToast("下書き保存しました");
     } catch (e) {
-      alert("保存に失敗: " + (e instanceof Error ? e.message : String(e)));
+      showToast("保存に失敗: " + (e instanceof Error ? e.message : String(e)), "error");
     }
   });
 
@@ -2426,7 +2438,7 @@ function bindEvents(root: HTMLElement): void {
     const input = root.querySelector<HTMLInputElement>("#import-file");
     const file = input?.files?.[0];
     if (!file) {
-      alert("CSVファイルを選択してください");
+      showToast("CSVファイルを選択してください", "warning");
       return;
     }
     const reader = new FileReader();
@@ -2529,9 +2541,9 @@ function bindEvents(root: HTMLElement): void {
     try {
       localStorage.setItem("sake_print_options", JSON.stringify(state.printOptions));
       localStorage.setItem("sake_print_company", JSON.stringify(state.printCompany));
-      alert("印刷設定を保存しました（次回以降も使えます）");
+      showToast("印刷設定を保存しました");
     } catch (e) {
-      alert("保存失敗: " + (e instanceof Error ? e.message : String(e)));
+      showToast("保存失敗: " + (e instanceof Error ? e.message : String(e)), "error");
     }
   });
 
@@ -2587,16 +2599,16 @@ function bindEvents(root: HTMLElement): void {
     try {
       const saved = await savePrintLayout(layout);
       if (saved) {
-        alert(`☁️ クラウド保存成功: ${name}`);
+        showToast(`クラウド保存成功: ${name}`);
         state.fdSavedPositions = positions;
         localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
         renderApp();
       } else {
-        alert("保存に失敗しました。ローカルには保存されました。");
+        showToast("クラウド保存に失敗しました。ローカルには保存されました", "warning");
         localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
       }
     } catch (e) {
-      alert("保存エラー: " + (e instanceof Error ? e.message : ""));
+      showToast("保存エラー: " + (e instanceof Error ? e.message : ""), "error");
     }
   });
 
@@ -2608,9 +2620,9 @@ function bindEvents(root: HTMLElement): void {
     state.fdSavedPositions = positions;
     try {
       localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
-      alert(`📁 このPCに保存: ${Object.keys(positions).length}件`);
+      showToast(`ローカル保存完了: ${Object.keys(positions).length}件`);
     } catch (e) {
-      alert("保存失敗: " + (e instanceof Error ? e.message : ""));
+      showToast("保存失敗: " + (e instanceof Error ? e.message : ""), "error");
     }
   });
 
@@ -2643,10 +2655,10 @@ function bindEvents(root: HTMLElement): void {
       if (!positions) throw new Error("positions field not found");
       state.fdSavedPositions = positions;
       localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
-      alert(`📥 インポート成功: ${Object.keys(positions).length}件`);
+      showToast(`インポート成功: ${Object.keys(positions).length}件`);
       renderApp();
     } catch (err) {
-      alert("インポート失敗: " + (err instanceof Error ? err.message : ""));
+      showToast("インポート失敗: " + (err instanceof Error ? err.message : ""), "error");
     }
   });
 
@@ -2675,7 +2687,7 @@ function bindEvents(root: HTMLElement): void {
             if (!layout) return;
             state.fdSavedPositions = layout.positions;
             localStorage.setItem("sake_fd_positions", JSON.stringify(layout.positions));
-            alert(`読込完了: ${layout.name}`);
+            showToast(`読込完了: ${layout.name}`);
             renderApp();
           });
         });
@@ -2683,21 +2695,22 @@ function bindEvents(root: HTMLElement): void {
         savedLayoutsDiv.querySelectorAll<HTMLButtonElement>("[data-action='fd-delete-layout']").forEach((btn) => {
           btn.addEventListener("click", async () => {
             const id = btn.dataset.layoutId;
-            if (!id || !confirm("このレイアウトを削除しますか？")) return;
+            if (!id) return;
+            if (!await showConfirm("このレイアウトを削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
             const { deletePrintLayout } = await import("./api");
             const ok = await deletePrintLayout(id);
             if (ok) {
-              alert("削除しました");
+              showToast("削除しました");
               renderApp();
-            } else alert("削除失敗");
+            } else showToast("削除失敗", "error");
           });
         });
       }
     })();
   }
 
-  root.querySelector<HTMLButtonElement>("[data-action='fd-reset-positions']")?.addEventListener("click", () => {
-    if (!confirm("フィールド位置を初期値に戻しますか？")) return;
+  root.querySelector<HTMLButtonElement>("[data-action='fd-reset-positions']")?.addEventListener("click", async () => {
+    if (!await showConfirm("フィールド位置を初期値に戻しますか？")) return;
     state.fdSavedPositions = null;
     localStorage.removeItem("sake_fd_positions");
     renderApp();
@@ -2857,7 +2870,7 @@ function bindEvents(root: HTMLElement): void {
     inq.status = "confirmed";
     inq.repliedAt = new Date().toISOString();
     inq.confirmedTime = confirmedTimeEl?.value ?? "";
-    alert("返信メールを下書き保存し、ステータスを確定にしました（実送信はSupabase連携で実装）");
+    showToast("返信メールを下書き保存し、ステータスを確定にしました");
     renderApp();
   });
 
@@ -2866,7 +2879,7 @@ function bindEvents(root: HTMLElement): void {
     const type = root.querySelector<HTMLSelectElement>("#lb-type")?.value ?? "";
     const area = root.querySelector<HTMLInputElement>("#lb-area")?.value ?? "";
     const keyword = root.querySelector<HTMLInputElement>("#lb-keyword")?.value ?? "";
-    if (!type && !keyword) { alert("業種かキーワードを入力してください"); return; }
+    if (!type && !keyword) { showToast("業種かキーワードを入力してください", "warning"); return; }
     state.leadSearchType = type;
     state.leadSearchArea = area;
     state.leadSearchQuery = keyword;
@@ -2874,7 +2887,7 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
     const setting = state.integrations.find((i) => i.provider === "google_maps");
     if (!setting || !setting.config["api_key"]) {
-      alert("Google Maps APIキーが /integrations で未設定です");
+      showToast("Google Maps APIキーが /integrations で未設定です", "warning");
       state.leadSearching = false;
       renderApp();
       return;
@@ -2884,7 +2897,7 @@ function bindEvents(root: HTMLElement): void {
     const result = await searchPlaces(setting, query, area);
     state.leadSearching = false;
     if (result.error) {
-      alert("検索失敗: " + result.error);
+      showToast("検索失敗: " + result.error, "error");
     } else {
       state.leadSearchResults = result.results;
     }
@@ -2926,7 +2939,7 @@ function bindEvents(root: HTMLElement): void {
     state.leadActiveListId = listId;
     state.leadItems = await fetchLeadItems(listId);
     state.leadSearchResults = [];
-    alert(`${selectedIndices.length}件を「${name}」として保存しました`);
+    showToast(`${selectedIndices.length}件を「${name}」として保存しました`);
     renderApp();
   });
   root.querySelectorAll<HTMLButtonElement>("[data-action='lb-select-list']").forEach((btn) => {
@@ -2959,7 +2972,7 @@ function bindEvents(root: HTMLElement): void {
       const { convertLeadToProspect, fetchLeadItems } = await import("./api");
       const result = await convertLeadToProspect(item);
       if (result) {
-        alert("見込客に追加しました: " + item.companyName);
+        showToast("見込客に追加しました: " + item.companyName);
         if (state.leadActiveListId) state.leadItems = await fetchLeadItems(state.leadActiveListId);
         renderApp();
       }
@@ -2968,7 +2981,7 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>("[data-action='lb-bulk-convert']")?.addEventListener("click", async () => {
     const checks = root.querySelectorAll<HTMLInputElement>(".lb-item-check:checked");
     if (checks.length === 0) {
-      if (!confirm(`全ての新規アイテムを見込客に変換しますか？`)) return;
+      if (!await showConfirm("全ての新規アイテムを見込客に変換しますか？")) return;
     }
     const ids = checks.length > 0
       ? Array.from(checks).map((c) => c.dataset.id!)
@@ -2981,7 +2994,7 @@ function bindEvents(root: HTMLElement): void {
         if (await convertLeadToProspect(item)) converted++;
       }
     }
-    alert(`${converted}件を見込客に変換しました`);
+    showToast(`${converted}件を見込客に変換しました`);
     if (state.leadActiveListId) state.leadItems = await fetchLeadItems(state.leadActiveListId);
     renderApp();
   });
@@ -3005,14 +3018,14 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>("[data-action='ivry-sync']")?.addEventListener("click", async () => {
     const setting = state.integrations.find((i) => i.provider === "ivry");
     if (!setting || !setting.isEnabled) {
-      alert("IVRy連携が無効です。/integrations で有効化してください");
+      showToast("IVRy連携が無効です。/integrations で有効化してください", "warning");
       return;
     }
     const { syncIvryCallLogs, fetchCallLogs } = await import("./api");
     const result = await syncIvryCallLogs(setting);
-    if (result.error) alert("同期失敗: " + result.error);
+    if (result.error) showToast("同期失敗: " + result.error, "error");
     else {
-      alert(`${result.count}件の通話履歴を同期しました`);
+      showToast(`${result.count}件の通話履歴を同期しました`);
       state.callLogs = await fetchCallLogs(100);
       renderApp();
     }
@@ -3020,10 +3033,10 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>("[data-action='ivry-push-phonebook']")?.addEventListener("click", async () => {
     const setting = state.integrations.find((i) => i.provider === "ivry");
     if (!setting || !setting.isEnabled) {
-      alert("IVRy連携が無効です");
+      showToast("IVRy連携が無効です", "warning");
       return;
     }
-    if (!confirm("全ての取引先と見込客の電話帳をIVRyに送信しますか？")) return;
+    if (!await showConfirm("全ての取引先と見込客の電話帳をIVRyに送信しますか？")) return;
     const { syncPhoneBookToIvry } = await import("./api");
     const contacts: Array<{ name: string; phone: string; customerCode?: string; note?: string }> = [];
     state.masterStats?.customers.forEach((c) => {
@@ -3033,8 +3046,8 @@ function bindEvents(root: HTMLElement): void {
       if (p.phone) contacts.push({ name: p.companyName, phone: p.phone, customerCode: p.id, note: `見込客 (${p.stage})` });
     });
     const result = await syncPhoneBookToIvry(setting, contacts);
-    if (result.error) alert("送信失敗: " + result.error);
-    else alert(`${result.synced}件の連絡先を送信しました`);
+    if (result.error) showToast("送信失敗: " + result.error, "error");
+    else showToast(`${result.synced}件の連絡先を送信しました`);
   });
   root.querySelectorAll<HTMLButtonElement>("[data-action='call-link-customer']").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -3125,7 +3138,7 @@ function bindEvents(root: HTMLElement): void {
       nextAction: root.querySelector<HTMLInputElement>("#prospect-next-action")?.value ?? "",
       note: root.querySelector<HTMLTextAreaElement>("#prospect-note")?.value ?? ""
     };
-    if (!p.companyName) { alert("会社名は必須です"); return; }
+    if (!p.companyName) { showToast("会社名は必須です", "warning"); return; }
     const { saveProspect, fetchProspects, recordAudit, sendSlackNotification } = await import("./api");
     const saved = await saveProspect(p);
     if (saved) {
@@ -3136,11 +3149,11 @@ function bindEvents(root: HTMLElement): void {
       state.prospects = await fetchProspects();
       state.prospectEditingId = null;
       renderApp();
-    } else alert("保存失敗");
+    } else showToast("保存失敗", "error");
   });
   root.querySelectorAll<HTMLButtonElement>("[data-action='prospect-delete']").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!confirm("削除しますか？")) return;
+      if (!await showConfirm("削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
       const id = btn.dataset.id ?? "";
       const { deleteProspect, fetchProspects } = await import("./api");
       if (await deleteProspect(id)) {
@@ -3153,7 +3166,7 @@ function bindEvents(root: HTMLElement): void {
     const pid = (root.querySelector<HTMLButtonElement>("[data-action='prospect-add-activity']")?.dataset.id) ?? "";
     const type = root.querySelector<HTMLSelectElement>("#prospect-activity-type")?.value ?? "call";
     const title = root.querySelector<HTMLInputElement>("#prospect-activity-title")?.value ?? "";
-    if (!title) { alert("内容を入力してください"); return; }
+    if (!title) { showToast("内容を入力してください", "warning"); return; }
     const { saveProspectActivity, fetchProspectActivities } = await import("./api");
     await saveProspectActivity({
       id: `act_${Date.now()}`,
@@ -3205,7 +3218,7 @@ function bindEvents(root: HTMLElement): void {
       isEnabled: enabled
     });
     state.integrations = await fetchIntegrationSettings();
-    alert("保存しました");
+    showToast("保存しました");
     renderApp();
   });
   root.querySelector<HTMLButtonElement>("[data-action='slack-save-rules']")?.addEventListener("click", async () => {
@@ -3216,14 +3229,14 @@ function bindEvents(root: HTMLElement): void {
       await saveSlackRule({ ...rule, enabled, channel });
     }
     state.slackRules = await fetchSlackRules();
-    alert("ルールを保存しました");
+    showToast("ルールを保存しました");
     renderApp();
   });
   root.querySelector<HTMLButtonElement>("[data-action='slack-test']")?.addEventListener("click", async () => {
     const { sendSlackNotification } = await import("./api");
     const result = await sendSlackNotification("new_order", "🧪 これはテスト通知です (syusen-cloud)");
-    if (result.ok) alert("テスト送信成功");
-    else alert("送信失敗: " + (result.error ?? ""));
+    if (result.ok) showToast("テスト送信成功");
+    else showToast("送信失敗: " + (result.error ?? ""), "error");
   });
 
   // ── 副資材 編集 ────────────────────────────────
@@ -3264,20 +3277,21 @@ function bindEvents(root: HTMLElement): void {
       lastUpdated: root.querySelector<HTMLInputElement>("#mat-last-date")?.value ?? new Date().toISOString().slice(0, 10)
     };
     (record as MaterialRecord & { materialType?: string }).materialType = root.querySelector<HTMLSelectElement>("#mat-type")?.value ?? "";
-    if (!record.code || !record.name) { alert("コードと品名は必須"); return; }
+    if (!record.code || !record.name) { showToast("コードと品名は必須です", "warning"); return; }
     const { saveMaterial, fetchMaterialList } = await import("./api");
     const saved = await saveMaterial(record);
     if (saved) {
       state.materialList = await fetchMaterialList();
       state.materialEditing = null;
       state.materialEditingIsNew = false;
-      alert("保存しました");
+      showToast("保存しました");
       renderApp();
-    } else alert("保存失敗");
+    } else showToast("保存失敗", "error");
   });
   root.querySelector<HTMLButtonElement>("[data-action='material-delete']")?.addEventListener("click", async () => {
     const id = (document.querySelector<HTMLButtonElement>("[data-action='material-delete']")?.dataset.id) ?? "";
-    if (!id || !confirm("削除しますか？")) return;
+    if (!id) return;
+    if (!await showConfirm("削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
     const { deleteMaterial, fetchMaterialList } = await import("./api");
     if (await deleteMaterial(id)) {
       state.materialList = await fetchMaterialList();
@@ -3307,7 +3321,7 @@ function bindEvents(root: HTMLElement): void {
     const email = root.querySelector<HTMLInputElement>("#user-email")?.value.trim() ?? "";
     const name = root.querySelector<HTMLInputElement>("#user-name")?.value.trim() ?? "";
     if (!email || !name) {
-      alert("名前とメールアドレスは必須です");
+      showToast("名前とメールアドレスは必須です", "warning");
       return;
     }
     const profile: UserProfile = {
@@ -3323,13 +3337,13 @@ function bindEvents(root: HTMLElement): void {
     if (isNew) {
       const password = root.querySelector<HTMLInputElement>("#user-password")?.value ?? "";
       if (password.length < 8) {
-        alert("パスワードは8文字以上必要です");
+        showToast("パスワードは8文字以上必要です", "warning");
         return;
       }
       try {
         await signUp(email, password);
       } catch (e) {
-        alert("Auth登録失敗: " + (e instanceof Error ? e.message : ""));
+        showToast("Auth登録失敗: " + (e instanceof Error ? e.message : ""), "error");
         return;
       }
     }
@@ -3344,13 +3358,13 @@ function bindEvents(root: HTMLElement): void {
       });
       state.userProfiles = await fetchUserProfiles();
       state.userEditingId = null;
-      alert("保存しました");
+      showToast("保存しました");
       renderApp();
-    } else alert("保存失敗");
+    } else showToast("保存失敗", "error");
   });
   root.querySelectorAll<HTMLButtonElement>("[data-action='user-delete']").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!confirm("削除しますか？")) return;
+      if (!await showConfirm("削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
       const id = btn.dataset.id ?? "";
       const { deleteUserProfile, fetchUserProfiles, recordAudit } = await import("./api");
       const ok = await deleteUserProfile(id);
@@ -3358,7 +3372,7 @@ function bindEvents(root: HTMLElement): void {
         await recordAudit({ action: "user_delete", entityType: "user", entityId: id, userEmail: state.user?.email });
         state.userProfiles = await fetchUserProfiles();
         renderApp();
-      } else alert("削除失敗");
+      } else showToast("削除失敗", "error");
     });
   });
 
@@ -3370,20 +3384,20 @@ function bindEvents(root: HTMLElement): void {
     const { saveUserProfile } = await import("./api");
     await saveUserProfile(updated);
     state.myProfile = updated;
-    alert("保存しました");
+    showToast("保存しました");
     renderApp();
   });
   root.querySelector<HTMLButtonElement>("[data-action='profile-change-password']")?.addEventListener("click", async () => {
     const pw = root.querySelector<HTMLInputElement>("#profile-new-password")?.value ?? "";
     if (pw.length < 8) {
-      alert("8文字以上のパスワードを入力してください");
+      showToast("8文字以上のパスワードを入力してください", "warning");
       return;
     }
     try {
       await updatePassword(pw);
-      alert("パスワードを変更しました");
+      showToast("パスワードを変更しました");
     } catch (e) {
-      alert("変更失敗: " + (e instanceof Error ? e.message : ""));
+      showToast("変更失敗: " + (e instanceof Error ? e.message : ""), "error");
     }
   });
 
@@ -3413,9 +3427,9 @@ function bindEvents(root: HTMLElement): void {
     if (saved) {
       state.integrations = await fetchIntegrationSettings();
       state.integrationEditingId = null;
-      alert("保存しました");
+      showToast("保存しました");
       renderApp();
-    } else alert("保存失敗");
+    } else showToast("保存失敗", "error");
   });
 
   // Shopify同期
@@ -3423,7 +3437,7 @@ function bindEvents(root: HTMLElement): void {
     btn.addEventListener("click", async () => {
       const setting = state.integrations.find((i) => i.provider === "shopify");
       if (!setting) {
-        alert("Shopify連携が未設定です");
+        showToast("Shopify連携が未設定です", "warning");
         return;
       }
       btn.textContent = "同期中…";
@@ -3431,9 +3445,9 @@ function bindEvents(root: HTMLElement): void {
       const { syncShopifyOrders, fetchShopifyOrders } = await import("./api");
       const result = await syncShopifyOrders(setting);
       if (result.error) {
-        alert("同期失敗: " + result.error);
+        showToast("同期失敗: " + result.error, "error");
       } else {
-        alert(`${result.count}件を同期しました`);
+        showToast(`${result.count}件を同期しました`);
         state.shopifyOrders = await fetchShopifyOrders();
       }
       renderApp();
@@ -3449,9 +3463,9 @@ function bindEvents(root: HTMLElement): void {
       (btn as HTMLButtonElement).disabled = true;
       const { syncGoogleCalendar, fetchCalendarEvents } = await import("./api");
       const result = await syncGoogleCalendar(setting);
-      if (result.error) alert("同期失敗: " + result.error);
+      if (result.error) showToast("同期失敗: " + result.error, "error");
       else {
-        alert(`${result.count}件を同期しました`);
+        showToast(`${result.count}件を同期しました`);
         state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
       }
       renderApp();
@@ -3463,12 +3477,12 @@ function bindEvents(root: HTMLElement): void {
     const fileInput = root.querySelector<HTMLInputElement>("#fax-file");
     const file = fileInput?.files?.[0];
     if (!file) {
-      alert("FAX画像を選択してください");
+      showToast("FAX画像を選択してください", "warning");
       return;
     }
     const setting = state.integrations.find((i) => i.provider === "cloud_vision");
     if (!setting || !setting.config["api_key"]) {
-      alert("Cloud Vision API Key が設定されていません (/integrations で設定してください)");
+      showToast("Cloud Vision API Key が設定されていません。/integrations で設定してください", "warning");
       return;
     }
     state.faxProcessing = true;
@@ -3497,7 +3511,7 @@ function bindEvents(root: HTMLElement): void {
       };
       reader.readAsDataURL(file);
     } catch (e) {
-      alert("OCR失敗: " + (e instanceof Error ? e.message : ""));
+      showToast("OCR失敗: " + (e instanceof Error ? e.message : ""), "error");
       state.faxProcessing = false;
       renderApp();
     }
@@ -3531,7 +3545,7 @@ function bindEvents(root: HTMLElement): void {
       isVerified: state.mailSenders.find((s) => s.id === id)?.isVerified ?? false
     };
     if (!sender.name || !sender.email) {
-      alert("名前とメールアドレスは必須です");
+      showToast("名前とメールアドレスは必須です", "warning");
       return;
     }
     const { saveMailSender, fetchMailSenders } = await import("./api");
@@ -3539,22 +3553,22 @@ function bindEvents(root: HTMLElement): void {
     if (saved) {
       state.mailSenders = await fetchMailSenders();
       state.mailSenderEditingId = null;
-      alert("保存しました");
+      showToast("保存しました");
       renderApp();
     } else {
-      alert("保存に失敗しました");
+      showToast("保存に失敗しました", "error");
     }
   });
   root.querySelectorAll<HTMLButtonElement>("[data-action='ms-delete']").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!confirm("削除しますか？")) return;
+      if (!await showConfirm("削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
       const id = btn.dataset.id ?? "";
       const { deleteMailSender, fetchMailSenders } = await import("./api");
       const ok = await deleteMailSender(id);
       if (ok) {
         state.mailSenders = await fetchMailSenders();
         renderApp();
-      } else alert("削除失敗");
+      } else showToast("削除失敗", "error");
     });
   });
 
@@ -3649,26 +3663,29 @@ function bindEvents(root: HTMLElement): void {
       color: CALENDAR_CATEGORY_COLORS[cat]
     };
     if (!ev.title) {
-      alert("タイトルは必須です");
+      showToast("タイトルは必須です", "warning");
       return;
     }
     const saved = await saveCalendarEvent(ev);
     if (saved) {
       state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
       state.calendarEdit = null;
+      showToast("保存しました");
       renderApp();
-    } else alert("保存失敗");
+    } else showToast("保存失敗", "error");
   });
   root.querySelector<HTMLButtonElement>("[data-action='cal-delete']")?.addEventListener("click", async () => {
     const id = (document.querySelector<HTMLButtonElement>("[data-action='cal-delete']")?.dataset.id) ?? "";
-    if (!id || !confirm("削除しますか？")) return;
+    if (!id) return;
+    if (!await showConfirm("削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
     const { deleteCalendarEvent, fetchCalendarEvents } = await import("./api");
     const ok = await deleteCalendarEvent(id);
     if (ok) {
       state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
       state.calendarEdit = null;
+      showToast("削除しました");
       renderApp();
-    } else alert("削除失敗");
+    } else showToast("削除失敗", "error");
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='import-execute']")?.addEventListener("click", async () => {
@@ -3840,7 +3857,7 @@ function bindEvents(root: HTMLElement): void {
         state.actionLoading = false;
         state.emailSending = false;
         renderApp();
-        window.alert(`${result.sent}件送信完了`);
+        showToast(`${result.sent}件送信完了`);
       })
       .catch(async () => {
         await saveEmailCampaign(buildEmailCampaignPayload("draft"));
@@ -3848,7 +3865,7 @@ function bindEvents(root: HTMLElement): void {
         state.actionLoading = false;
         state.emailSending = false;
         renderApp();
-        window.alert("APIキー未設定のため下書き保存しました");
+        showToast("APIキー未設定のため下書き保存しました", "warning");
       });
   });
 }
