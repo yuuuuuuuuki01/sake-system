@@ -1,16 +1,27 @@
-"""SHDEN.DAT / SHTOR.DAT (売上伝票ヘッダ・明細) のデコーダ。
+"""SHDEN.DAT (売上伝票ヘッダ) のデコーダ。
 
-sake_sales_document_headers / sake_sales_document_lines の _raw_b64 から
-売上伝票をデコードし、sales_document_headers / sales_document_lines に UPSERT。
+sake_sales_document_headers の _raw_b64 からデータレコードを抽出し、
+sales_document_headers テーブルに UPSERT する。
 
-ローカルDATファイル不要 — Supabase上のrawデータから直接デコード。
+SHDEN.DATはB-Tree構造でデータノードは全体の0.02%程度。
+データノードの判定: @234に日付(YYYYMMDD)があるレコード。
+
+フィールドマップ (確定済み):
+  @50:  担当コード (3B ASCII)
+  @234: 計上日 (8B ASCII YYYYMMDD)
+  @260: 請求日 (8B ASCII YYYYMMDD)
+  @276: 締日 (2B ASCII)
+  @330: 得意先コード (6B ASCII)
+  @337: 得意先名 (40B CP932)
+  @390: 備考 (CP932)
+  @444: 伝票番号 (6B+ ASCII)
 """
 from __future__ import annotations
 
 import base64
 import json
 import logging
-import struct
+import re
 import sys
 import uuid
 from datetime import UTC, datetime
@@ -25,8 +36,6 @@ BASE_DIR = Path(__file__).resolve().parent
 LOCAL_CONFIG_PATH = BASE_DIR / "relay_config.local.json"
 CONFIG_PATH = BASE_DIR / "relay_config.json"
 LOG_PATH = BASE_DIR / "relay_log.txt"
-
-RECORD_MARKER = b"\x09\x2e\x38\x09"
 
 
 def setup_logging() -> logging.Logger:
@@ -48,22 +57,12 @@ def load_config() -> dict[str, Any]:
         return json.load(fp)
 
 
-def decode_cp932(raw: bytes) -> str:
-    return raw.decode("cp932", errors="replace").strip()
+def decode_cp932_clean(raw: bytes) -> str:
+    return raw.decode("cp932", errors="replace").replace("\x00", "").strip()
 
 
-def decode_cp932_or_none(raw: bytes) -> str | None:
-    text = decode_cp932(raw)
-    return text if text else None
-
-
-def fetch_raw_records(
-    config: dict[str, Any],
-    table: str,
-    logger: logging.Logger,
-    limit: int = 0,
-) -> list[dict[str, Any]]:
-    """Supabase上のrawテーブルからレコードを取得。"""
+def fetch_and_decode(config: dict[str, Any], logger: logging.Logger, limit: int = 0) -> list[dict[str, Any]]:
+    """Supabase上のrawレコードからデータノードを抽出してデコード。"""
     url = config["supabase_url"].rstrip("/")
     session = requests.Session()
     session.headers.update({
@@ -72,14 +71,16 @@ def fetch_raw_records(
         "Accept": "application/json",
     })
 
-    all_rows: list[dict[str, Any]] = []
+    headers_list: list[dict[str, Any]] = []
+    seen_docs: set[str] = set()
     offset = 0
-    batch = 200  # 売上テーブルは大きいので小バッチ
+    batch = 200  # 大きなテーブルなので小バッチ
+
     while True:
         resp = session.get(
-            f"{url}/rest/v1/{table}",
+            f"{url}/rest/v1/sake_sales_document_headers",
             params={
-                "select": "_record_index,_raw_b64,_record_size",
+                "select": "_record_index,_raw_b64",
                 "order": "_source_file.asc,_record_index.asc",
                 "limit": str(batch),
                 "offset": str(offset),
@@ -90,123 +91,76 @@ def fetch_raw_records(
         rows = resp.json()
         if not rows:
             break
-        all_rows.extend(rows)
-        offset += len(rows)
-        logger.info("Fetched %d raw records from %s (total: %d)", len(rows), table, len(all_rows))
-        if len(rows) < batch:
-            break
-        if limit and len(all_rows) >= limit:
-            all_rows = all_rows[:limit]
-            break
 
-    return all_rows
-
-
-def decode_date_field(raw: bytes) -> str | None:
-    """日付フィールド (8 bytes YYYYMMDD or packed) をデコード。"""
-    text = raw.decode("ascii", errors="replace").strip()
-    if len(text) == 8 and text.isdigit():
-        y, m, d = text[:4], text[4:6], text[6:8]
-        if 1990 <= int(y) <= 2099 and 1 <= int(m) <= 12 and 1 <= int(d) <= 31:
-            return f"{y}-{m}-{d}"
-    return None
-
-
-def decode_sales_headers(raw_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """sake_sales_document_headers の rawレコードをデコード。
-
-    SHDEN.DAT レコード構造（推定）:
-    Magic ISAM B-Tree形式。マーカー走査で実データを特定。
-    ヘッダフィールド候補:
-      0:  伝票番号 (7 bytes)
-      7:  日付 (8 bytes YYYYMMDD)
-     15:  得意先コード (7 bytes)
-     22:  担当コード (2 bytes)
-     24:  合計金額 (4 bytes int32)
-    """
-    headers: list[dict[str, Any]] = []
-    seen_doc_nos: set[str] = set()
-
-    for row in raw_rows:
-        raw_b64 = row.get("_raw_b64", "")
-        if not raw_b64:
-            continue
-
-        slot_data = base64.b64decode(raw_b64)
-        search_from = 0
-
-        while True:
-            marker_pos = slot_data.find(RECORD_MARKER, search_from)
-            if marker_pos < 0:
-                break
-
-            data_start = marker_pos + len(RECORD_MARKER)
-            remaining = len(slot_data) - data_start
-
-            if remaining < 30:
-                search_from = marker_pos + 1
+        for row in rows:
+            raw_b64 = row.get("_raw_b64", "")
+            if not raw_b64:
                 continue
 
-            def s(offset: int, length: int) -> bytes:
-                return slot_data[data_start + offset : data_start + offset + length]
-
-            # 伝票番号 (7 bytes)
-            doc_no_raw = s(0, 7)
-            doc_no = doc_no_raw.decode("ascii", errors="replace").strip()
-
-            if not doc_no or not doc_no.replace(" ", "").isdigit():
-                search_from = marker_pos + 1
+            rec = base64.b64decode(raw_b64)
+            if len(rec) < 450:
                 continue
 
-            if doc_no in seen_doc_nos:
-                search_from = marker_pos + 1
+            # データノード判定: @234に日付(YYYYMMDD)があるか
+            date_raw = rec[234:242].decode("ascii", errors="replace").strip()
+            if not (len(date_raw) == 8 and date_raw.isdigit() and date_raw[:4] in
+                    ("2020", "2021", "2022", "2023", "2024", "2025", "2026", "2027")):
                 continue
 
-            # 日付 (8 bytes)
-            sales_date = decode_date_field(s(7, 8)) if remaining > 14 else None
+            # フィールド抽出
+            sales_date = f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
 
-            # 得意先コード (7 bytes)
-            customer_code = decode_cp932_or_none(s(15, 7)) if remaining > 21 else None
+            bill_raw = rec[260:268].decode("ascii", errors="replace").strip()
+            bill_date = None
+            if len(bill_raw) == 8 and bill_raw.isdigit():
+                bill_date = f"{bill_raw[:4]}-{bill_raw[4:6]}-{bill_raw[6:8]}"
 
-            # 担当コード (2 bytes)
-            staff_code = decode_cp932_or_none(s(22, 2)) if remaining > 23 else None
+            staff_code = rec[50:53].decode("ascii", errors="replace").strip() or None
+            closing_day = rec[276:278].decode("ascii", errors="replace").strip() or None
 
-            # 金額フィールド (int32)
-            total_amount = None
-            if remaining > 27:
-                try:
-                    amt = struct.unpack_from("<i", slot_data, data_start + 24)[0]
-                    if 0 <= amt <= 99_999_999:
-                        total_amount = amt
-                except (struct.error, IndexError):
-                    pass
+            cust_code = rec[330:336].decode("ascii", errors="replace").strip()
+            cust_name = decode_cp932_clean(rec[337:377])
+            remarks = decode_cp932_clean(rec[390:430])
+            doc_no = rec[444:456].decode("ascii", errors="replace").strip()
 
-            # 日付が取れないレコー��はスキップ（インデックスノードの可能性）
-            if not sales_date:
-                search_from = marker_pos + 1
+            # 得意先コードが数字でないものはスキップ
+            if not cust_code or not re.match(r"^\d+$", cust_code):
                 continue
 
-            seen_doc_nos.add(doc_no)
-            headers.append({
+            # 伝票番号がなければレコードインデックスを使う
+            if not doc_no or not doc_no.isdigit():
+                doc_no = f"R{row['_record_index']}"
+
+            if doc_no in seen_docs:
+                continue
+            seen_docs.add(doc_no)
+
+            headers_list.append({
                 "id": str(uuid.uuid5(SAKE_UUID_NS, f"sales_header:{doc_no}")),
                 "legacy_document_no": doc_no,
                 "document_no": doc_no,
                 "sales_date": sales_date,
-                "legacy_customer_code": customer_code,
+                "document_date": bill_date or sales_date,
+                "legacy_customer_code": cust_code.lstrip("0") or cust_code,
+                "customer_name": cust_name or None,
                 "staff_code": staff_code,
-                "total_amount": total_amount,
                 "updated_at": datetime.now(tz=UTC).isoformat(),
             })
 
-            search_from = marker_pos + 1
+        offset += len(rows)
+        if offset % 10000 == 0:
+            logger.info("Scanned %d raw records, found %d sales headers", offset, len(headers_list))
 
-    return headers
+        if limit and offset >= limit:
+            break
+        if len(rows) < batch:
+            break
+
+    return headers_list
 
 
 def upsert_to_supabase(
     config: dict[str, Any],
-    table: str,
-    conflict_col: str,
     records: list[dict[str, Any]],
     logger: logging.Logger,
     dry_run: bool = False,
@@ -223,21 +177,20 @@ def upsert_to_supabase(
         "Prefer": "resolution=merge-duplicates,missing=default",
     })
 
-    batch_size = 500
     total = 0
-    for i in range(0, len(records), batch_size):
-        batch = records[i : i + batch_size]
+    for i in range(0, len(records), 500):
+        batch = records[i : i + 500]
         if dry_run:
-            logger.info("[DRY-RUN] would upsert %d to %s", len(batch), table)
+            logger.info("[DRY-RUN] would upsert %d sales headers", len(batch))
         else:
             resp = session.post(
-                f"{url}/rest/v1/{table}?on_conflict={conflict_col}",
+                f"{url}/rest/v1/sales_document_headers?on_conflict=legacy_document_no",
                 json=batch,
                 timeout=120,
             )
             resp.raise_for_status()
         total += len(batch)
-        logger.info("UPSERT %s: batch=%d total=%d", table, len(batch), total)
+        logger.info("UPSERT sales_headers: batch=%d total=%d", len(batch), total)
 
     return total
 
@@ -245,39 +198,32 @@ def upsert_to_supabase(
 def main() -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="売上伝票デコーダ (raw → 正規化)")
+    parser = argparse.ArgumentParser(description="SHDEN.DAT → sales_document_headers デコーダ")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--show-sample", type=int, default=0)
-    parser.add_argument("--limit", type=int, default=0, help="取得するrawレコード数上限 (0=全件)")
+    parser.add_argument("--limit", type=int, default=0, help="スキャンするrawレコード数上限")
     args = parser.parse_args()
 
     logger = setup_logging()
     config = load_config()
 
-    # ── 売上伝票ヘッダ ──
-    logger.info("Fetching raw sales headers from sake_sales_document_headers...")
-    raw_headers = fetch_raw_records(config, "sake_sales_document_headers", logger, limit=args.limit)
-    logger.info("Fetched %d raw header records", len(raw_headers))
-
-    headers = decode_sales_headers(raw_headers)
+    logger.info("Decoding sales headers from sake_sales_document_headers...")
+    headers = fetch_and_decode(config, logger, limit=args.limit)
     logger.info("Decoded: %d unique sales headers", len(headers))
 
     if args.show_sample and headers:
         for h in headers[: args.show_sample]:
             logger.info(
-                "  %s | %s | customer=%s | amount=%s",
-                h["document_no"], h["sales_date"], h["legacy_customer_code"], h["total_amount"],
+                "  doc=%s date=%s cust=%s name=%s",
+                h["document_no"], h["sales_date"], h["legacy_customer_code"], h["customer_name"],
             )
 
-    if headers:
-        total = upsert_to_supabase(
-            config, "sales_document_headers", "legacy_document_no",
-            headers, logger, dry_run=args.dry_run,
-        )
-        logger.info("Done headers: %d upserted", total)
-    else:
+    if not headers:
         logger.warning("No sales headers decoded")
+        return 1
 
+    total = upsert_to_supabase(config, headers, logger, dry_run=args.dry_run)
+    logger.info("Done: %d sales headers upserted", total)
     return 0
 
 
