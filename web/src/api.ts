@@ -1244,6 +1244,111 @@ export async function fetchSalesReport(): Promise<SalesReport> {
   return fetchJson("data/api/latest/sales-report.json", mockReport);
 }
 
+// ─── 得意先別集計・ABC分析 ──────────────────────────────────────────────────
+
+export interface CustomerRankRow {
+  code: string;
+  name: string;
+  amount: number;
+  documents: number;
+  ratio: number;
+  cumRatio: number;
+  abcRank: "A" | "B" | "C";
+}
+
+export interface CustomerAnalysisData {
+  generatedAt: string;
+  ranking: CustomerRankRow[];
+  months: string[];
+  monthlyByCustomer: { label: string; values: number[] }[];
+}
+
+export interface ProductRankRow {
+  code: string;
+  name: string;
+  amount: number;
+  quantity: number;
+  ratio: number;
+  cumRatio: number;
+  abcRank: "A" | "B" | "C";
+}
+
+export interface ProductABCData {
+  generatedAt: string;
+  totalAmount: number;
+  ranking: ProductRankRow[];
+  months: string[];
+  monthlyByProduct: { label: string; values: number[] }[];
+}
+
+function buildAbcRanking<T extends { amount: number }>(
+  rows: T[]
+): (T & { ratio: number; cumRatio: number; abcRank: "A" | "B" | "C" })[] {
+  const sorted = [...rows].sort((a, b) => b.amount - a.amount);
+  const total = sorted.reduce((s, r) => s + r.amount, 0);
+  if (total === 0) return [];
+  let cum = 0;
+  return sorted.map((row) => {
+    const ratio = (row.amount / total) * 100;
+    cum += ratio;
+    const abcRank: "A" | "B" | "C" = cum <= 70 ? "A" : cum <= 90 ? "B" : "C";
+    return { ...row, ratio, cumRatio: cum, abcRank };
+  });
+}
+
+export async function fetchCustomerAnalysis(): Promise<CustomerAnalysisData> {
+  const [analytics, report] = await Promise.all([
+    fetchSalesAnalytics(),
+    fetchSalesReport()
+  ]);
+
+  const ranking = buildAbcRanking(
+    analytics.customerTotals.map((c) => ({
+      code: c.code,
+      name: c.name,
+      amount: c.amount,
+      documents: c.documents
+    }))
+  );
+
+  return {
+    generatedAt: new Date().toISOString(),
+    ranking,
+    months: report.months,
+    monthlyByCustomer: report.salesByCustomer
+  };
+}
+
+export async function fetchProductABC(): Promise<ProductABCData> {
+  const [analytics, report] = await Promise.all([
+    fetchSalesAnalytics(),
+    fetchSalesReport()
+  ]);
+
+  const ranking = buildAbcRanking(
+    analytics.productTotals.map((p) => ({
+      code: p.code,
+      name: p.name,
+      amount: p.amount,
+      quantity: p.quantity
+    }))
+  );
+
+  const totalAmount = ranking.reduce((s, r) => s + r.amount, 0);
+
+  // Monthly data for A-rank products only
+  const aRankNames = new Set(ranking.filter((r) => r.abcRank === "A").map((r) => r.name));
+  const monthlyByProduct = report.salesByProduct.filter((p) => aRankNames.has(p.label));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totalAmount,
+    ranking,
+    months: report.months,
+    monthlyByProduct: monthlyByProduct.length > 0 ? monthlyByProduct : report.salesByProduct
+  };
+}
+
 // ─── 蔵内管理 ────────────────────────────────────────────────────────────────
 
 export type JikomiStatus = "planned" | "active" | "done";

@@ -880,6 +880,73 @@ tbody tr:hover {
   background: var(--surface-alt);
 }
 
+/* ─── 分析KPI & ABC ─────────────────────────────────────── */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.kpi-row .kpi-card {
+  min-height: auto;
+  padding: 16px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.kpi-row .kpi-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.kpi-row .kpi-value {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 4px 0 0;
+}
+
+.kpi-success { color: var(--success); }
+.kpi-warning { color: var(--warning); }
+
+.ranking-chart {
+  width: 100%;
+  height: auto;
+}
+
+.pareto-chart {
+  width: 100%;
+  height: auto;
+}
+
+.pareto-label {
+  font-size: 10px;
+}
+
+.pareto-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
 .error-card {
   max-width: 640px;
 }

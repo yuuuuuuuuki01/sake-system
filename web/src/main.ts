@@ -25,6 +25,8 @@ import {
   fetchSyncDashboard,
   fetchPurchaseList,
   fetchRawMaterialStock,
+  fetchCustomerAnalysis,
+  fetchProductABC,
   fetchSalesAnalytics,
   fetchSalesReport,
   fetchSalesSummary,
@@ -56,6 +58,8 @@ import {
   type SyncDashboard,
   type PurchaseRecord,
   type RawMaterialStock,
+  type CustomerAnalysisData,
+  type ProductABCData,
   type SalesAnalytics,
   type SalesReport,
   type SalesPeriod,
@@ -107,6 +111,8 @@ import { renderProductPicker } from "./components/ProductPicker";
 import { renderPurchase } from "./components/Purchase";
 import { renderRawMaterial } from "./components/RawMaterial";
 import { renderRelaySetup } from "./components/RelaySetup";
+import { renderCustomerAnalysis } from "./components/CustomerAnalysis";
+import { renderProductABC } from "./components/ProductABC";
 import { renderSalesAnalytics } from "./components/SalesAnalytics";
 import { renderSalesReport } from "./components/SalesReport";
 import { renderSalesTable } from "./components/SalesTable";
@@ -174,6 +180,8 @@ type RoutePath =
   | "/invoice"
   | "/ledger"
   | "/analytics"
+  | "/customer-analysis"
+  | "/product-abc"
   | "/invoice-entry"
   | "/delivery"
   | "/billing"
@@ -237,6 +245,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/invoice",
   "/ledger",
   "/analytics",
+  "/customer-analysis",
+  "/product-abc",
   "/invoice-entry",
   "/delivery",
   "/billing",
@@ -295,6 +305,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/delivery", title: "納品書" },
   { path: "/billing", title: "月次請求" },
   { path: "/report", title: "集計帳票" },
+  { path: "/customer-analysis", title: "得意先分析" },
+  { path: "/product-abc", title: "商品ABC分析" },
   { path: "/jikomi", title: "仕込管理" },
   { path: "/tanks", title: "タンク管理" },
   { path: "/kentei", title: "検定管理" },
@@ -378,6 +390,8 @@ interface AppState {
   invoiceRecords: InvoiceRecord[];
   customerLedger: CustomerLedger | null;
   salesAnalytics: SalesAnalytics | null;
+  customerAnalysis: CustomerAnalysisData | null;
+  productABC: ProductABCData | null;
   invoiceForm: InvoiceFormData;
   invoiceSaving: boolean;
   invoiceSavedDocNo: string | null;
@@ -508,6 +522,8 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/delivery":
     case "/billing":
     case "/report":
+    case "/customer-analysis":
+    case "/product-abc":
       return "sales";
     case "/cat/brewery":
     case "/jikomi":
@@ -550,6 +566,8 @@ const state: AppState = {
   invoiceRecords: [],
   customerLedger: null,
   salesAnalytics: null,
+  customerAnalysis: null,
+  productABC: null,
   invoiceForm: makeDefaultInvoiceForm(),
   invoiceSaving: false,
   invoiceSavedDocNo: null,
@@ -1136,6 +1154,16 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           state.salesReport = await fetchSalesReport();
         }
         break;
+      case "/customer-analysis":
+        if (!state.customerAnalysis) {
+          state.customerAnalysis = await fetchCustomerAnalysis();
+        }
+        break;
+      case "/product-abc":
+        if (!state.productABC) {
+          state.productABC = await fetchProductABC();
+        }
+        break;
       case "/jikomi":
         if (state.jikomiList.length === 0) {
           state.jikomiList = await fetchJikomiList();
@@ -1377,6 +1405,14 @@ function renderView(): string {
       return state.salesReport
         ? renderSalesReport(state.salesReport)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
+    case "/customer-analysis":
+      return state.customerAnalysis
+        ? renderCustomerAnalysis(state.customerAnalysis)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
+    case "/product-abc":
+      return state.productABC
+        ? renderProductABC(state.productABC)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/jikomi":
       return state.jikomiView === "calendar"
         ? `${renderJikomi(state.jikomiList, state.jikomiView)}${renderJikomiCalendar(state.jikomiList)}`
@@ -1607,6 +1643,8 @@ function renderShell(): string {
           { path: "/delivery", label: "納品書", kicker: "Delivery" },
           { path: "/billing", label: "月次請求", kicker: "Billing" },
           { path: "/report", label: "集計帳票", kicker: "Report" },
+          { path: "/customer-analysis", label: "得意先分析", kicker: "CustABC" },
+          { path: "/product-abc", label: "商品ABC", kicker: "ProdABC" },
           { path: "/invoice", label: "伝票照会", kicker: "Invoice" },
           { path: "/ledger", label: "得意先台帳", kicker: "Ledger" }
         ]
