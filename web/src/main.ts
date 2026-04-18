@@ -58,6 +58,7 @@ import {
   type RawMaterialStock,
   type SalesAnalytics,
   type SalesReport,
+  type SalesPeriod,
   type SalesSummary,
   type MailSender,
   type CalendarEvent,
@@ -464,6 +465,7 @@ interface AppState {
   salesFilter: { startDate: string; endDate: string };
   invoiceFilter: InvoiceFilter;
   ledgerCustomerCode: string;
+  salesPeriod: SalesPeriod;
   masterTab: MasterTab;
   masterFilter: MasterFilterState;
   analyticsTab: AnalyticsTab;
@@ -679,6 +681,7 @@ const state: AppState = {
   salesFilter: { startDate: "", endDate: "" },
   invoiceFilter: { documentNo: "", startDate: "", endDate: "", customerCode: "" },
   ledgerCustomerCode: defaultLedgerCustomerCode,
+  salesPeriod: "month",
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
@@ -1569,7 +1572,7 @@ function renderView(): string {
           suppliers: state.syncDashboard?.tables.find((t) => t.tableName === "suppliers")?.rowCount ?? 0,
           specialPrices: state.syncDashboard?.tables.find((t) => t.tableName === "customer_product_prices")?.rowCount ?? 0
         } : undefined
-      });
+      }, state.salesPeriod);
   }
 }
 
@@ -1958,6 +1961,13 @@ function bindEvents(root: HTMLElement): void {
     element.addEventListener("click", (event) => {
       event.preventDefault();
       navigate(element.dataset.link as RoutePath);
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-period]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.salesPeriod = btn.dataset.period as SalesPeriod;
+      renderApp();
     });
   });
 

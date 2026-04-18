@@ -651,10 +651,25 @@ textarea:focus {
   border-color: var(--border-strong);
 }
 
+.button.small {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
 .button.secondary:hover,
 .tab-button:hover {
   border-color: var(--border);
   background: var(--surface-alt);
+}
+
+.period-filter {
+  margin-bottom: 16px;
+}
+
+.button-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .table-wrap {

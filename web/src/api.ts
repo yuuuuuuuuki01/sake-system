@@ -61,6 +61,8 @@ export interface SalesDayPoint {
   amount: number;
 }
 
+export type SalesPeriod = "today" | "month" | "90days" | "year" | "all";
+
 export interface SalesRecord {
   id: string;
   documentNo: string;
@@ -98,6 +100,7 @@ export interface SalesSummary {
     unpaidAmount: number;
   };
   dailySales: SalesDayPoint[];
+  allDailySales: SalesDayPoint[];
   salesRecords: SalesRecord[];
 }
 
@@ -287,6 +290,14 @@ const mockSalesSummary: SalesSummary = {
     unpaidAmount: 2640000
   },
   dailySales: Array.from({ length: 30 }, (_, index) => {
+    const day = new Date("2026-03-17T00:00:00+09:00");
+    day.setDate(day.getDate() + index);
+    return {
+      date: day.toISOString(),
+      amount: 420000 + ((index * 73123) % 620000)
+    };
+  }),
+  allDailySales: Array.from({ length: 30 }, (_, index) => {
     const day = new Date("2026-03-17T00:00:00+09:00");
     day.setDate(day.getDate() + index);
     return {
@@ -740,7 +751,7 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
   const salesRows = await supabaseQuery<DailySalesFactRow>("daily_sales_summary", {
     select: "sales_date,sales_amount,document_count",
     order: "sales_date.desc",
-    limit: "90"
+    limit: "3000"
   });
 
   if (salesRows.length > 0) {
@@ -758,13 +769,13 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
     const today = new Date();
     const todayKey = today.toISOString().slice(0, 10);
     const monthKey = todayKey.slice(0, 7);
-    const recentDailySales = [...salesRows]
+    const allDailySales = [...salesRows]
       .sort((left, right) => left.sales_date.localeCompare(right.sales_date))
-      .slice(-30)
       .map((row) => ({
         date: new Date(`${row.sales_date}T00:00:00Z`).toISOString(),
         amount: toNumber(row.sales_amount)
       }));
+    const recentDailySales = allDailySales.slice(-30);
 
     const todaySales = salesRows.reduce((sum, row) => {
       return row.sales_date === todayKey ? sum + toNumber(row.sales_amount) : sum;
@@ -794,6 +805,7 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
         unpaidAmount: unpaidRows.reduce((sum, row) => sum + toNumber(row.balance_amount), 0)
       },
       dailySales: recentDailySales,
+      allDailySales,
       salesRecords
     };
   }

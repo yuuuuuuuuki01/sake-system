@@ -1,5 +1,33 @@
-import type { PipelineMeta, SalesSummary, SalesAnalytics, Prospect, CalendarEvent, TourInquiry } from "../api";
+import type { PipelineMeta, SalesSummary, SalesAnalytics, Prospect, CalendarEvent, TourInquiry, SalesPeriod, SalesDayPoint } from "../api";
 import { PROSPECT_STAGE_COLORS, PROSPECT_STAGE_LABELS } from "../api";
+
+const PERIOD_LABELS: Record<SalesPeriod, string> = {
+  today: "当日",
+  month: "当月",
+  "90days": "90日",
+  year: "1年",
+  all: "全期間"
+};
+
+function filterByPeriod(allDays: SalesDayPoint[], period: SalesPeriod): SalesDayPoint[] {
+  if (period === "all") return allDays;
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+  const cutoff = new Date(now);
+
+  switch (period) {
+    case "today":
+      return allDays.filter((d) => d.date.slice(0, 10) === todayKey);
+    case "month":
+      return allDays.filter((d) => d.date.slice(0, 7) === todayKey.slice(0, 7));
+    case "90days":
+      cutoff.setDate(cutoff.getDate() - 90);
+      return allDays.filter((d) => d.date >= cutoff.toISOString());
+    case "year":
+      cutoff.setFullYear(cutoff.getFullYear() - 1);
+      return allDays.filter((d) => d.date >= cutoff.toISOString());
+  }
+}
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", {
@@ -150,7 +178,8 @@ export function renderDashboard(
   summary: SalesSummary,
   pipeline: PipelineMeta,
   analytics: SalesAnalytics | null,
-  extras?: DashboardExtras
+  extras?: DashboardExtras,
+  activePeriod: SalesPeriod = "month"
 ): string {
   const statusLabelMap = {
     success: "正常",
@@ -158,6 +187,11 @@ export function renderDashboard(
     error: "異常",
     running: "実行中"
   };
+
+  const filteredDays = filterByPeriod(summary.allDailySales, activePeriod);
+  const periodTotal = filteredDays.reduce((s, d) => s + d.amount, 0);
+  const periodDays = filteredDays.length;
+
   const recentSalesRows = summary.salesRecords
     .slice(0, 10)
     .map(
@@ -172,6 +206,10 @@ export function renderDashboard(
     )
     .join("");
 
+  const periodButtons = (["today", "month", "90days", "year", "all"] as SalesPeriod[])
+    .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-period="${p}">${PERIOD_LABELS[p]}</button>`)
+    .join("");
+
   return `
     <section class="page-head">
       <div>
@@ -184,6 +222,10 @@ export function renderDashboard(
       </div>
     </section>
 
+    <section class="period-filter">
+      <div class="button-group">${periodButtons}</div>
+    </section>
+
     <section class="kpi-grid">
       <article class="panel kpi-card">
         <p class="panel-title">当日売上</p>
@@ -191,9 +233,9 @@ export function renderDashboard(
         <p class="kpi-sub">前日比 ${summary.kpis.todayDelta > 0 ? "+" : ""}${summary.kpis.todayDelta.toFixed(1)}%</p>
       </article>
       <article class="panel kpi-card">
-        <p class="panel-title">当月累計</p>
-        <p class="kpi-value">${formatCurrency(summary.kpis.monthSales)}</p>
-        <p class="kpi-sub">前年同月比 ${summary.kpis.monthDelta > 0 ? "+" : ""}${summary.kpis.monthDelta.toFixed(1)}%</p>
+        <p class="panel-title">${PERIOD_LABELS[activePeriod]}売上</p>
+        <p class="kpi-value">${formatCurrency(periodTotal)}</p>
+        <p class="kpi-sub">${periodDays}日間${periodDays > 0 ? ` / 日平均 ${formatCurrency(Math.round(periodTotal / periodDays))}` : ""}</p>
       </article>
       <article class="panel kpi-card kpi-alert">
         <p class="panel-title">未入金件数</p>
@@ -232,10 +274,10 @@ export function renderDashboard(
         <div class="panel-header">
           <div>
             <h2>日次売上</h2>
-            <p class="panel-caption">直近30日の売上推移</p>
+            <p class="panel-caption">${PERIOD_LABELS[activePeriod]} (${filteredDays.length}日分)</p>
           </div>
         </div>
-        ${buildBars(summary.dailySales)}
+        ${buildBars(filteredDays.length > 0 ? filteredDays : summary.dailySales)}
       </article>
 
       <aside class="panel sync-panel">
