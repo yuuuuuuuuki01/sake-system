@@ -152,6 +152,10 @@ export interface MasterProduct {
   isActive: boolean;
   purchasePrice: number;
   salePrice: number;
+  alcoholDegree: number | null;
+  volumeMl: number | null;
+  bottleType: string;
+  polishRate: number | null;
 }
 
 export interface MasterStatsSummary {
@@ -386,7 +390,11 @@ const mockMasterStats: MasterStatsSummary = {
     category: ["清酒", "焼酎", "リキュール"][index % 3],
     isActive: index % 6 !== 0,
     purchasePrice: [1200, 1800, 600, 800][index % 4],
-    salePrice: [1500, 2200, 750, 1000][index % 4]
+    salePrice: [1500, 2200, 750, 1000][index % 4],
+    alcoholDegree: [15.5, 16.0, 15.0, 12.0][index % 4],
+    volumeMl: [720, 1800, 300, 500][index % 4],
+    bottleType: ["瓶", "瓶", "瓶", "瓶"][index % 4],
+    polishRate: [55, 70, 60, null][index % 4]
   }))
 };
 
@@ -729,10 +737,10 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export async function fetchSalesSummary(): Promise<SalesSummary> {
-  const salesRows = await supabaseQuery<DailySalesFactRow>("daily_sales_fact", {
+  const salesRows = await supabaseQuery<DailySalesFactRow>("daily_sales_summary", {
     select: "sales_date,sales_amount,document_count",
     order: "sales_date.desc",
-    limit: "60"
+    limit: "90"
   });
 
   if (salesRows.length > 0) {
@@ -852,7 +860,11 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
           category: getString(row, ["category", "category_name", "category_code"], "未分類"),
           isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
           purchasePrice: getNumber(row, ["purchase_price"], 0),
-          salePrice: getNumber(row, ["default_sale_price", "sale_price"], 0)
+          salePrice: getNumber(row, ["default_sale_price", "sale_price"], 0),
+          alcoholDegree: row["alcohol_degree"] != null ? Number(row["alcohol_degree"]) : null,
+          volumeMl: row["volume_ml"] != null ? Number(row["volume_ml"]) : null,
+          bottleType: getString(row, ["bottle_type"], ""),
+          polishRate: row["polish_rate"] != null ? Number(row["polish_rate"]) : null
         }))
       : mockMasterStats.products;
 
@@ -1046,7 +1058,7 @@ export async function fetchCustomerLedger(code: string): Promise<CustomerLedger>
 
 export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
   const [dailyRows, invoiceRows, lineRows] = await Promise.all([
-    supabaseQuery<DailySalesFactRow>("daily_sales_fact", {
+    supabaseQuery<DailySalesFactRow>("daily_sales_summary", {
       select: "sales_date,sales_amount",
       order: "sales_date.asc",
       limit: "365"

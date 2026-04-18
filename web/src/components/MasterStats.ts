@@ -161,6 +161,9 @@ function renderProductRows(products: MasterProduct[]): string {
           <td class="mono">${product.code}</td>
           <td>${truncate(product.name, 30)}</td>
           <td>${product.category}</td>
+          <td class="numeric">${product.alcoholDegree != null ? `${product.alcoholDegree}%` : "―"}</td>
+          <td class="numeric">${product.volumeMl != null ? `${product.volumeMl}ml` : "―"}</td>
+          <td>${product.bottleType || "―"}</td>
           <td class="numeric">${product.purchasePrice ? product.purchasePrice.toLocaleString("ja-JP") : "―"}</td>
           <td class="numeric">${product.salePrice ? product.salePrice.toLocaleString("ja-JP") : "―"}</td>
           <td><span class="status-pill ${product.isActive ? "success" : "neutral"}">${product.isActive ? "有効" : "停止"}</span></td>
@@ -247,6 +250,9 @@ export function renderMasterStats(
                 <th>商品コード</th>
                 <th>商品名</th>
                 <th>分類</th>
+                <th class="numeric">度数</th>
+                <th class="numeric">容量</th>
+                <th>容器</th>
                 <th class="numeric">仕入単価</th>
                 <th class="numeric">売価</th>
                 <th>状態</th>

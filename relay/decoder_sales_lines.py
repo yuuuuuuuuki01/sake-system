@@ -1,30 +1,30 @@
-"""SHTOR.DAT (売上伝票明細) のデコーダ — パターンマッチ方式。
+"""SHTOR.DAT (売上伝票明細) のデコーダ — データノード直接読取方式 v2。
 
-B-Treeの全スロットをスキャンし、
-得意先コード + 取引区分 + 商品コード のパターンを検出。
-商品名(CP932)が後続するエントリをデータとして抽出。
+B-Treeのデータノード（リーフ）を直接識別し、金額・数量を正確に抽出する。
+キャリブレーション済みオフセット（CSV正解データで検証済み）:
 
-フィールドパターン (可変オフセット):
-  得意先コード(6B数字) + 空白 + ... + 取引区分(3B: 500/600/700) + 商品コード(5B数字)
-  商品コードの+2Bに商品名(CP932)、その後に数量(int32)・金額(double)
+金額(int32)を基準とした相対オフセット:
+  金額 - 16: 数量 (int32 LE)
+  金額 + 0:  金額 (int32 LE)
+  金額 + 46~48: 得意先コード (6B ASCII)
+  金額 + 78: 計上日 (8B ASCII YYYYMMDD)
+
+商品コードは可変位置のため、取得できる場合のみ抽出。
 """
 from __future__ import annotations
 
 import json
 import logging
-import math
 import re
 import struct
 import sys
 import uuid
-from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 import requests
 
 SAKE_UUID_NS = uuid.UUID("b7e3f1a0-4c2d-4e8f-9a1b-0c3d5e7f9a2b")
-EPOCH = date(1900, 1, 1)
 HEADER_SIZE = 0x200
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -32,8 +32,8 @@ LOCAL_CONFIG_PATH = BASE_DIR / "relay_config.local.json"
 CONFIG_PATH = BASE_DIR / "relay_config.json"
 LOG_PATH = BASE_DIR / "relay_log.txt"
 
-# 得意先(5-6桁、先頭スペース可) + 数バイト + 取引区分(500/600/700) + 商品(5桁)
-ENTRY_PATTERN = re.compile(rb"(\s?\d{5,6})\x20.{0,10}(500|600|700)(\d{5})")
+DATE_RE = re.compile(rb"20[12]\d(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])")
+PROD_RE = re.compile(rb"(\d{3,7})\s{1,3}[\x80-\xff]")
 
 
 def setup_logging() -> logging.Logger:
@@ -55,6 +55,47 @@ def load_config() -> dict[str, Any]:
         return json.load(fp)
 
 
+def decode_cp932_clean(raw: bytes) -> str:
+    return (
+        raw.decode("cp932", errors="replace")
+        .replace("\x00", "")
+        .replace("\ufffd", "")
+        .strip()
+    )
+
+
+def try_extract_product(rec: bytes, amt_off: int, prev_rec: bytes | None = None) -> tuple[str, str]:
+    """商品コードと商品名の抽出を試みる。取れない場合は空文字を返す。"""
+    # 方法1: amt_off - 69 にゼロ埋め商品コード(7B)がある場合（同一スロット内）
+    prod_off = amt_off - 69
+    if prod_off >= 0 and prod_off + 7 <= len(rec):
+        candidate = rec[prod_off : prod_off + 7].decode("ascii", errors="replace").strip()
+        if re.match(r"^\d{3,7}$", candidate):
+            name_start = prod_off + 9
+            name_end = min(name_start + 40, len(rec))
+            name = decode_cp932_clean(rec[name_start:name_end])
+            return candidate.lstrip("0") or candidate, name
+
+    # 方法2: エントリが前スロットと跨っている場合（amt_off < 69）
+    if prod_off < 0 and prev_rec is not None:
+        prev_prod_off = len(prev_rec) + prod_off  # 前スロット末尾からの位置
+        if 0 <= prev_prod_off and prev_prod_off + 7 <= len(prev_rec):
+            candidate = prev_rec[prev_prod_off : prev_prod_off + 7].decode("ascii", errors="replace").strip()
+            if re.match(r"^\d{3,7}$", candidate):
+                name_start = prev_prod_off + 9
+                name_end = min(name_start + 40, len(prev_rec))
+                name = decode_cp932_clean(prev_rec[name_start:name_end])
+                return candidate.lstrip("0") or candidate, name
+
+    # 方法3: rec[0:7] に商品コードがある場合
+    candidate = rec[0:7].decode("ascii", errors="replace").strip()
+    if re.match(r"^\d{3,7}$", candidate):
+        name = decode_cp932_clean(rec[9:49])
+        return candidate.lstrip("0") or candidate, name
+
+    return "", ""
+
+
 def extract_lines(filepath: Path, logger: logging.Logger) -> list[dict[str, Any]]:
     data = filepath.read_bytes()
     if len(data) < HEADER_SIZE or data[:2] != b"FC":
@@ -62,110 +103,111 @@ def extract_lines(filepath: Path, logger: logging.Logger) -> list[dict[str, Any]
 
     record_size = struct.unpack_from("<H", data, 0x18)[0]
     total_slots = (len(data) - HEADER_SIZE) // record_size
-    logger.info("File: %s, record_size=%d, slots=%d", filepath.name, record_size, total_slots)
-
-    min_days = (date(2000, 1, 1) - EPOCH).days
-    max_days = (date(2027, 12, 31) - EPOCH).days
+    logger.info(
+        "File: %s, record_size=%d, slots=%d", filepath.name, record_size, total_slots
+    )
 
     lines: list[dict[str, Any]] = []
     seen: set[str] = set()
-    scanned = 0
+    prev_rec: bytes | None = None
 
-    for i in range(total_slots):
-        offset = HEADER_SIZE + i * record_size
+    for slot_idx in range(total_slots):
+        offset = HEADER_SIZE + slot_idx * record_size
         rec = data[offset : offset + record_size]
         if rec[0] == 0x01:
+            prev_rec = rec
             continue
 
-        entry_in_slot = 0
-        for m in ENTRY_PATTERN.finditer(rec):
-            entry_in_slot += 1
-            cust_code = m.group(1).decode("ascii").strip()
-            trade_type = m.group(2).decode("ascii")
-            prod_code = m.group(3).decode("ascii").strip()
+        for m in DATE_RE.finditer(rec):
+            date_local = m.start()
+            amt_off = date_local - 78
+            qty_off = date_local - 94
+            cust_off = date_local - 31
 
-            prod_end = m.end()
-
-            # データノード判定: 商品コードの+2Bに CP932テキスト(>0x80)があるか
-            if prod_end + 4 >= len(rec):
+            if amt_off < 0 or qty_off < 0 or cust_off < 0:
                 continue
-            next_bytes = rec[prod_end + 2 : prod_end + 6]
-            if not any(b > 0x80 for b in next_bytes):
-                continue  # インデックスノード(テキストなし)
+            if amt_off + 4 > record_size or cust_off + 6 > record_size:
+                continue
 
-            # 商品名 (商品コード+2Bの後、36B CP932)
-            name_start = prod_end + 2
-            prod_name_raw = rec[name_start : name_start + 36].decode("cp932", errors="replace")
-            prod_name = "".join(c for c in prod_name_raw if c.isprintable() or c in " \u3000").strip()
+            amt = struct.unpack_from("<i", rec, amt_off)[0]
+            if abs(amt) > 10_000_000:
+                continue
 
-            # 数量・金額: 商品名の後に配置
-            # 固定オフセットから相対計算: @140=数量, @148=金額 (slot[20891]で確認)
-            # 商品コード@89→数量@140 = +51B。prod_pos(m.start(3))から+51B
-            qty_offset = m.start(3) + 51
-            amt_offset = m.start(3) + 59
+            qty = struct.unpack_from("<i", rec, qty_off)[0]
+            if abs(qty) > 99_999:
+                continue
 
-            qty = 0
-            if qty_offset + 4 <= len(rec):
-                qty = struct.unpack_from("<i", rec, qty_offset)[0]
-                if qty < -999 or qty > 9999:
-                    qty = 0
+            # 金額も数量も両方ゼロ → データなし（B-Tree空ノード）
+            if amt == 0 and qty == 0:
+                continue
 
-            amount = 0.0
-            if amt_offset + 8 <= len(rec):
-                amount = struct.unpack_from("<d", rec, amt_offset)[0]
-                if math.isnan(amount) or math.isinf(amount) or abs(amount) > 999999999:
-                    amount = 0.0
+            cust_raw = rec[cust_off : cust_off + 6].decode("ascii", errors="replace").strip()
+            if not re.match(r"^\d{3,6}$", cust_raw):
+                continue
 
-            # 日付: 得意先コードの-26B(= @47 for cust@73)
-            sales_date = None
-            date_offset = m.start(1) - 26
-            if 0 <= date_offset and date_offset + 2 <= len(rec):
-                day_val = struct.unpack_from("<H", rec, date_offset)[0]
-                if min_days <= day_val <= max_days:
-                    sales_date = EPOCH + timedelta(days=day_val)
+            date_str = m.group().decode("ascii")
+            sales_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+            cust_code = cust_raw.lstrip("0") or cust_raw
 
-            # 重複チェック
-            key = f"{i}:{m.start()}"
+            prod_code, prod_name = try_extract_product(rec, amt_off, prev_rec)
+            unit_price = amt // qty if qty else 0
+
+            key = f"{slot_idx}:{date_local}"
             if key in seen:
                 continue
             seen.add(key)
 
-            amt_int = int(amount) if amount else 0
-            unit_price = int(amount / qty) if qty and amount else 0
+            lines.append(
+                {
+                    "id": str(
+                        uuid.uuid5(SAKE_UUID_NS, f"sales_line_v2:{slot_idx}:{date_local}")
+                    ),
+                    "legacy_document_no": f"B{slot_idx}",
+                    "document_no": f"B{slot_idx}",
+                    "line_no": 1,
+                    "legacy_product_code": prod_code or None,
+                    "product_name": prod_name or None,
+                    "quantity": qty,
+                    "unit_price": unit_price,
+                    "line_amount": amt,
+                    "amount": amt,
+                    "note": f"date:{sales_date} cust:{cust_code} src:binary",
+                }
+            )
+            break
 
-            lines.append({
-                "id": str(uuid.uuid5(SAKE_UUID_NS, f"sales_line:{i}:{m.start()}")),
-                "legacy_document_no": f"L{i}",
-                "document_no": f"L{i}",
-                "line_no": entry_in_slot,
-                "legacy_product_code": prod_code.lstrip("0") or prod_code,
-                "product_name": prod_name or None,
-                "quantity": qty if qty else 1,
-                "unit_price": unit_price,
-                "line_amount": amt_int,
-                "amount": amt_int,
-                "note": f"date:{sales_date.isoformat() if sales_date else 'unknown'} cust:{cust_code.lstrip('0')} type:{trade_type}",
-            })
+        prev_rec = rec
 
-        scanned += 1
-        if scanned % 500000 == 0:
-            logger.info("Scanned %d/%d slots, found %d lines", scanned, total_slots, len(lines))
+        if (slot_idx + 1) % 1_000_000 == 0:
+            logger.info(
+                "Scanned %d/%d slots, found %d lines",
+                slot_idx + 1,
+                total_slots,
+                len(lines),
+            )
 
     return lines
 
 
-def upsert(config: dict[str, Any], records: list[dict[str, Any]], logger: logging.Logger, dry_run: bool = False) -> int:
+def upsert(
+    config: dict[str, Any],
+    records: list[dict[str, Any]],
+    logger: logging.Logger,
+    dry_run: bool = False,
+) -> int:
     if not records:
         return 0
 
     url = config["supabase_url"].rstrip("/")
     session = requests.Session()
-    session.headers.update({
-        "apikey": config["supabase_anon_key"],
-        "Authorization": f"Bearer {config['supabase_anon_key']}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,missing=default",
-    })
+    session.headers.update(
+        {
+            "apikey": config["supabase_anon_key"],
+            "Authorization": f"Bearer {config['supabase_anon_key']}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,missing=default",
+        }
+    )
 
     total = 0
     for i in range(0, len(records), 500):
@@ -175,7 +217,8 @@ def upsert(config: dict[str, Any], records: list[dict[str, Any]], logger: loggin
         else:
             resp = session.post(
                 f"{url}/rest/v1/sales_document_lines?on_conflict=id",
-                json=batch, timeout=120,
+                json=batch,
+                timeout=120,
             )
             if not resp.ok:
                 logger.error("UPSERT error: %s %s", resp.status_code, resp.text[:200])
@@ -190,7 +233,9 @@ def upsert(config: dict[str, Any], records: list[dict[str, Any]], logger: loggin
 def main() -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="SHTOR.DAT → sales_document_lines デコーダ")
+    parser = argparse.ArgumentParser(
+        description="SHTOR.DAT → sales_document_lines デコーダ (v2: データノード直接読取)"
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--show-sample", type=int, default=0)
     args = parser.parse_args()
@@ -208,8 +253,12 @@ def main() -> int:
         for ln in lines[: args.show_sample]:
             logger.info(
                 "  prod=%s [%s] qty=%s unit=%s amt=%s | %s",
-                ln["legacy_product_code"], ln["product_name"],
-                ln["quantity"], ln["unit_price"], ln["amount"], ln["note"],
+                ln["legacy_product_code"],
+                ln["product_name"],
+                ln["quantity"],
+                ln["unit_price"],
+                ln["amount"],
+                ln["note"],
             )
 
     if not lines:
