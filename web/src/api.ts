@@ -280,141 +280,31 @@ interface CustomerPaymentRow {
 type LooseRow = Record<string, unknown>;
 
 const mockSalesSummary: SalesSummary = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  kpis: {
-    todaySales: 1248000,
-    todayDelta: 8.2,
-    monthSales: 18245000,
-    monthDelta: 5.6,
-    unpaidCount: 7,
-    unpaidAmount: 2640000
-  },
-  dailySales: Array.from({ length: 30 }, (_, index) => {
-    const day = new Date("2026-03-17T00:00:00+09:00");
-    day.setDate(day.getDate() + index);
-    return {
-      date: day.toISOString(),
-      amount: 420000 + ((index * 73123) % 620000)
-    };
-  }),
-  allDailySales: Array.from({ length: 30 }, (_, index) => {
-    const day = new Date("2026-03-17T00:00:00+09:00");
-    day.setDate(day.getDate() + index);
-    return {
-      date: day.toISOString(),
-      amount: 420000 + ((index * 73123) % 620000)
-    };
-  }),
-  salesRecords: Array.from({ length: 20 }, (_, index) => {
-    const day = new Date("2026-04-15T00:00:00+09:00");
-    day.setDate(day.getDate() - index);
-    return {
-      id: `sale-${index + 1}`,
-      documentNo: `D${String(240100 + index).padStart(6, "0")}`,
-      date: day.toISOString(),
-      customerCode: `C${String(index + 11).padStart(4, "0")}`,
-      customerName: ["青葉商事", "北斗酒販", "中央フーズ", "東海酒店"][index % 4],
-      amount: 68000 + (index % 6) * 24500
-    };
-  })
+  generatedAt: new Date().toISOString(),
+  kpis: { todaySales: 0, todayDelta: 0, monthSales: 0, monthDelta: 0, unpaidCount: 0, unpaidAmount: 0 },
+  dailySales: [],
+  allDailySales: [],
+  salesRecords: []
 };
 
 const mockPaymentStatus: PaymentStatusSummary = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  records: [
-    {
-      id: "pay-1",
-      customerCode: "C0011",
-      customerName: "青葉商事",
-      billedAmount: 540000,
-      paymentAmount: 0,
-      balanceAmount: 540000,
-      lastPaymentDate: null,
-      status: "unpaid"
-    },
-    {
-      id: "pay-2",
-      customerCode: "C0012",
-      customerName: "北斗酒販",
-      billedAmount: 720000,
-      paymentAmount: 300000,
-      balanceAmount: 420000,
-      lastPaymentDate: "2026-04-11T14:30:00+09:00",
-      status: "partial"
-    },
-    {
-      id: "pay-3",
-      customerCode: "C0013",
-      customerName: "中央フーズ",
-      billedAmount: 680000,
-      paymentAmount: 680000,
-      balanceAmount: 0,
-      lastPaymentDate: "2026-04-14T10:00:00+09:00",
-      status: "paid"
-    },
-    {
-      id: "pay-4",
-      customerCode: "C0014",
-      customerName: "東海酒店",
-      billedAmount: 410000,
-      paymentAmount: 180000,
-      balanceAmount: 230000,
-      lastPaymentDate: "2026-04-10T09:10:00+09:00",
-      status: "partial"
-    }
-  ]
+  generatedAt: new Date().toISOString(),
+  records: []
 };
 
 const mockMasterStats: MasterStatsSummary = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  summary: {
-    customerCount: 164,
-    activeCustomerCount: 152,
-    productCount: 486,
-    activeProductCount: 461
-  },
-  customers: Array.from({ length: 12 }, (_, index) => ({
-    id: `customer-${index + 1}`,
-    code: `C${String(index + 1).padStart(4, "0")}`,
-    name: ["青葉商事", "北斗酒販", "中央フーズ", "東海酒店", "三和物産", "南星リカー"][index % 6],
-    kanaName: "",
-    shortName: "",
-    postalCode: "",
-    address1: "",
-    address2: "",
-    phone: "",
-    fax: "",
-    staffCode: "",
-    businessType: "",
-    areaCode: "",
-    closingDay: [15, 20, 25, 31][index % 4],
-    paymentDay: [5, 10, 15, 20][index % 4],
-    billingCycleType: "",
-    priceGroup: "",
-    isActive: index % 5 !== 0
-  })),
-  products: Array.from({ length: 12 }, (_, index) => ({
-    id: `product-${index + 1}`,
-    code: `P${String(index + 1).padStart(5, "0")}`,
-    janCode: `4901234567${String(index).padStart(3, "0")}`,
-    name: ["純米吟醸 720ml", "本醸造 1.8L", "特別純米 300ml", "梅酒 500ml"][index % 4],
-    category: ["清酒", "焼酎", "リキュール"][index % 3],
-    isActive: index % 6 !== 0,
-    purchasePrice: [1200, 1800, 600, 800][index % 4],
-    salePrice: [1500, 2200, 750, 1000][index % 4],
-    alcoholDegree: [15.5, 16.0, 15.0, 12.0][index % 4],
-    volumeMl: [720, 1800, 300, 500][index % 4],
-    bottleType: ["瓶", "瓶", "瓶", "瓶"][index % 4],
-    polishRate: [55, 70, 60, null][index % 4]
-  }))
+  generatedAt: new Date().toISOString(),
+  summary: { customerCount: 0, activeCustomerCount: 0, productCount: 0, activeProductCount: 0 },
+  customers: [],
+  products: []
 };
 
 const mockPipelineMeta: PipelineMeta = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  lastSyncAt: "2026-04-15T09:12:21+09:00",
+  generatedAt: new Date().toISOString(),
+  lastSyncAt: new Date().toISOString(),
   status: "success",
-  jobName: "daily-sync",
-  message: "同期完了。売上・入金・マスタを最新化しました。"
+  jobName: "sake-relay",
+  message: "データ未取得"
 };
 
 const mockInvoiceRecords: InvoiceRecord[] = mockSalesSummary.salesRecords.map((record, index) => ({
