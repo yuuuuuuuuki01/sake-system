@@ -744,9 +744,16 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
   });
 
   if (salesRows.length > 0) {
-    const paymentRows = await supabaseQuery<CustomerPaymentStatusRow>("customer_payment_status", {
-      select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
-    });
+    const [paymentRows, headerRows] = await Promise.all([
+      supabaseQuery<CustomerPaymentStatusRow>("customer_payment_status", {
+        select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
+      }),
+      supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
+        select: "id,document_no,legacy_document_no,sales_date,legacy_customer_code,customer_name,total_amount",
+        order: "sales_date.desc",
+        limit: "20"
+      })
+    ]);
 
     const today = new Date();
     const todayKey = today.toISOString().slice(0, 10);
@@ -767,6 +774,15 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
     }, 0);
     const unpaidRows = paymentRows.filter((row) => toNumber(row.balance_amount) > 0);
 
+    const salesRecords: SalesRecord[] = headerRows.map((row, index) => ({
+      id: String(row.id ?? `sale-${index + 1}`),
+      documentNo: row.document_no ?? row.legacy_document_no ?? "",
+      date: row.sales_date ?? "",
+      customerCode: row.legacy_customer_code ?? "",
+      customerName: row.customer_name ?? row.legacy_customer_code ?? "",
+      amount: toNumber(row.total_amount)
+    }));
+
     return {
       generatedAt: new Date().toISOString(),
       kpis: {
@@ -778,7 +794,7 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
         unpaidAmount: unpaidRows.reduce((sum, row) => sum + toNumber(row.balance_amount), 0)
       },
       dailySales: recentDailySales,
-      salesRecords: mockSalesSummary.salesRecords
+      salesRecords
     };
   }
 
