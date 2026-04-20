@@ -354,7 +354,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/slack", title: "Slack通知" },
   { path: "/calls", title: "通話履歴(IVRy)" },
   { path: "/list-builder", title: "リスト取得ツール" },
-  { path: "/raw-browser", title: "データブラウザ" }
+  { path: "/raw-browser", title: "データブラウザ" },
+  { path: "/demand-forecast", title: "需要予測・納品カレンダー" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -1216,6 +1217,33 @@ async function loadRouteData(route: RoutePath): Promise<void> {
       case "/product-abc":
         if (!state.productABC) {
           state.productABC = await fetchProductABC();
+        }
+        break;
+      case "/demand-forecast":
+        if (state.demandForecast.forecasts.length === 0) {
+          const analytics = await fetchSalesAnalytics();
+          state.demandForecast.forecasts = buildForecasts(
+            analytics.productTotals,
+            analytics.monthlySales,
+            state.salesSummary?.allDailySales ?? []
+          );
+          // Load delivery data from supabase if available
+          try {
+            const { supabaseQuery } = await import("./supabase");
+            const rows = await supabaseQuery<{ delivery_date: string; customer_name: string; product_name: string; quantity: number; status: string }>("delivery_schedule", {
+              select: "delivery_date,customer_name,product_name,quantity,status",
+              order: "delivery_date.asc"
+            });
+            state.demandForecast.deliveries = rows.map((r) => ({
+              date: r.delivery_date,
+              customerName: r.customer_name,
+              productName: r.product_name,
+              quantity: typeof r.quantity === "number" ? r.quantity : parseInt(String(r.quantity)) || 0,
+              status: (r.status as "scheduled" | "dispatched" | "delivered") || "scheduled"
+            }));
+          } catch {
+            // table may not exist yet — use empty
+          }
         }
         break;
       case "/jikomi":
@@ -2370,6 +2398,22 @@ function bindEvents(root: HTMLElement): void {
     state.quoteState.sealSettings = null;
     localStorage.removeItem("quote-seal");
     renderApp();
+  });
+
+  // Demand forecast: calendar navigation
+  root.querySelectorAll<HTMLButtonElement>("[data-action='dcal-prev'],[data-action='dcal-next']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const month = btn.dataset.month;
+      if (month) { state.demandForecast.calendarMonth = month; renderApp(); }
+    });
+  });
+  // Demand forecast: segment filter
+  root.querySelectorAll<HTMLButtonElement>("[data-action='forecast-segment']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const seg = btn.dataset.segment as ProductionSegment | "all";
+      state.demandForecast.selectedSegment = seg;
+      renderApp();
+    });
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='dashboard-refresh']")?.addEventListener("click", async (e) => {
