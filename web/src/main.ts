@@ -4227,58 +4227,61 @@ declare const L: {
   marker: (latlng: [number, number]) => unknown;
 };
 
-let mapInstance: { setView: (latlng: [number, number], zoom: number) => unknown; remove: () => void } | null = null;
+// Google Maps instance (managed internally by initCustomerMap)
 function initCustomerMap(container: HTMLElement) {
-  const Lref = (window as unknown as { L?: typeof L & { divIcon?: (opts: Record<string, unknown>) => unknown } }).L;
-  if (!Lref) {
-    container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary);">Leaflet読込中…</div>';
+  const gm = (window as unknown as { google?: { maps: typeof google.maps } }).google?.maps;
+  if (!gm) {
+    container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary);">Google Maps 読込中…</div>';
     setTimeout(() => initCustomerMap(container), 500);
     return;
   }
-  if (mapInstance) {
-    try {
-      mapInstance.remove();
-    } catch {
-      // ignore
-    }
-    mapInstance = null;
-  }
+
   container.innerHTML = "";
-  const m = Lref.map(container) as { setView: (l: [number, number], z: number) => unknown; remove: () => void };
-  m.setView([35.694, 139.769], 9); // 東京中心
-  const tile = Lref.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap contributors",
-    maxZoom: 19
-  }) as { addTo: (m: unknown) => unknown };
-  tile.addTo(m);
+  const map = new gm.Map(container, {
+    center: { lat: 35.45, lng: 139.4 },
+    zoom: 10,
+    mapId: "sake-system-map",
+    gestureHandling: "greedy"
+  });
 
-  const makeIcon = (color: string, label: string) =>
-    Lref.divIcon!({
-      className: "custom-map-marker",
-      html: `<div style="background:${color};color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);font-weight:700;font-size:11px;">${label}</div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 14]
+  const infoWindow = new gm.InfoWindow();
+
+  function addMarker(lat: number, lng: number, color: string, label: string, popupHtml: string) {
+    const marker = new gm.marker.AdvancedMarkerElement({
+      map,
+      position: { lat, lng },
+      content: (() => {
+        const el = document.createElement("div");
+        el.style.cssText = `background:${color};color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);font-weight:700;font-size:11px;cursor:pointer;`;
+        el.textContent = label;
+        return el;
+      })()
     });
+    marker.addListener("click", () => {
+      infoWindow.setContent(popupHtml);
+      infoWindow.open({ anchor: marker, map });
+    });
+  }
 
-  // 既存取引先 (青) — 実データのlat/lngを使用
+  // 既存取引先 (青)
   if (state.mapFilters.showCustomers) {
     const customers = state.masterStats?.customers ?? [];
     customers.forEach((c) => {
       if (!c.lat || !c.lng) return;
       if (state.mapFilters.filterBusinessType && c.businessType !== state.mapFilters.filterBusinessType) return;
-      const marker = (Lref.marker([c.lat, c.lng], { icon: makeIcon("#2196F3", "既") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
-      marker.bindPopup(`<div style="min-width:180px;"><strong>${c.name}</strong><br/><span style="color:#666;font-size:11px;">${c.code}</span><br/>🔵 既存取引先<br/>締日${c.closingDay}日 / 支払日${c.paymentDay}日${c.address1 ? `<br/>📍 ${c.address1}` : ""}</div>`);
+      addMarker(c.lat, c.lng, "#2196F3", "既",
+        `<div style="min-width:180px;"><strong>${c.name}</strong><br/><span style="color:#666;font-size:11px;">${c.code}</span><br/>既存取引先<br/>締日${c.closingDay}日 / 支払日${c.paymentDay}日${c.address1 ? `<br/>${c.address1}` : ""}</div>`);
     });
   }
 
-  // 新規見込客 (緑) — stage別に色分け
+  // 新規見込客 (緑)
   if (state.mapFilters.showProspects) {
     state.prospects.forEach((p) => {
       if (!p.lat || !p.lng) return;
       if (state.mapFilters.filterBusinessType && p.businessType !== state.mapFilters.filterBusinessType) return;
       const color = p.stage === "hot" || p.stage === "negotiating" ? "#EF5350" : p.stage === "won" ? "#66BB6A" : "#4CAF50";
-      const marker = (Lref.marker([p.lat, p.lng], { icon: makeIcon(color, "新") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
-      marker.bindPopup(`<div style="min-width:200px;"><strong>${p.companyName}</strong><br/><span style="color:#666;font-size:11px;">${p.contactName ?? ""}</span><br/>🟢 新規見込客 (${p.stage})<br/>想定 ¥${p.expectedAmount.toLocaleString("ja-JP")} / 確度 ${p.probability}%${p.nextAction ? `<br/>📌 ${p.nextAction}` : ""}</div>`);
+      addMarker(p.lat, p.lng, color, "新",
+        `<div style="min-width:200px;"><strong>${p.companyName}</strong><br/><span style="color:#666;font-size:11px;">${p.contactName ?? ""}</span><br/>新規見込客 (${p.stage})<br/>想定 ¥${p.expectedAmount.toLocaleString("ja-JP")} / 確度 ${p.probability}%${p.nextAction ? `<br/>${p.nextAction}` : ""}</div>`);
     });
   }
 
@@ -4286,12 +4289,10 @@ function initCustomerMap(container: HTMLElement) {
   if (state.mapFilters.showDelivery) {
     state.deliveryLocations.forEach((d) => {
       if (!d.lat || !d.lng) return;
-      const marker = (Lref.marker([d.lat, d.lng], { icon: makeIcon("#FF9800", "納") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
-      marker.bindPopup(`<div style="min-width:180px;"><strong>${d.name}</strong><br/>🟠 納品先${d.customerCode ? ` (${d.customerCode})` : ""}<br/>${d.address ?? ""}${d.contactName ? `<br/>📞 ${d.contactName}` : ""}${d.deliveryNote ? `<br/>📝 ${d.deliveryNote}` : ""}</div>`);
+      addMarker(d.lat, d.lng, "#FF9800", "納",
+        `<div style="min-width:180px;"><strong>${d.name}</strong><br/>納品先${d.customerCode ? ` (${d.customerCode})` : ""}<br/>${d.address ?? ""}${d.contactName ? `<br/>${d.contactName}` : ""}${d.deliveryNote ? `<br/>${d.deliveryNote}` : ""}</div>`);
     });
   }
-
-  mapInstance = m as typeof mapInstance;
 }
 
 void loadData();
