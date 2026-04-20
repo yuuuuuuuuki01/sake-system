@@ -225,7 +225,7 @@ type RoutePath =
   | "/list-builder"
   | "/raw-browser";
 
-type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
+type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
 
 type NavGroup = {
   label: string;
@@ -291,16 +291,24 @@ const ALL_ROUTES: RoutePath[] = [
   "/raw-browser"
 ];
 
-const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
-  { name: "青葉商事", email: "aoba@example.jp", area: "関東", historySegment: "seasonal" },
-  { name: "北斗酒販", email: "hokuto@example.jp", area: "北海道", historySegment: "premium" },
-  { name: "中央フーズ", email: "chuo@example.jp", area: "関東", historySegment: "seasonal" },
-  { name: "東海酒店", email: "tokai@example.jp", area: "中部", historySegment: "premium" },
-  { name: "三和物産", email: "sanwa@example.jp", area: "関西", historySegment: "liqueur" },
-  { name: "南星リカー", email: "nansei@example.jp", area: "九州", historySegment: "seasonal" },
-  { name: "山川酒店", email: "yamakawa@example.jp", area: "関西", historySegment: "premium" },
-  { name: "瑞穂商店", email: "mizuho@example.jp", area: "中部", historySegment: "seasonal" }
-];
+let EMAIL_RECIPIENTS: EmailRecipientRecord[] = [];
+
+async function loadEmailRecipients(): Promise<void> {
+  const { supabaseQueryAll } = await import("./supabase");
+  const rows = await supabaseQueryAll<Record<string, unknown>>("customers", {
+    select: "name,email,delivery_area_code",
+    email: "neq.",
+    is_active: "eq.true"
+  });
+  EMAIL_RECIPIENTS = rows
+    .filter((r) => typeof r.email === "string" && r.email.length > 0)
+    .map((r) => ({
+      name: String(r.name ?? ""),
+      email: String(r.email ?? ""),
+      area: String(r.delivery_area_code ?? ""),
+      historySegment: "seasonal" as const
+    }));
+}
 
 const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/sales", title: "売上一覧" },
@@ -528,36 +536,54 @@ function normalizePath(pathname: string): RoutePath {
 
 function inferCurrentCategory(route: RoutePath): CategoryKey {
   switch (route) {
-    case "/cat/sales":
-    case "/invoice":
-    case "/ledger":
     case "/invoice-entry":
+    case "/quote":
     case "/delivery":
     case "/billing":
-    case "/report":
+    case "/invoice":
+    case "/ledger":
+      return "sales";
+    case "/analytics":
     case "/customer-analysis":
     case "/product-abc":
-      return "sales";
-    case "/cat/brewery":
+    case "/report":
+      return "analytics";
+    case "/prospects":
+    case "/map":
+    case "/list-builder":
+    case "/calls":
+    case "/email":
+    case "/mail-senders":
+    case "/workflow":
+    case "/mobile-order":
+    case "/shopify":
+    case "/fax":
+      return "crm";
+    case "/purchase":
+    case "/raw-material":
+      return "orders";
     case "/jikomi":
     case "/tanks":
     case "/kentei":
     case "/materials":
-      return "brewery";
-    case "/cat/purchase":
-    case "/purchase":
-    case "/raw-material":
-      return "purchase";
-    case "/cat/more":
-    case "/master":
-    case "/analytics":
     case "/tax":
+      return "brewery";
+    case "/master":
+    case "/calendar":
     case "/store":
+    case "/tour":
+    case "/print":
+    case "/form-designer":
+      return "master";
     case "/setup":
+    case "/integrations":
+    case "/slack":
+    case "/import":
     case "/raw-browser":
-      return "more";
-    case "/email":
-      return "email";
+    case "/users":
+    case "/profile":
+    case "/audit":
+      return "settings";
     default:
       return "dashboard";
   }
@@ -1663,73 +1689,108 @@ function renderShell(): string {
     ],
     sales: [
       {
-        label: "販売管理",
+        label: "販売業務",
         items: [
-          { path: "/cat/sales", label: "販売管理トップ", kicker: "Category" },
           { path: "/invoice-entry", label: "伝票入力", kicker: "Entry" },
           { path: "/quote", label: "見積作成", kicker: "Quote" },
           { path: "/delivery", label: "納品書", kicker: "Delivery" },
           { path: "/billing", label: "月次請求", kicker: "Billing" },
-          { path: "/report", label: "集計帳票", kicker: "Report" },
-          { path: "/customer-analysis", label: "得意先分析", kicker: "CustABC" },
-          { path: "/product-abc", label: "商品ABC", kicker: "ProdABC" },
           { path: "/invoice", label: "伝票照会", kicker: "Invoice" },
           { path: "/ledger", label: "得意先台帳", kicker: "Ledger" }
         ]
       }
     ],
-    brewery: [
+    analytics: [
       {
-        label: "蔵内管理",
+        label: "分析",
         items: [
-          { path: "/cat/brewery", label: "蔵内管理トップ", kicker: "Category" },
-          { path: "/jikomi", label: "仕込管理", kicker: "Jikomi" },
-          { path: "/tanks", label: "タンク管理", kicker: "Tank" },
-          { path: "/kentei", label: "検定管理", kicker: "Kentei" },
-          { path: "/materials", label: "資材管理", kicker: "Material" }
+          { path: "/analytics", label: "売上分析", kicker: "Analytics" },
+          { path: "/customer-analysis", label: "得意先分析", kicker: "CustABC" },
+          { path: "/product-abc", label: "商品ABC", kicker: "ProdABC" },
+          { path: "/report", label: "集計帳票", kicker: "Report" }
         ]
       }
     ],
-    purchase: [
+    crm: [
       {
-        label: "仕入管理",
+        label: "営業・顧客",
         items: [
-          { path: "/cat/purchase", label: "仕入管理トップ", kicker: "Category" },
+          { path: "/prospects", label: "新規営業", kicker: "Prospects" },
+          { path: "/map", label: "取引先マップ", kicker: "Map" },
+          { path: "/list-builder", label: "リスト取得", kicker: "ListBuild" },
+          { path: "/calls", label: "通話履歴", kicker: "Calls" },
+          { path: "/email", label: "メール配信", kicker: "Mail" }
+        ]
+      },
+      {
+        label: "受注・出荷",
+        items: [
+          { path: "/workflow", label: "受注ワークフロー", kicker: "Workflow" },
+          { path: "/mobile-order", label: "モバイル受注", kicker: "Mobile" },
+          { path: "/shopify", label: "Shopify注文", kicker: "Shopify" },
+          { path: "/fax", label: "FAX OCR", kicker: "FAX" }
+        ]
+      }
+    ],
+    orders: [
+      {
+        label: "仕入・調達",
+        items: [
           { path: "/purchase", label: "仕入・買掛", kicker: "Purchase" },
           { path: "/raw-material", label: "手形・原料", kicker: "RawMat" }
         ]
       }
     ],
-    more: [
+    brewery: [
       {
-        label: "その他",
+        label: "製造管理",
         items: [
-          { path: "/cat/more", label: "その他トップ", kicker: "Category" },
-          { path: "/tax", label: "酒税申告", kicker: "Tax" },
-          { path: "/store", label: "店舗・直売所", kicker: "Store" },
-          { path: "/analytics", label: "売上分析", kicker: "Analytics" },
-          { path: "/master", label: "マスタ", kicker: "Master" },
-          { path: "/email", label: "メール配信", kicker: "Mail" },
-          { path: "/setup", label: "連動設定", kicker: "Setup" },
-          { path: "/raw-browser", label: "データブラウザ", kicker: "RawData" }
+          { path: "/jikomi", label: "仕込管理", kicker: "Jikomi" },
+          { path: "/tanks", label: "タンク管理", kicker: "Tank" },
+          { path: "/kentei", label: "検定管理", kicker: "Kentei" },
+          { path: "/materials", label: "資材管理", kicker: "Material" },
+          { path: "/tax", label: "酒税申告", kicker: "Tax" }
         ]
       }
     ],
-    email: [
+    master: [
       {
-        label: "メール配信",
-        items: [{ path: "/email", label: "季節商品案内", kicker: "Mail" }]
+        label: "マスタ・ツール",
+        items: [
+          { path: "/master", label: "マスタ管理", kicker: "Master" },
+          { path: "/calendar", label: "カレンダー", kicker: "Calendar" },
+          { path: "/store", label: "店舗・直売所", kicker: "Store" },
+          { path: "/tour", label: "酒蔵見学", kicker: "Tour" },
+          { path: "/print", label: "印刷", kicker: "Print" }
+        ]
+      }
+    ],
+    settings: [
+      {
+        label: "システム設定",
+        items: [
+          { path: "/setup", label: "連動設定", kicker: "Setup" },
+          { path: "/integrations", label: "外部連携", kicker: "API" },
+          { path: "/slack", label: "Slack通知", kicker: "Slack" },
+          { path: "/import", label: "データ取込", kicker: "Import" },
+          { path: "/raw-browser", label: "データブラウザ", kicker: "RawData" },
+          { path: "/users", label: "ユーザー管理", kicker: "Users" },
+          { path: "/profile", label: "プロフィール", kicker: "Profile" },
+          { path: "/audit", label: "操作ログ", kicker: "Audit" }
+        ]
       }
     ]
   };
 
   const topLevelItems: Array<{ category: CategoryKey; path: RoutePath; label: string }> = [
     { category: "dashboard", path: "/", label: "ダッシュボード" },
-    { category: "sales", path: "/cat/sales", label: "販売管理" },
-    { category: "brewery", path: "/cat/brewery", label: "蔵内管理" },
-    { category: "purchase", path: "/cat/purchase", label: "仕入管理" },
-    { category: "more", path: "/cat/more", label: "その他" },
-    { category: "email", path: "/email", label: "メール配信" }
+    { category: "sales", path: "/invoice-entry", label: "販売" },
+    { category: "analytics", path: "/analytics", label: "分析" },
+    { category: "crm", path: "/prospects", label: "営業" },
+    { category: "orders", path: "/purchase", label: "仕入" },
+    { category: "brewery", path: "/jikomi", label: "製造" },
+    { category: "master", path: "/master", label: "マスタ" },
+    { category: "settings", path: "/setup", label: "設定" }
   ];
 
   const navHtml = navGroups[state.currentCategory]
@@ -4197,6 +4258,11 @@ async function loadData(): Promise<void> {
     state.customerLedger = customerLedger;
     state.salesAnalytics = salesAnalytics;
     state.syncDashboard = syncDashboard;
+
+    // メール配信先をバックグラウンドで取得
+    if (EMAIL_RECIPIENTS.length === 0) {
+      void loadEmailRecipients();
+    }
 
     // rawブラウザのテーブル一覧をバックグラウンドで取得
     if (state.rawTableList.length === 0) {
