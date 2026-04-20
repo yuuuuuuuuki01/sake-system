@@ -167,6 +167,7 @@ import {
   type ImportableEntity
 } from "./utils/import";
 import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./components/RawBrowser";
+import { renderDemandForecast, buildForecasts, renderDeliveryCalendarWidget, defaultDemandForecastState, type DemandForecastState, type DeliveryCalendarEntry, type ProductionSegment } from "./components/DemandForecast";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { showToast } from "./components/Toast";
@@ -223,7 +224,8 @@ type RoutePath =
   | "/slack"
   | "/calls"
   | "/list-builder"
-  | "/raw-browser";
+  | "/raw-browser"
+  | "/demand-forecast";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
 
@@ -288,7 +290,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/slack",
   "/calls",
   "/list-builder",
-  "/raw-browser"
+  "/raw-browser",
+  "/demand-forecast"
 ];
 
 let EMAIL_RECIPIENTS: EmailRecipientRecord[] = [];
@@ -512,6 +515,7 @@ interface AppState {
   emailBody: string;
   emailSaveMessage: string | null;
   emailSending: boolean;
+  demandForecast: DemandForecastState;
   globalSearchOpen: boolean;
   globalQuery: string;
   authSkipped: boolean;
@@ -547,6 +551,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/customer-analysis":
     case "/product-abc":
     case "/report":
+    case "/demand-forecast":
       return "analytics";
     case "/prospects":
     case "/map":
@@ -759,6 +764,7 @@ const state: AppState = {
   emailBody: defaultEmailState.body,
   emailSaveMessage: defaultEmailState.saveMessage,
   emailSending: false,
+  demandForecast: { ...defaultDemandForecastState },
   globalSearchOpen: false,
   globalQuery: "",
   authSkipped: false,
@@ -1470,6 +1476,8 @@ function renderView(): string {
       return state.productABC
         ? renderProductABC(state.productABC)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
+    case "/demand-forecast":
+      return renderDemandForecast(state.demandForecast);
     case "/jikomi":
       return state.jikomiView === "calendar"
         ? `${renderJikomi(state.jikomiList, state.jikomiView)}${renderJikomiCalendar(state.jikomiList)}`
@@ -1711,6 +1719,7 @@ function renderShell(): string {
           { path: "/analytics", label: "売上分析", kicker: "Analytics" },
           { path: "/customer-analysis", label: "得意先分析", kicker: "CustABC" },
           { path: "/product-abc", label: "商品ABC", kicker: "ProdABC" },
+          { path: "/demand-forecast", label: "需要予測", kicker: "Forecast" },
           { path: "/report", label: "集計帳票", kicker: "Report" }
         ]
       }
