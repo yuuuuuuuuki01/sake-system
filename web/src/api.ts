@@ -979,8 +979,8 @@ const PERIOD_VIEW_MAP: Record<AnalyticsPeriod, { products: string; customers: st
   all: { products: "mv_product_sales_totals", customers: "mv_customer_sales_totals" },
   yearly: { products: "mv_product_sales_yearly", customers: "mv_customer_sales_yearly" },
   monthly: { products: "mv_product_sales_monthly", customers: "mv_customer_sales_monthly" },
-  weekly: { products: "mv_product_sales_weekly", customers: "mv_product_sales_weekly" },
-  daily: { products: "mv_product_sales_daily", customers: "mv_product_sales_daily" }
+  weekly: { products: "mv_product_sales_weekly", customers: "mv_customer_sales_weekly" },
+  daily: { products: "mv_product_sales_daily", customers: "mv_customer_sales_daily" }
 };
 
 export async function fetchAnalyticsByPeriod(
@@ -1010,10 +1010,18 @@ export async function fetchAvailablePeriods(
 ): Promise<string[]> {
   if (period === "all") return [];
   const view = PERIOD_VIEW_MAP[period][tab];
+  // RPC経由でDISTINCT periodを取得（マテビューは大量行あるため）
+  const result = await supabaseRpc<{ period: string }[]>("get_distinct_periods", {
+    view_name: view
+  });
+  if (result && result.length > 0) {
+    return result.map((r) => r.period).filter(Boolean).sort().reverse();
+  }
+  // フォールバック: 直接クエリ（上位のみ）
   const rows = await supabaseQuery<LooseRow>(view, {
     select: "period",
     order: "period.desc",
-    limit: "100"
+    limit: "1000"
   });
   const unique = [...new Set(rows.map((r) => getString(r, ["period"], "")))].filter(Boolean);
   return unique.sort().reverse();

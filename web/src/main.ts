@@ -177,6 +177,9 @@ import {
 } from "./utils/import";
 import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./components/RawBrowser";
 import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromSchedule, renderDeliveryCalendarWidget, defaultDemandForecastState, type DemandForecastState, type DeliveryCalendarEntry, type ProductionSegment } from "./components/DemandForecast";
+import { renderChurnAlert, buildChurnAlertData, type ChurnAlertData } from "./components/ChurnAlert";
+import { renderSeasonalCalendar, buildSeasonalData, type SeasonalCalendarState } from "./components/SeasonalCalendar";
+import { renderVisitPlanner, buildVisitPlan, type VisitPlannerState } from "./components/VisitPlanner";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { showToast } from "./components/Toast";
@@ -235,7 +238,10 @@ type RoutePath =
   | "/calls"
   | "/list-builder"
   | "/raw-browser"
-  | "/demand-forecast";
+  | "/demand-forecast"
+  | "/churn-alert"
+  | "/seasonal-calendar"
+  | "/visit-planner";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
 
@@ -300,7 +306,10 @@ const ALL_ROUTES: RoutePath[] = [
   "/calls",
   "/list-builder",
   "/raw-browser",
-  "/demand-forecast"
+  "/demand-forecast",
+  "/churn-alert",
+  "/seasonal-calendar",
+  "/visit-planner"
 ];
 
 let EMAIL_RECIPIENTS: EmailRecipientRecord[] = [];
@@ -363,7 +372,10 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/calls", title: "通話履歴(IVRy)" },
   { path: "/list-builder", title: "リスト取得ツール" },
   { path: "/raw-browser", title: "データブラウザ" },
-  { path: "/demand-forecast", title: "需要予測・納品カレンダー" }
+  { path: "/demand-forecast", title: "需要予測・納品カレンダー" },
+  { path: "/churn-alert", title: "離反アラート・休眠顧客" },
+  { path: "/seasonal-calendar", title: "季節提案カレンダー" },
+  { path: "/visit-planner", title: "訪問計画・ルート最適化" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -534,6 +546,9 @@ interface AppState {
   emailSaveMessage: string | null;
   emailSending: boolean;
   demandForecast: DemandForecastState;
+  churnAlert: ChurnAlertData | null;
+  seasonalCalendar: SeasonalCalendarState | null;
+  visitPlanner: VisitPlannerState | null;
   globalSearchOpen: boolean;
   globalQuery: string;
   authSkipped: boolean;
@@ -582,6 +597,9 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/mobile-order":
     case "/shopify":
     case "/fax":
+    case "/churn-alert":
+    case "/seasonal-calendar":
+    case "/visit-planner":
       return "crm";
     case "/purchase":
     case "/raw-material":
@@ -798,6 +816,9 @@ const state: AppState = {
   emailSaveMessage: defaultEmailState.saveMessage,
   emailSending: false,
   demandForecast: { ...defaultDemandForecastState },
+  churnAlert: null,
+  seasonalCalendar: null,
+  visitPlanner: null,
   globalSearchOpen: false,
   globalQuery: "",
   authSkipped: false,
@@ -1267,6 +1288,68 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           state.demandForecast.deliveries = buildDeliveriesFromSchedule(schedule);
         }
         break;
+      case "/churn-alert":
+        if (!state.churnAlert) {
+          const { supabaseQueryAll } = await import("./supabase");
+          const [headers, customers] = await Promise.all([
+            supabaseQueryAll<{sales_date: string; legacy_customer_code: string; customer_name: string; total_amount: number | string}>("sales_document_headers", {
+              select: "sales_date,legacy_customer_code,customer_name,total_amount"
+            }),
+            state.masterStats ? Promise.resolve(state.masterStats.customers) : fetchMasterStats().then(m => m.customers)
+          ]);
+          state.churnAlert = buildChurnAlertData(
+            headers.map(h => ({ sales_date: h.sales_date || "", legacy_customer_code: h.legacy_customer_code || "", customer_name: h.customer_name || "", total_amount: Number(h.total_amount) || 0 })),
+            (state.masterStats?.customers ?? customers).map(c => ({ code: c.code, name: c.name, businessType: c.businessType, areaCode: c.areaCode, phone: c.phone }))
+          );
+        }
+        break;
+      case "/seasonal-calendar":
+        if (!state.seasonalCalendar) {
+          const { fetchProductMonthlyShipments: fetchShipments } = await import("./api");
+          const shipmentData = await fetchShipments();
+          state.seasonalCalendar = buildSeasonalData(
+            shipmentData.map(s => ({ code: s.code, name: s.name, category: "", monthlyQuantity: s.monthlyQuantity }))
+          );
+        }
+        break;
+      case "/visit-planner":
+        if (!state.visitPlanner) {
+          const { supabaseQueryAll: queryAll } = await import("./supabase");
+          const [hdrs, custs] = await Promise.all([
+            queryAll<{sales_date: string; legacy_customer_code: string; total_amount: number | string}>("sales_document_headers", {
+              select: "sales_date,legacy_customer_code,total_amount"
+            }),
+            state.masterStats ? Promise.resolve(state.masterStats.customers) : fetchMasterStats().then(m => m.customers)
+          ]);
+          const customerList = state.masterStats?.customers ?? custs;
+          // Compute last order date and annual revenue per customer
+          const revenueMap = new Map<string, { lastDate: string; total: number }>();
+          hdrs.forEach(h => {
+            const code = (h as Record<string, unknown>).legacy_customer_code as string || "";
+            const date = (h as Record<string, unknown>).sales_date as string || "";
+            const amt = Number((h as Record<string, unknown>).total_amount) || 0;
+            const existing = revenueMap.get(code);
+            if (!existing || date > existing.lastDate) {
+              revenueMap.set(code, { lastDate: date, total: (existing?.total ?? 0) + amt });
+            } else {
+              existing.total += amt;
+            }
+          });
+          state.visitPlanner = buildVisitPlan(
+            customerList.filter(c => c.isActive).map(c => ({
+              code: c.code,
+              name: c.name,
+              phone: c.phone,
+              address1: c.address1,
+              areaCode: c.areaCode,
+              businessType: c.businessType,
+              annualRevenue: revenueMap.get(c.code)?.total ?? 0,
+              lastOrderDate: revenueMap.get(c.code)?.lastDate ?? "",
+              hasSeasonalProposal: false
+            }))
+          );
+        }
+        break;
       case "/jikomi":
         if (state.jikomiList.length === 0) {
           state.jikomiList = await fetchJikomiList();
@@ -1532,6 +1615,18 @@ function renderView(): string {
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/demand-forecast":
       return renderDemandForecast(state.demandForecast);
+    case "/churn-alert":
+      return state.churnAlert
+        ? renderChurnAlert(state.churnAlert)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">離反データを分析中…</p></div></section>`;
+    case "/seasonal-calendar":
+      return state.seasonalCalendar
+        ? renderSeasonalCalendar(state.seasonalCalendar)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">季節データを分析中…</p></div></section>`;
+    case "/visit-planner":
+      return state.visitPlanner
+        ? renderVisitPlanner(state.visitPlanner)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">訪問計画を生成中…</p></div></section>`;
     case "/jikomi":
       return state.jikomiView === "calendar"
         ? `${renderJikomi(state.jikomiList, state.jikomiView)}${renderJikomiCalendar(state.jikomiList)}`
@@ -1812,8 +1907,11 @@ function renderShell(): string {
     ],
     crm: [
       {
-        label: "営業・顧客",
+        label: "営業ツール",
         items: [
+          { path: "/churn-alert", label: "離反アラート", kicker: "Churn" },
+          { path: "/seasonal-calendar", label: "季節提案", kicker: "Season" },
+          { path: "/visit-planner", label: "訪問計画", kicker: "Visit" },
           { path: "/prospects", label: "新規営業", kicker: "Prospects" },
           { path: "/map", label: "取引先マップ", kicker: "Map" },
           { path: "/list-builder", label: "リスト取得", kicker: "ListBuild" },
@@ -2503,6 +2601,22 @@ function bindEvents(root: HTMLElement): void {
       state.demandForecast.selectedSegment = seg;
       renderApp();
     });
+  });
+
+  // Seasonal calendar: month selection
+  root.querySelectorAll<HTMLButtonElement>("[data-action='select-month']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const month = parseInt(btn.dataset.month ?? "0");
+      if (state.seasonalCalendar) { state.seasonalCalendar.selectedMonth = month; renderApp(); }
+    });
+  });
+
+  // Visit planner: area filter
+  root.querySelector<HTMLSelectElement>("#visit-filter-area")?.addEventListener("change", (e) => {
+    if (state.visitPlanner) { state.visitPlanner.filterArea = (e.target as HTMLSelectElement).value; renderApp(); }
+  });
+  root.querySelector<HTMLInputElement>("#visit-filter-score")?.addEventListener("change", (e) => {
+    if (state.visitPlanner) { state.visitPlanner.filterMinScore = parseInt((e.target as HTMLInputElement).value) || 0; renderApp(); }
   });
 
   root.querySelectorAll<HTMLButtonElement>("[data-product-period]").forEach((btn) => {
