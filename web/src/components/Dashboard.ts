@@ -219,6 +219,7 @@ export function renderDashboard(
       <div class="meta-stack">
         <span class="status-pill ${pipeline.status}">${statusLabelMap[pipeline.status]}</span>
         <span class="meta-note">最終同期 ${formatDateTime(pipeline.lastSyncAt)}</span>
+        <button class="button secondary small" data-action="dashboard-refresh" title="データを再取得">↻ 更新</button>
       </div>
     </section>
 

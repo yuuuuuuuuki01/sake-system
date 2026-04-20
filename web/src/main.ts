@@ -2028,6 +2028,16 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  root.querySelector<HTMLButtonElement>("[data-action='dashboard-refresh']")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "更新中…";
+    await loadData();
+    btn.disabled = false;
+    btn.textContent = "↻ 更新";
+    showToast("ダッシュボードを更新しました", "success");
+  });
+
   root.querySelector<HTMLButtonElement>("[data-action='sales-filter']")?.addEventListener("click", () => {
     const start = root.querySelector<HTMLInputElement>("#sales-start")?.value ?? "";
     const end = root.querySelector<HTMLInputElement>("#sales-end")?.value ?? "";
@@ -4286,3 +4296,11 @@ function initCustomerMap(container: HTMLElement) {
 }
 
 void loadData();
+
+// ダッシュボード自動更新（5分間隔）
+const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
+setInterval(() => {
+  if (state.route === "/" && !state.loading && !document.hidden) {
+    void loadData();
+  }
+}, AUTO_REFRESH_INTERVAL);
