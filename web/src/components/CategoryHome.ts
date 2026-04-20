@@ -1,4 +1,4 @@
-type CategoryKey = "sales" | "brewery" | "purchase" | "more";
+type CategoryKey = "sales" | "brewery" | "purchase" | "crm" | "more" | "settings";
 
 interface CategoryCard {
   title: string;
@@ -25,32 +25,37 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "仕入・買掛", description: "仕入伝票と買掛残高を照合し、支払予定を見通せます。", path: "/purchase" },
     { title: "手形・原料", description: "原料在庫と手形情報を同時に確認し、仕入計画を調整します。", path: "/raw-material" }
   ],
+  crm: [
+    { title: "新規営業", description: "見込客をカンバンで管理。パイプライン金額、確度、活動履歴。", path: "/prospects" },
+    { title: "リスト取得ツール", description: "Google Placesで業種×エリア検索 → 見込客候補を自動取得 → 一括変換。", path: "/list-builder" },
+    { title: "通話履歴 (IVRy)", description: "IVRy電話の通話履歴取得、電話帳同期。不在着信から顧客紐付け。", path: "/calls" },
+    { title: "取引先マップ", description: "取引先の所在地を地図上にプロット。エリア絞込で営業ルート最適化に。", path: "/map" },
+    { title: "メール配信", description: "季節商品の案内メールを下書き保存し、顧客向け配信の準備を行います。", path: "/email" },
+    { title: "メール送信元管理", description: "複数のメールアドレス(営業/蔵見学等)を切り替えて送信。署名・返信先も個別設定。", path: "/mail-senders" },
+    { title: "受注ワークフロー", description: "新規受注→ピッキング→梱包→発送→配達をカンバンで可視化。", path: "/workflow" },
+    { title: "モバイル受注", description: "ラウンダー外出先用。顧客選択→商品選択→確認の3ステップで即受注。", path: "/mobile-order" },
+    { title: "Shopify注文", description: "Shopifyストアの注文を自動同期。EC売上を一元管理。", path: "/shopify" },
+    { title: "FAX OCR", description: "FAX受信画像をOCRしてテキスト化。伝票自動起票。", path: "/fax" }
+  ],
   more: [
     { title: "酒税申告", description: "対象月の酒税見込と必要な集計値を確認して申告準備を進めます。", path: "/tax" },
     { title: "店舗POS", description: "直売所の売上と受注を確認し、当日の販売状況を把握します。", path: "/store" },
     { title: "売上分析", description: "商品別・得意先別の売上分析から傾向を把握し、販促に活用します。", path: "/analytics" },
     { title: "マスタ", description: "得意先や商品マスタの登録状況を確認し、運用の整合性を保ちます。", path: "/master" },
-    { title: "メール配信", description: "季節商品の案内メールを下書き保存し、顧客向け配信の準備を行います。", path: "/email" },
-    { title: "連動設定", description: "WEB連動PC の設定手順と接続情報を確認して同期環境を整えます。", path: "/setup" },
-    { title: "CSV/Excelインポート", description: "Excelで作成したマスタデータをアップロードして一括登録できます。", path: "/import" },
+    { title: "カレンダー", description: "納品/見学/商談/仕込予定を月表示で管理。クリックで予定追加・編集。", path: "/calendar" },
+    { title: "酒蔵見学管理", description: "見学お問合せの一元管理。多言語対応、テンプレ返信、サイト埋め込みフォーム。", path: "/tour" },
     { title: "印刷センター", description: "チェーンストア伝票・見積書・請求書をテンプレートから選んでカスタマイズ印刷。", path: "/print" },
-    { title: "帳票デザイナー", description: "BP1701伝票の各フィールドをドラッグ＆ドロップで正確に配置。実物画像と重ねて位置合わせ。", path: "/form-designer" },
-    { title: "🗺️ 取引先マップ", description: "取引先の所在地を地図上にプロット。エリア絞込で営業ルート最適化に。", path: "/map" },
-    { title: "📋 受注ワークフロー", description: "新規受注→ピッキング→梱包→発送→配達をカンバンで可視化。", path: "/workflow" },
-    { title: "📱 モバイル受注", description: "ラウンダー外出先用。顧客選択→商品選択→確認の3ステップで即受注。", path: "/mobile-order" },
-    { title: "🏭 酒蔵見学管理", description: "見学お問合せの一元管理。多言語対応、テンプレ返信、サイト埋め込みフォーム。", path: "/tour" },
-    { title: "✉️ メール送信元管理", description: "複数のメールアドレス(営業/蔵見学等)を切り替えて送信。署名・返信先も個別設定。", path: "/mail-senders" },
-    { title: "📅 カレンダー", description: "納品/見学/商談/仕込予定を月表示で管理。クリックで予定追加・編集。", path: "/calendar" },
-    { title: "🔌 外部連携設定", description: "Shopify / Googleカレンダー / Cloud Vision (FAX OCR) / Resend のAPIキー設定。", path: "/integrations" },
-    { title: "🛍️ Shopify注文", description: "Shopifyストアの注文を自動同期。EC売上を一元管理。", path: "/shopify" },
-    { title: "📠 FAX OCR", description: "FAX受信画像をOCRしてテキスト化。伝票自動起票。", path: "/fax" },
-    { title: "👥 ユーザー管理", description: "担当者のアカウント・権限・部署を管理 (管理者専用)。", path: "/users" },
-    { title: "👤 プロフィール", description: "自分のアカウント情報・パスワード変更・既定の送信元メール。", path: "/profile" },
-    { title: "🔍 操作ログ", description: "全ユーザーの操作履歴 (監査証跡)。", path: "/audit" },
-    { title: "🎯 新規営業", description: "見込客をカンバンで管理。パイプライン金額、確度、活動履歴。", path: "/prospects" },
-    { title: "💬 Slack通知", description: "受注/入金遅延/低在庫/問合せ等の通知をSlackに自動送信。", path: "/slack" },
-    { title: "📞 通話履歴 (IVRy)", description: "IVRy電話の通話履歴取得、電話帳同期。不在着信から顧客紐付け。", path: "/calls" },
-    { title: "🎯 リスト取得ツール", description: "Google Placesで業種×エリア検索 → 見込客候補を自動取得 → 一括変換。", path: "/list-builder" }
+    { title: "帳票デザイナー", description: "BP1701伝票の各フィールドをドラッグ＆ドロップで正確に配置。実物画像と重ねて位置合わせ。", path: "/form-designer" }
+  ],
+  settings: [
+    { title: "連動設定", description: "WEB連動PC の設定手順と接続情報を確認して同期環境を整えます。", path: "/setup" },
+    { title: "外部連携設定", description: "Shopify / Googleカレンダー / Cloud Vision (FAX OCR) / Resend のAPIキー設定。", path: "/integrations" },
+    { title: "Slack通知", description: "受注/入金遅延/低在庫/問合せ等の通知をSlackに自動送信。", path: "/slack" },
+    { title: "CSV/Excelインポート", description: "Excelで作成したマスタデータをアップロードして一括登録できます。", path: "/import" },
+    { title: "データブラウザ", description: "テーブル単位で生データを閲覧し、連動状況を確認します。", path: "/raw-browser" },
+    { title: "ユーザー管理", description: "担当者のアカウント・権限・部署を管理 (管理者専用)。", path: "/users" },
+    { title: "プロフィール", description: "自分のアカウント情報・パスワード変更・既定の送信元メール。", path: "/profile" },
+    { title: "操作ログ", description: "全ユーザーの操作履歴 (監査証跡)。", path: "/audit" }
   ]
 };
 
@@ -70,10 +75,20 @@ const CATEGORY_TITLES: Record<CategoryKey, { eyebrow: string; title: string; des
     title: "仕入・原料管理",
     description: "買掛管理と原料管理を起点に、仕入関連の画面へ短く遷移できます。"
   },
+  crm: {
+    eyebrow: "営業・CRM",
+    title: "営業・顧客管理",
+    description: "新規開拓、顧客コミュニケーション、受注処理をまとめて管理します。"
+  },
   more: {
-    eyebrow: "その他トップ",
-    title: "周辺業務メニュー",
-    description: "税務、店舗、分析、設定などの補助機能をまとめて配置しています。"
+    eyebrow: "業務ツール",
+    title: "業務ツール",
+    description: "酒税、店舗、分析、カレンダーなど日常業務の補助機能です。"
+  },
+  settings: {
+    eyebrow: "設定",
+    title: "システム設定",
+    description: "連携、通知、ユーザー管理など環境設定をまとめています。"
   }
 };
 

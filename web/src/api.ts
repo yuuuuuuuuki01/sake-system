@@ -544,10 +544,9 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export async function fetchSalesSummary(): Promise<SalesSummary> {
-  const salesRows = await supabaseQuery<DailySalesFactRow>("daily_sales_detail", {
+  const salesRows = await supabaseQueryAll<DailySalesFactRow>("daily_sales_detail", {
     select: "sales_date,amount,document_count,bottles,volume_ml,price_per_bottle,price_per_liter",
-    order: "sales_date.desc",
-    limit: "3000"
+    order: "sales_date.desc"
   });
 
   if (salesRows.length > 0) {
@@ -615,7 +614,7 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
 }
 
 export async function fetchPaymentStatus(): Promise<PaymentStatusSummary> {
-  const rows = await supabaseQuery<CustomerPaymentStatusRow>("customer_payment_status", {
+  const rows = await supabaseQueryAll<CustomerPaymentStatusRow>("customer_payment_status", {
     select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
   });
 
@@ -780,17 +779,34 @@ export async function fetchSyncDashboard(): Promise<SyncDashboard> {
 }
 
 export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecord[]> {
-  const [headerRows, lineRows] = await Promise.all([
-    supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
-      select:
-        "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
-      order: "sales_date.desc",
-      limit: "200"
-    }),
-    supabaseQuery<SalesDocumentLineRow>("sales_document_lines", {
-      select: "id,header_id,document_header_id,document_no,amount,line_amount"
-    })
-  ]);
+  const params: Record<string, string> = {
+    select:
+      "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
+    order: "sales_date.desc"
+  };
+  if (filter.startDate) params["sales_date"] = `gte.${filter.startDate}`;
+  if (filter.endDate) params["sales_date"] = filter.startDate
+    ? `gte.${filter.startDate}`
+    : `lte.${filter.endDate}`;
+  if (filter.startDate && filter.endDate) {
+    params["and"] = `(sales_date.gte.${filter.startDate},sales_date.lte.${filter.endDate})`;
+    delete params["sales_date"];
+  }
+  if (filter.customerCode.trim()) params["or"] = `(customer_code.ilike.*${filter.customerCode.trim()}*,legacy_customer_code.ilike.*${filter.customerCode.trim()}*)`;
+  if (filter.documentNo.trim()) params["or"] = params["or"]
+    ? params["or"]
+    : `(document_no.ilike.*${filter.documentNo.trim()}*,legacy_document_no.ilike.*${filter.documentNo.trim()}*)`;
+
+  const headerRows = await supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
+    ...params,
+    limit: "500"
+  });
+
+  const lineRows = headerRows.length > 0
+    ? await supabaseQueryAll<SalesDocumentLineRow>("sales_document_lines", {
+        select: "id,header_id,document_header_id,document_no,amount,line_amount"
+      })
+    : [];
 
   if (headerRows.length > 0) {
     const lineCountByHeader = new Map<string, number>();
@@ -888,20 +904,17 @@ export async function fetchCustomerLedger(code: string): Promise<CustomerLedger>
 
 export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
   const [dailyRows, invoiceRows, lineRows] = await Promise.all([
-    supabaseQuery<DailySalesFactRow>("daily_sales_detail", {
+    supabaseQueryAll<DailySalesFactRow>("daily_sales_detail", {
       select: "sales_date,amount,bottles,volume_ml,price_per_bottle,price_per_liter",
-      order: "sales_date.asc",
-      limit: "365"
+      order: "sales_date.asc"
     }),
-    supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
+    supabaseQueryAll<SalesDocumentHeaderRow>("sales_document_headers", {
       select:
-        "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
-      limit: "500"
+        "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount"
     }),
-    supabaseQuery<SalesDocumentLineRow>("sales_document_lines", {
+    supabaseQueryAll<SalesDocumentLineRow>("sales_document_lines", {
       select:
-        "id,header_id,document_header_id,document_no,product_code,legacy_product_code,product_name,quantity,amount,line_amount",
-      limit: "1000"
+        "id,header_id,document_header_id,document_no,product_code,legacy_product_code,product_name,quantity,amount,line_amount"
     })
   ]);
 
@@ -950,14 +963,8 @@ export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([month, amount]) => ({ month, amount }))
         .slice(-12),
-      productTotals:
-        productMap.size > 0
-          ? Array.from(productMap.values()).sort((left, right) => right.amount - left.amount)
-          : mockSalesAnalytics.productTotals,
-      customerTotals:
-        customerMap.size > 0
-          ? Array.from(customerMap.values()).sort((left, right) => right.amount - left.amount)
-          : mockSalesAnalytics.customerTotals
+      productTotals: Array.from(productMap.values()).sort((left, right) => right.amount - left.amount),
+      customerTotals: Array.from(customerMap.values()).sort((left, right) => right.amount - left.amount)
     };
   }
 
@@ -1091,7 +1098,73 @@ const mockBilling: BillingSummary = {
 };
 
 export async function fetchBillingSummary(yearMonth: string): Promise<BillingSummary> {
-  return fetchJson(`data/api/latest/billing-${yearMonth}.json`, { ...mockBilling, targetYearMonth: yearMonth });
+  const [year, month] = yearMonth.split("-").map(Number);
+  const startDate = `${yearMonth}-01`;
+  const endDate = `${yearMonth}-31`;
+
+  const [headerRows, customerRows, paymentRows] = await Promise.all([
+    supabaseQueryAll<SalesDocumentHeaderRow>("sales_document_headers", {
+      select: "legacy_customer_code,customer_name,total_amount,billed_amount,sales_date",
+      and: `(sales_date.gte.${startDate},sales_date.lte.${endDate})`
+    }),
+    supabaseQueryAll<LooseRow>("customers", {
+      select: "code,legacy_customer_code,name,closing_day"
+    }),
+    supabaseQueryAll<CustomerPaymentStatusRow>("customer_payment_status", {
+      select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
+    })
+  ]);
+
+  if (headerRows.length > 0) {
+    const customerMap = new Map<string, BillingCustomer>();
+    const closingDayMap = new Map<string, number>();
+    customerRows.forEach((c) => {
+      const code = getString(c, ["code", "legacy_customer_code"], "");
+      if (code) closingDayMap.set(code, getNumber(c, ["closing_day"], 31));
+    });
+    const balanceMap = new Map<string, number>();
+    paymentRows.forEach((p) => {
+      const code = p.legacy_customer_code ?? "";
+      balanceMap.set(code, toNumber(p.balance_amount));
+    });
+
+    headerRows.forEach((row) => {
+      const code = row.legacy_customer_code ?? row.customer_code ?? "";
+      const existing = customerMap.get(code);
+      const amount = toNumber(row.total_amount ?? row.billed_amount);
+      if (existing) {
+        existing.salesAmount += amount;
+        existing.taxAmount = Math.floor((existing.salesAmount * 10) / 110);
+        existing.billingAmount = existing.salesAmount + existing.prevBalance - existing.paymentAmount;
+      } else {
+        const taxAmt = Math.floor((amount * 10) / 110);
+        const prevBal = balanceMap.get(code) ?? 0;
+        customerMap.set(code, {
+          customerCode: code,
+          customerName: row.customer_name ?? code,
+          closingDay: closingDayMap.get(code) ?? 31,
+          salesAmount: amount,
+          taxAmount: taxAmt,
+          prevBalance: prevBal,
+          paymentAmount: 0,
+          billingAmount: amount + prevBal,
+          status: "open"
+        });
+      }
+    });
+
+    const customers = Array.from(customerMap.values()).sort((a, b) => b.billingAmount - a.billingAmount);
+    const totalBilling = customers.reduce((s, c) => s + c.billingAmount, 0);
+
+    return {
+      targetYearMonth: yearMonth,
+      closingDay: 31,
+      totalBilling,
+      customers
+    };
+  }
+
+  return { ...mockBilling, targetYearMonth: yearMonth } as BillingSummary;
 }
 
 // ─── 集計帳票・原価シミュレーション ───────────────────────────────────────────
@@ -1122,7 +1195,72 @@ const mockReport: SalesReport = {
 };
 
 export async function fetchSalesReport(): Promise<SalesReport> {
-  return fetchJson("data/api/latest/sales-report.json", mockReport);
+  const [dailyRows, lineRows] = await Promise.all([
+    supabaseQueryAll<DailySalesFactRow>("daily_sales_detail", {
+      select: "sales_date,amount",
+      order: "sales_date.asc"
+    }),
+    supabaseQueryAll<SalesDocumentLineRow>("sales_document_lines", {
+      select: "document_no,product_code,legacy_product_code,product_name,quantity,amount,line_amount"
+    })
+  ]);
+
+  if (dailyRows.length === 0) return mockReport;
+
+  // 月次売上集計
+  const monthProductMap = new Map<string, Map<string, number>>();
+  const monthCustomerMap = new Map<string, Map<string, number>>();
+  const productNameMap = new Map<string, string>();
+
+  lineRows.forEach((row) => {
+    const code = row.product_code ?? row.legacy_product_code ?? "";
+    if (!code) return;
+    if (row.product_name) productNameMap.set(code, row.product_name);
+  });
+
+  // daily_sales_detailから月次集計
+  const monthlyTotals = new Map<string, number>();
+  dailyRows.forEach((row) => {
+    const month = formatMonthKey(row.sales_date);
+    monthlyTotals.set(month, (monthlyTotals.get(month) ?? 0) + toNumber(row.sales_amount ?? (row as Record<string, unknown>).amount));
+  });
+
+  const months = Array.from(monthlyTotals.keys()).sort().slice(-12);
+
+  // 商品別月次をlineRowsから構築
+  const productMonthly = new Map<string, Map<string, number>>();
+  const headerDateCache = new Map<string, string>();
+
+  // sales_document_headersから日付を取得してlineRowsと紐づける場合は重いので、
+  // productTotals (金額のみ) を使う
+  const productTotalMap = new Map<string, number>();
+  lineRows.forEach((row) => {
+    const code = row.product_code ?? row.legacy_product_code ?? "";
+    if (!code) return;
+    const amt = toNumber(row.line_amount ?? row.amount);
+    productTotalMap.set(code, (productTotalMap.get(code) ?? 0) + amt);
+  });
+
+  const topProducts = Array.from(productTotalMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  const salesByProduct = topProducts.map(([code, total]) => ({
+    label: productNameMap.get(code) ?? code,
+    values: months.map(() => Math.round(total / months.length))
+  }));
+
+  const salesByCustomer: { label: string; values: number[] }[] = [];
+
+  const costSimulation: CostSimRow[] = [];
+
+  return {
+    generatedAt: new Date().toISOString(),
+    months,
+    salesByProduct,
+    salesByCustomer,
+    costSimulation
+  };
 }
 
 // ─── 機能要望 ────────────────────────────────────────────────────────────────
@@ -1350,7 +1488,23 @@ export interface JikomiRecord {
 const mockJikomi: JikomiRecord[] = [];
 
 export async function fetchJikomiList(): Promise<JikomiRecord[]> {
-  return fetchJson("data/api/latest/jikomi.json", mockJikomi);
+  const rows = await supabaseQuery<LooseRow>("brewing_batches", { order: "start_date.desc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      jikomiNo: getString(row, ["batch_no", "legacy_batch_no"], ""),
+      productName: getString(row, ["brand_name"], ""),
+      riceType: getString(row, ["rice_type"], ""),
+      plannedKg: getNumber(row, ["planned_rice_kg"], 0),
+      actualKg: getNumber(row, ["actual_rice_kg"], 0),
+      startDate: getDateString(row, ["start_date"], ""),
+      expectedDoneDate: getDateString(row, ["expected_done_date"], ""),
+      status: (getString(row, ["status"], "planned") as JikomiStatus),
+      tankNo: getString(row, ["tank_no"], ""),
+      note: getString(row, ["remarks"], "")
+    }));
+  }
+  return [];
 }
 
 export interface TankRecord {
@@ -1367,7 +1521,20 @@ export interface TankRecord {
 const mockTanks: TankRecord[] = [];
 
 export async function fetchTankList(): Promise<TankRecord[]> {
-  return fetchJson("data/api/latest/tanks.json", mockTanks);
+  const rows = await supabaseQuery<LooseRow>("tanks", { order: "tank_no.asc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      tankNo: getString(row, ["tank_no"], ""),
+      capacity: getNumber(row, ["capacity_l"], 0),
+      currentVolume: getNumber(row, ["current_volume_l"], 0),
+      productName: getString(row, ["current_product_code"], ""),
+      jikomiNo: getString(row, ["current_batch_id"], ""),
+      status: (getString(row, ["status"], "empty") as TankRecord["status"]),
+      lastUpdated: getDateString(row, ["last_updated_at"], "")
+    }));
+  }
+  return [];
 }
 
 export interface KenteiRecord {
@@ -1387,7 +1554,23 @@ export interface KenteiRecord {
 const mockKentei: KenteiRecord[] = [];
 
 export async function fetchKenteiList(): Promise<KenteiRecord[]> {
-  return fetchJson("data/api/latest/kentei.json", mockKentei);
+  const rows = await supabaseQuery<LooseRow>("kentei_records", { order: "kentei_date.desc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      kenteiNo: getString(row, ["kentei_no"], ""),
+      jikomiNo: getString(row, ["batch_id"], ""),
+      productName: getString(row, ["product_code"], ""),
+      kenteiDate: getDateString(row, ["kentei_date"], ""),
+      alcoholDegree: getNumber(row, ["alcohol_degree"], 0),
+      extractDegree: getNumber(row, ["extract_degree"], 0),
+      sakaMeterValue: getNumber(row, ["sakemeter_value"], 0),
+      volume: getNumber(row, ["volume_l"], 0),
+      taxCategory: getString(row, ["tax_category_code"], ""),
+      status: (getString(row, ["status"], "pending") as KenteiRecord["status"])
+    }));
+  }
+  return [];
 }
 
 export interface MaterialRecord {
@@ -1404,7 +1587,20 @@ export interface MaterialRecord {
 const mockMaterials: MaterialRecord[] = [];
 
 export async function fetchMaterialList(): Promise<MaterialRecord[]> {
-  return fetchJson("data/api/latest/materials.json", mockMaterials);
+  const rows = await supabaseQuery<LooseRow>("materials", { order: "name.asc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      code: getString(row, ["material_code", "legacy_material_code"], ""),
+      name: getString(row, ["name"], ""),
+      unit: getString(row, ["unit"], ""),
+      currentStock: getNumber(row, ["current_stock"], 0),
+      minimumStock: getNumber(row, ["minimum_stock"], 0),
+      unitCost: getNumber(row, ["unit_cost"], 0),
+      lastUpdated: getDateString(row, ["updated_at"], "")
+    }));
+  }
+  return [];
 }
 
 // ─── 仕入・買掛管理 ───────────────────────────────────────────────────────────
@@ -1461,19 +1657,70 @@ export interface RawMaterialStock {
 const mockRawStock: RawMaterialStock[] = [];
 
 export async function fetchPurchaseList(): Promise<PurchaseRecord[]> {
-  return fetchJson("data/api/latest/purchases.json", mockPurchases);
+  const rows = await supabaseQuery<LooseRow>("purchase_document_headers", { order: "purchase_date.desc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      documentNo: getString(row, ["document_no", "legacy_document_no"], ""),
+      purchaseDate: getDateString(row, ["purchase_date"], ""),
+      supplierCode: getString(row, ["supplier_code", "legacy_supplier_code"], ""),
+      supplierName: getString(row, ["supplier_name"], ""),
+      itemName: "",
+      quantity: 0,
+      unitPrice: 0,
+      amount: getNumber(row, ["total_amount"], 0),
+      status: (getString(row, ["payment_status"], "pending") as PurchaseRecord["status"])
+    }));
+  }
+  return [];
 }
 
 export async function fetchPayableList(): Promise<PayableRecord[]> {
-  return fetchJson("data/api/latest/payables.json", mockPayables);
+  const rows = await supabaseQuery<LooseRow>("supplier_payment_status", { order: "legacy_supplier_code.asc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      supplierCode: getString(row, ["supplier_code", "legacy_supplier_code"], ""),
+      supplierName: getString(row, ["legacy_supplier_code"], ""),
+      totalPurchase: getNumber(row, ["total_purchase"], 0),
+      paidAmount: getNumber(row, ["paid_amount"], 0),
+      balance: getNumber(row, ["balance"], 0),
+      nextPaymentDate: getDateString(row, ["next_payment_date"], ""),
+      status: (getString(row, ["status"], "unpaid") as PayableRecord["status"])
+    }));
+  }
+  return [];
 }
 
 export async function fetchBillList(): Promise<BillRecord[]> {
-  return fetchJson("data/api/latest/bills.json", mockBills);
+  const rows = await supabaseQuery<LooseRow>("bills_of_exchange", { order: "due_date.desc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      billNo: getString(row, ["bill_no"], ""),
+      supplierName: getString(row, ["counterparty_name"], ""),
+      amount: getNumber(row, ["amount"], 0),
+      issueDate: getDateString(row, ["issue_date"], ""),
+      dueDate: getDateString(row, ["due_date"], ""),
+      status: (getString(row, ["status"], "holding") as BillRecord["status"])
+    }));
+  }
+  return [];
 }
 
 export async function fetchRawMaterialStock(): Promise<RawMaterialStock[]> {
-  return fetchJson("data/api/latest/raw-stock.json", mockRawStock);
+  const rows = await supabaseQuery<LooseRow>("raw_materials", { order: "name.asc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      code: getString(row, ["material_code", "legacy_material_code"], ""),
+      name: getString(row, ["name"], ""),
+      unit: getString(row, ["unit"], ""),
+      currentStock: getNumber(row, ["current_stock"], 0),
+      minimumStock: getNumber(row, ["minimum_stock"], 0),
+      lastPurchaseDate: getDateString(row, ["last_purchase_date"], ""),
+      unitCost: getNumber(row, ["unit_cost"], 0)
+    }));
+  }
+  return [];
 }
 
 // ─── 税務管理（eTax連携対応） ───────────────────────────────────────────────
@@ -1549,11 +1796,71 @@ const mockTaxDeclaration: TaxDeclaration = {
 };
 
 export async function fetchTaxDeclaration(year: number, month: number): Promise<TaxDeclaration> {
-  return fetchJson(`data/api/latest/tax-${year}-${String(month).padStart(2, "0")}.json`, {
+  const declRows = await supabaseQuery<LooseRow>("tax_declarations", {
+    target_year: `eq.${year}`,
+    target_month: `eq.${month}`,
+    limit: "1"
+  });
+
+  if (declRows.length > 0) {
+    const decl = declRows[0];
+    const declId = getString(decl, ["id"], "");
+
+    const [taxRows, dedRows] = await Promise.all([
+      supabaseQuery<LooseRow>("tax_declaration_rows", {
+        declaration_id: `eq.${declId}`,
+        order: "tax_category_code.asc"
+      }),
+      supabaseQuery<LooseRow>("tax_deductions", {
+        declaration_id: `eq.${declId}`
+      })
+    ]);
+
+    const rows: TaxDeclarationRow[] = taxRows.map((r) => ({
+      taxCategory: getString(r, ["tax_category_code"], ""),
+      taxCategoryName: getString(r, ["tax_category_name"], ""),
+      alcoholDegree: getNumber(r, ["alcohol_degree"], 0),
+      volume: getNumber(r, ["taxable_volume"], 0),
+      taxRate: getNumber(r, ["tax_rate"], 0),
+      taxAmount: getNumber(r, ["tax_amount"], 0),
+      productionVolume: getNumber(r, ["production_volume"], 0),
+      previousBalance: getNumber(r, ["previous_balance"], 0),
+      currentAdjustment: getNumber(r, ["current_adjustment"], 0),
+      exportDeduction: getNumber(r, ["export_deduction"], 0),
+      sampleDeduction: getNumber(r, ["sample_deduction"], 0),
+      taxableVolume: getNumber(r, ["taxable_volume"], 0)
+    }));
+
+    const deductions: TaxDeductionRow[] = dedRows.map((d) => ({
+      type: getString(d, ["deduction_type"], "sample") as TaxDeductionRow["type"],
+      categoryCode: getString(d, ["tax_category_code"], ""),
+      volume: getNumber(d, ["volume"], 0),
+      reason: getString(d, ["reason"], ""),
+      documentNo: getString(d, ["reference_document_no"], "") || undefined
+    }));
+
+    return {
+      targetYear: year,
+      targetMonth: month,
+      companyName: getString(decl, ["company_name"], ""),
+      companyNo: getString(decl, ["company_no"], ""),
+      companyAddress: getString(decl, ["company_address"], ""),
+      companyRepresentative: getString(decl, ["company_representative"], ""),
+      taxOffice: getString(decl, ["tax_office"], ""),
+      rows,
+      deductions,
+      totalVolume: getNumber(decl, ["total_taxable_volume"], 0),
+      totalTax: getNumber(decl, ["total_tax_amount"], 0),
+      status: getString(decl, ["status"], "draft") as TaxDeclaration["status"],
+      submittedAt: getString(decl, ["submitted_at"], "") || null
+    };
+  }
+
+  return {
     ...mockTaxDeclaration,
     targetYear: year,
     targetMonth: month
-  });
+  } as TaxDeclaration;
 }
 
 // XMLエスケープ
@@ -1733,11 +2040,43 @@ const mockStoreSales: StoreSale[] = [];
 const mockStoreOrders: StoreOrder[] = [];
 
 export async function fetchStoreSales(date: string): Promise<StoreSale[]> {
-  return fetchJson(`data/api/latest/store-sales-${date}.json`, mockStoreSales);
+  const rows = await supabaseQuery<LooseRow>("store_sales", {
+    sale_date: `eq.${date}`,
+    order: "sale_time.asc"
+  });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      saleDate: getString(row, ["sale_date"], date),
+      saleTime: getString(row, ["sale_time"], ""),
+      productCode: getString(row, ["product_code"], ""),
+      productName: getString(row, ["product_name"], ""),
+      quantity: getNumber(row, ["quantity"], 0),
+      unitPrice: getNumber(row, ["unit_price"], 0),
+      amount: getNumber(row, ["amount"], 0),
+      paymentMethod: (getString(row, ["payment_method"], "cash") as StoreSale["paymentMethod"])
+    }));
+  }
+  return [];
 }
 
 export async function fetchStoreOrders(): Promise<StoreOrder[]> {
-  return fetchJson("data/api/latest/store-orders.json", mockStoreOrders);
+  const rows = await supabaseQuery<LooseRow>("store_orders", { order: "order_date.desc", limit: "100" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      orderNo: getString(row, ["order_no"], ""),
+      orderDate: getDateString(row, ["order_date"], ""),
+      customerName: getString(row, ["customer_name"], ""),
+      postalCode: getString(row, ["postal_code"], ""),
+      address: getString(row, ["shipping_address"], ""),
+      items: [],
+      totalAmount: getNumber(row, ["total_amount"], 0),
+      status: (getString(row, ["status"], "new") as StoreOrder["status"]),
+      shippingDate: getDateString(row, ["shipping_date"], "")
+    }));
+  }
+  return [];
 }
 
 export async function saveEmailCampaign(campaign: EmailCampaign): Promise<EmailCampaign> {

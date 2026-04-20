@@ -137,3 +137,41 @@ export async function supabaseQuery<T>(
     return [];
   }
 }
+
+export async function supabaseQueryAll<T>(
+  table: string,
+  params: Record<string, string> = {},
+  pageSize = 1000
+): Promise<T[]> {
+  if (!SUPABASE_ANON_KEY) return [];
+  const all: T[] = [];
+  let offset = 0;
+  try {
+    while (true) {
+      const url = new URL(`/rest/v1/${table}`, SUPABASE_URL);
+      Object.entries(params).forEach(([key, value]) => {
+        url.searchParams.set(key, value);
+      });
+      url.searchParams.set("limit", String(pageSize));
+      url.searchParams.set("offset", String(offset));
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          Accept: "application/json",
+          Prefer: "return=representation"
+        }
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const rows = (await response.json()) as T[];
+      all.push(...rows);
+      if (rows.length < pageSize) break;
+      offset += pageSize;
+    }
+    return all;
+  } catch (error) {
+    console.warn(`Failed to query all rows from Supabase table ${table}`, error);
+    return all.length > 0 ? all : [];
+  }
+}
