@@ -792,10 +792,10 @@ export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecor
     params["and"] = `(sales_date.gte.${filter.startDate},sales_date.lte.${filter.endDate})`;
     delete params["sales_date"];
   }
-  if (filter.customerCode.trim()) params["or"] = `(customer_code.ilike.*${filter.customerCode.trim()}*,legacy_customer_code.ilike.*${filter.customerCode.trim()}*)`;
-  if (filter.documentNo.trim()) params["or"] = params["or"]
-    ? params["or"]
-    : `(document_no.ilike.*${filter.documentNo.trim()}*,legacy_document_no.ilike.*${filter.documentNo.trim()}*)`;
+  const orClauses: string[] = [];
+  if (filter.customerCode.trim()) orClauses.push(`customer_code.ilike.*${filter.customerCode.trim()}*`, `legacy_customer_code.ilike.*${filter.customerCode.trim()}*`);
+  if (filter.documentNo.trim()) orClauses.push(`document_no.ilike.*${filter.documentNo.trim()}*`, `legacy_document_no.ilike.*${filter.documentNo.trim()}*`);
+  if (orClauses.length > 0) params["or"] = `(${orClauses.join(",")})`;
 
   const headerRows = await supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
     ...params,
@@ -1044,9 +1044,8 @@ export interface DeliveryNote {
 }
 
 const mockDeliveryNote: DeliveryNote = {
-  documentNo: "", salesDate: "", customerCode: "", customerName: "",
-  customerAddress: "", deliveryAddress: "", lines: [], subtotal: 0,
-  taxAmount: 0, totalAmount: 0, remarks: ""
+  documentNo: "", invoiceDate: "", customerCode: "", customerName: "",
+  customerAddress: "", lines: [], totalAmount: 0, taxAmount: 0, note: ""
 };
 
 export async function fetchDeliveryNote(documentNo: string): Promise<DeliveryNote> {
@@ -1094,7 +1093,7 @@ export interface BillingSummary {
 }
 
 const mockBilling: BillingSummary = {
-  yearMonth: "", generatedAt: new Date().toISOString(), customers: []
+  targetYearMonth: "", closingDay: 31, totalBilling: 0, customers: []
 };
 
 export async function fetchBillingSummary(yearMonth: string): Promise<BillingSummary> {
@@ -1189,9 +1188,11 @@ export interface SalesReport {
 const MONTHS = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
 
 const mockReport: SalesReport = {
-  generatedAt: new Date().toISOString(), yearMonth: "",
-  totalSales: 0, totalCost: 0, grossProfit: 0, grossMarginRate: 0,
-  byProduct: [], byCustomer: [], byArea: []
+  generatedAt: new Date().toISOString(),
+  months: [],
+  salesByProduct: [],
+  salesByCustomer: [],
+  costSimulation: []
 };
 
 export async function fetchSalesReport(): Promise<SalesReport> {
@@ -1485,7 +1486,6 @@ export interface JikomiRecord {
   note: string;
 }
 
-const mockJikomi: JikomiRecord[] = [];
 
 export async function fetchJikomiList(): Promise<JikomiRecord[]> {
   const rows = await supabaseQuery<LooseRow>("brewing_batches", { order: "start_date.desc" });
@@ -1518,7 +1518,6 @@ export interface TankRecord {
   lastUpdated: string;
 }
 
-const mockTanks: TankRecord[] = [];
 
 export async function fetchTankList(): Promise<TankRecord[]> {
   const rows = await supabaseQuery<LooseRow>("tanks", { order: "tank_no.asc" });
@@ -1551,7 +1550,6 @@ export interface KenteiRecord {
   status: "pending" | "submitted" | "approved";
 }
 
-const mockKentei: KenteiRecord[] = [];
 
 export async function fetchKenteiList(): Promise<KenteiRecord[]> {
   const rows = await supabaseQuery<LooseRow>("kentei_records", { order: "kentei_date.desc" });
@@ -1584,7 +1582,6 @@ export interface MaterialRecord {
   lastUpdated: string;
 }
 
-const mockMaterials: MaterialRecord[] = [];
 
 export async function fetchMaterialList(): Promise<MaterialRecord[]> {
   const rows = await supabaseQuery<LooseRow>("materials", { order: "name.asc" });
@@ -1618,7 +1615,6 @@ export interface PurchaseRecord {
   status: "pending" | "confirmed" | "paid";
 }
 
-const mockPurchases: PurchaseRecord[] = [];
 
 export interface PayableRecord {
   supplierCode: string;
@@ -1630,7 +1626,6 @@ export interface PayableRecord {
   status: "unpaid" | "partial" | "paid";
 }
 
-const mockPayables: PayableRecord[] = [];
 
 export interface BillRecord {
   id: string;
@@ -1642,7 +1637,6 @@ export interface BillRecord {
   status: "holding" | "due" | "cleared";
 }
 
-const mockBills: BillRecord[] = [];
 
 export interface RawMaterialStock {
   code: string;
@@ -1654,7 +1648,6 @@ export interface RawMaterialStock {
   unitCost: number;
 }
 
-const mockRawStock: RawMaterialStock[] = [];
 
 export async function fetchPurchaseList(): Promise<PurchaseRecord[]> {
   const rows = await supabaseQuery<LooseRow>("purchase_document_headers", { order: "purchase_date.desc" });
@@ -1792,7 +1785,8 @@ export interface TaxDeclaration {
 const mockTaxDeclaration: TaxDeclaration = {
   targetYear: 0, targetMonth: 0, companyName: "", companyNo: "",
   companyAddress: "", companyRepresentative: "", taxOffice: "",
-  rows: [], totalTaxAmount: 0, filingDeadline: ""
+  rows: [], deductions: [], totalVolume: 0, totalTax: 0,
+  status: "draft", submittedAt: null
 };
 
 export async function fetchTaxDeclaration(year: number, month: number): Promise<TaxDeclaration> {
@@ -2035,9 +2029,6 @@ export interface StoreOrder {
   shippingDate: string;
 }
 
-const mockStoreSales: StoreSale[] = [];
-
-const mockStoreOrders: StoreOrder[] = [];
 
 export async function fetchStoreSales(date: string): Promise<StoreSale[]> {
   const rows = await supabaseQuery<LooseRow>("store_sales", {

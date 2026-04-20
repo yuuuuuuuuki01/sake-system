@@ -105,7 +105,7 @@ import {
 import { renderGlobalSearch } from "./components/GlobalSearch";
 import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
-import { renderQuoteBuilder, defaultQuoteState, type QuoteState } from "./components/QuoteBuilder";
+import { renderQuoteBuilder, defaultQuoteState, generateQuotePdf, type QuoteState } from "./components/QuoteBuilder";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
@@ -740,7 +740,11 @@ const state: AppState = {
   ledgerCustomerCode: defaultLedgerCustomerCode,
   salesPeriod: "month",
   customRange: { start: "", end: "" },
-  quoteState: { ...defaultQuoteState },
+  quoteState: (() => {
+    const s = { ...defaultQuoteState };
+    try { const seal = localStorage.getItem("quote-seal"); if (seal) s.sealSettings = JSON.parse(seal); } catch {}
+    return s;
+  })(),
   quoteCustomerQuery: "",
   quoteProductQuery: "",
   quotePricing: null,
@@ -2247,6 +2251,11 @@ function bindEvents(root: HTMLElement): void {
     q.validUntil = (document.getElementById("q-valid") as HTMLInputElement)?.value ?? "";
     q.subject = (document.getElementById("q-subject") as HTMLInputElement)?.value ?? "";
     q.remarks = (document.getElementById("q-remarks") as HTMLTextAreaElement)?.value ?? "";
+    q.deliveryDate = (document.getElementById("q-delivery-date") as HTMLInputElement)?.value ?? q.deliveryDate;
+    q.paymentTerms = (document.getElementById("q-payment-terms") as HTMLInputElement)?.value ?? q.paymentTerms;
+    q.deliveryPlace = (document.getElementById("q-delivery-place") as HTMLInputElement)?.value ?? q.deliveryPlace;
+    q.fieldConfig.headerNote = (document.getElementById("q-header-note") as HTMLInputElement)?.value ?? q.fieldConfig.headerNote;
+    q.fieldConfig.footerNote = (document.getElementById("q-footer-note") as HTMLInputElement)?.value ?? q.fieldConfig.footerNote;
     const subtotal = q.lines.reduce((s, l) => s + l.amount, 0);
     const tax = Math.round(subtotal * q.taxRate / 100);
     const { supabaseInsert: insert } = await import("./supabase");
@@ -2269,6 +2278,89 @@ function bindEvents(root: HTMLElement): void {
       state.quoteState = { ...defaultQuoteState };
       renderApp();
     }
+  });
+
+  // Quote: preview mode toggle
+  root.querySelector<HTMLButtonElement>("[data-action='quote-preview-mode']")?.addEventListener("click", () => {
+    const q = state.quoteState;
+    q.quoteDate = (document.getElementById("q-date") as HTMLInputElement)?.value ?? q.quoteDate;
+    q.validUntil = (document.getElementById("q-valid") as HTMLInputElement)?.value ?? q.validUntil;
+    q.subject = (document.getElementById("q-subject") as HTMLInputElement)?.value ?? q.subject;
+    q.remarks = (document.getElementById("q-remarks") as HTMLTextAreaElement)?.value ?? q.remarks;
+    q.quoteNo = (document.getElementById("q-no") as HTMLInputElement)?.value ?? q.quoteNo;
+    q.deliveryDate = (document.getElementById("q-delivery-date") as HTMLInputElement)?.value ?? q.deliveryDate;
+    q.paymentTerms = (document.getElementById("q-payment-terms") as HTMLInputElement)?.value ?? q.paymentTerms;
+    q.deliveryPlace = (document.getElementById("q-delivery-place") as HTMLInputElement)?.value ?? q.deliveryPlace;
+    q.fieldConfig.headerNote = (document.getElementById("q-header-note") as HTMLInputElement)?.value ?? q.fieldConfig.headerNote;
+    q.fieldConfig.footerNote = (document.getElementById("q-footer-note") as HTMLInputElement)?.value ?? q.fieldConfig.footerNote;
+    q.previewMode = true;
+    renderApp();
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='quote-edit-mode']")?.addEventListener("click", () => {
+    state.quoteState.previewMode = false;
+    renderApp();
+  });
+
+  // Quote: PDF download
+  root.querySelector<HTMLButtonElement>("[data-action='quote-download-pdf']")?.addEventListener("click", () => {
+    const q = state.quoteState;
+    // Sync current form values before PDF
+    if (!q.previewMode) {
+      q.quoteDate = (document.getElementById("q-date") as HTMLInputElement)?.value ?? q.quoteDate;
+      q.validUntil = (document.getElementById("q-valid") as HTMLInputElement)?.value ?? q.validUntil;
+      q.subject = (document.getElementById("q-subject") as HTMLInputElement)?.value ?? q.subject;
+      q.remarks = (document.getElementById("q-remarks") as HTMLTextAreaElement)?.value ?? q.remarks;
+      q.quoteNo = (document.getElementById("q-no") as HTMLInputElement)?.value ?? q.quoteNo;
+      q.deliveryDate = (document.getElementById("q-delivery-date") as HTMLInputElement)?.value ?? q.deliveryDate;
+      q.paymentTerms = (document.getElementById("q-payment-terms") as HTMLInputElement)?.value ?? q.paymentTerms;
+      q.deliveryPlace = (document.getElementById("q-delivery-place") as HTMLInputElement)?.value ?? q.deliveryPlace;
+      q.fieldConfig.headerNote = (document.getElementById("q-header-note") as HTMLInputElement)?.value ?? q.fieldConfig.headerNote;
+      q.fieldConfig.footerNote = (document.getElementById("q-footer-note") as HTMLInputElement)?.value ?? q.fieldConfig.footerNote;
+    }
+    generateQuotePdf(q);
+  });
+
+  // Quote: field config toggles
+  root.querySelectorAll<HTMLInputElement>("[data-field-toggle]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const key = cb.dataset.fieldToggle as keyof typeof state.quoteState.fieldConfig;
+      if (key && typeof state.quoteState.fieldConfig[key] === "boolean") {
+        (state.quoteState.fieldConfig as Record<string, unknown>)[key] = cb.checked;
+        renderApp();
+      }
+    });
+  });
+
+  // Quote: seal file upload
+  root.querySelector<HTMLInputElement>("#q-seal-file")?.addEventListener("change", (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      state.quoteState.sealSettings = { imageDataUrl: reader.result as string, size: 72 };
+      // Persist to localStorage
+      localStorage.setItem("quote-seal", JSON.stringify(state.quoteState.sealSettings));
+      renderApp();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Quote: seal size slider
+  root.querySelector<HTMLInputElement>("#q-seal-size")?.addEventListener("input", (e) => {
+    const size = parseInt((e.target as HTMLInputElement).value);
+    if (state.quoteState.sealSettings) {
+      state.quoteState.sealSettings.size = size;
+      localStorage.setItem("quote-seal", JSON.stringify(state.quoteState.sealSettings));
+      renderApp();
+    }
+  });
+
+  // Quote: remove seal
+  root.querySelector<HTMLButtonElement>("[data-action='remove-seal']")?.addEventListener("click", () => {
+    state.quoteState.sealSettings = null;
+    localStorage.removeItem("quote-seal");
+    renderApp();
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='dashboard-refresh']")?.addEventListener("click", async (e) => {
@@ -4130,8 +4222,8 @@ function bindEvents(root: HTMLElement): void {
 
   root.querySelector<HTMLButtonElement>("[data-action='email-insert-link']")?.addEventListener("click", () => {
     collectEmailFormFromDom(root);
-    const linkLine = "\n\n商品詳細はこちら: https://example.jp/products/seasonal";
-    if (!state.emailBody.includes("https://example.jp/products/seasonal")) {
+    const linkLine = "\n\n商品詳細はこちら: https://kaneishuzo.co.jp/products";
+    if (!state.emailBody.includes("https://kaneishuzo.co.jp/products")) {
       state.emailBody = `${state.emailBody.trimEnd()}${linkLine}`;
     }
     state.emailSaveMessage = null;
