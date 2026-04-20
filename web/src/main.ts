@@ -112,7 +112,7 @@ import { renderGlobalSearch } from "./components/GlobalSearch";
 import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
 import { renderQuoteBuilder, defaultQuoteState, generateQuotePdf, type QuoteState } from "./components/QuoteBuilder";
-import { renderProductPower, renderCustomerEfficiency } from "./components/BusinessIntelligence";
+import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter } from "./components/BusinessIntelligence";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
@@ -196,8 +196,7 @@ type RoutePath =
   | "/ledger"
   | "/analytics"
   | "/customer-analysis"
-  | "/product-abc"
-  | "/product-power"
+    | "/product-power"
   | "/customer-efficiency"
   | "/invoice-entry"
   | "/quote"
@@ -265,7 +264,6 @@ const ALL_ROUTES: RoutePath[] = [
   "/ledger",
   "/analytics",
   "/customer-analysis",
-  "/product-abc",
   "/invoice-entry",
   "/delivery",
   "/billing",
@@ -334,8 +332,7 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/billing", title: "月次請求" },
   { path: "/report", title: "集計帳票" },
   { path: "/customer-analysis", title: "得意先分析" },
-  { path: "/product-abc", title: "商品ABC分析" },
-  { path: "/jikomi", title: "仕込管理" },
+    { path: "/jikomi", title: "仕込管理" },
   { path: "/tanks", title: "タンク管理" },
   { path: "/kentei", title: "検定管理" },
   { path: "/materials", title: "資材管理" },
@@ -564,7 +561,6 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
       return "sales";
     case "/analytics":
     case "/customer-analysis":
-    case "/product-abc":
     case "/product-power":
     case "/customer-efficiency":
     case "/report":
@@ -774,6 +770,7 @@ const state: AppState = {
   quoteProductQuery: "",
   quotePricing: null,
   productPower: [],
+  productFilter: "all" as ProductViewFilter,
   customerEfficiency: [],
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
@@ -1507,14 +1504,13 @@ function renderView(): string {
         ? renderSalesReport(state.salesReport)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/product-power":
-      return renderProductPower(state.productPower);
+      return renderProductPower(state.productPower, state.productFilter as ProductViewFilter);
     case "/customer-efficiency":
       return renderCustomerEfficiency(state.customerEfficiency);
     case "/customer-analysis":
       return state.customerAnalysis
         ? renderCustomerAnalysis(state.customerAnalysis)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
-    case "/product-abc":
     case "/product-power":
     case "/customer-efficiency":
       return state.productABC
@@ -1793,8 +1789,7 @@ function renderShell(): string {
         items: [
           { path: "/analytics", label: "売上分析", kicker: "Analytics" },
           { path: "/customer-analysis", label: "得意先分析", kicker: "CustABC" },
-          { path: "/product-abc", label: "商品ABC", kicker: "ProdABC" },
-          { path: "/product-power", label: "商品力分析", kicker: "Power" },
+                    { path: "/product-power", label: "商品力分析", kicker: "Power" },
           { path: "/customer-efficiency", label: "営業効率", kicker: "Efficiency" },
           { path: "/demand-forecast", label: "需要予測", kicker: "Forecast" },
           { path: "/report", label: "集計帳票", kicker: "Report" }
@@ -2492,6 +2487,13 @@ function bindEvents(root: HTMLElement): void {
     btn.addEventListener("click", () => {
       const seg = btn.dataset.segment as ProductionSegment | "all";
       state.demandForecast.selectedSegment = seg;
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-product-filter]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.productFilter = (btn.dataset.productFilter ?? "all") as ProductViewFilter;
       renderApp();
     });
   });

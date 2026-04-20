@@ -240,13 +240,24 @@ function renderCustomerRows(customers: MasterCustomer[]): string {
           <td class="mono">${customer.code}</td>
           <td>${customer.name}</td>
           <td>${customer.kanaName || ""}</td>
+          <td>${customer.shortName || ""}</td>
           <td>${customer.businessType || ""}</td>
+          <td>${customer.salesCategory || ""}</td>
           <td>${formatPriceType(customer.priceType)}</td>
+          <td>${customer.priceGroup || ""}</td>
           <td>${customer.phone || ""}</td>
+          <td>${customer.fax || ""}</td>
+          <td>${customer.postalCode || ""}</td>
           <td title="${customer.address1 || ""}">${truncate(customer.address1 || "", 16)}</td>
+          <td>${truncate(customer.address2 || "", 12)}</td>
+          <td>${customer.staffCode || ""}</td>
+          <td>${customer.areaCode || ""}</td>
           <td class="numeric">${customer.closingDay ? customer.closingDay + "日" : ""}</td>
           <td class="numeric">${customer.paymentDay ? customer.paymentDay + "日" : ""}</td>
-          <td>${customer.areaCode || ""}</td>
+          <td>${customer.billingCycleType || ""}</td>
+          <td>${customer.billingCode || ""}</td>
+          <td>${customer.customerGroup1 || ""}</td>
+          <td>${customer.customerGroup2 || ""}</td>
           <td><span class="status-pill ${customer.isActive ? "success" : "neutral"}">${customer.isActive ? "有効" : "停止"}</span></td>
           <td><button class="button secondary small" data-edit-customer="${customer.id}">編集</button></td>
         </tr>
@@ -266,15 +277,21 @@ function renderProductRows(products: MasterProduct[]): string {
         <tr>
           <td class="mono">${product.code}</td>
           <td>${truncate(product.name, 20)}</td>
+          <td>${product.kanaName || ""}</td>
           <td>${product.category}</td>
-          <td class="numeric">${product.alcoholDegree != null ? `${product.alcoholDegree}%` : "―"}</td>
-          <td class="numeric">${product.volumeMl != null ? `${product.volumeMl}ml` : "―"}</td>
-          <td>${product.bottleType || "―"}</td>
+          <td>${product.taxCategoryCode || ""}</td>
+          <td class="numeric">${product.alcoholDegree != null ? `${product.alcoholDegree}` : ""}</td>
+          <td class="numeric">${product.volumeMl != null ? `${product.volumeMl}` : ""}</td>
+          <td>${product.unit || ""}</td>
+          <td>${product.bottleType || ""}</td>
           <td class="numeric">${fmtPrice(product.purchasePrice)}</td>
           <td class="numeric">${fmtPrice(product.salePrice)}</td>
           <td class="numeric">${fmtPrice(product.listPrice)}</td>
+          <td class="numeric">${fmtPrice(product.costPrice)}</td>
+          <td>${product.riceType || ""}</td>
+          <td class="numeric">${product.polishRate != null ? `${product.polishRate}` : ""}</td>
           <td>${product.season || ""}</td>
-          <td class="numeric">${product.polishRate != null ? `${product.polishRate}%` : ""}</td>
+          <td class="numeric">${product.agingYears || ""}</td>
           <td><span class="status-pill ${product.isActive ? "success" : "neutral"}">${product.isActive ? "有効" : "停止"}</span></td>
           <td><button class="button secondary small" data-edit-product="${product.id}">編集</button></td>
         </tr>
@@ -337,13 +354,24 @@ export function renderMasterStats(
                 <th>コード</th>
                 <th>得意先名</th>
                 <th>カナ</th>
+                <th>略称</th>
                 <th>業態</th>
+                <th>販売区分</th>
                 <th>価格区分</th>
-                <th>電話番号</th>
-                <th>住所</th>
+                <th>単価G</th>
+                <th>電話</th>
+                <th>FAX</th>
+                <th>〒</th>
+                <th>住所1</th>
+                <th>住所2</th>
+                <th>担当</th>
+                <th>地区</th>
                 <th class="numeric">締日</th>
                 <th class="numeric">支払日</th>
-                <th>地区</th>
+                <th>入金種</th>
+                <th>請求先</th>
+                <th>G1</th>
+                <th>G2</th>
                 <th>状態</th>
                 <th></th>
               </tr>
@@ -360,15 +388,21 @@ export function renderMasterStats(
               <tr>
                 <th>コード</th>
                 <th>商品名</th>
+                <th>カナ</th>
                 <th>分類</th>
+                <th>酒税区分</th>
                 <th class="numeric">度数</th>
-                <th class="numeric">容量</th>
+                <th class="numeric">容量ml</th>
+                <th>単位</th>
                 <th>容器</th>
                 <th class="numeric">生産者価格</th>
                 <th class="numeric">卸価格</th>
                 <th class="numeric">定価(小売)</th>
-                <th>季節</th>
+                <th class="numeric">原価</th>
+                <th>原料米</th>
                 <th class="numeric">精米歩合</th>
+                <th>季節</th>
+                <th class="numeric">熟成年</th>
                 <th>状態</th>
                 <th></th>
               </tr>

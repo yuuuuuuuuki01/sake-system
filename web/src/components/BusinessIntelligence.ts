@@ -19,15 +19,31 @@ function rankChange(current: string, prev: string): string {
   if (!prev || current === prev) return "";
   const up = current < prev;
   return up
-    ? `<span style="color:#2f855a;font-size:11px;">&#x2191;${prev}→${current}</span>`
-    : `<span style="color:#c53d3d;font-size:11px;">&#x2193;${prev}→${current}</span>`;
+    ? `<span style="color:#2f855a;font-size:11px;">&#x2191;${prev}&#x2192;${current}</span>`
+    : `<span style="color:#c53d3d;font-size:11px;">&#x2193;${prev}&#x2192;${current}</span>`;
 }
 
-export function renderProductPower(products: ProductPower[]): string {
+export type ProductViewFilter = "all" | "A" | "B" | "C" | "growing" | "declining";
+
+export function renderProductPower(products: ProductPower[], activeFilter: ProductViewFilter = "all"): string {
   const aCount = products.filter((p) => p.rank === "A").length;
   const bCount = products.filter((p) => p.rank === "B").length;
-  const growing = products.filter((p) => p.growthRate != null && p.growthRate > 10).length;
-  const declining = products.filter((p) => p.growthRate != null && p.growthRate < -10).length;
+  const cCount = products.filter((p) => p.rank === "C").length;
+  const growing = products.filter((p) => p.growthRate != null && p.growthRate > 10);
+  const declining = products.filter((p) => p.growthRate != null && p.growthRate < -10);
+
+  let filtered = products;
+  let filterLabel = "全商品";
+  switch (activeFilter) {
+    case "A": filtered = products.filter((p) => p.rank === "A"); filterLabel = "Aランク"; break;
+    case "B": filtered = products.filter((p) => p.rank === "B"); filterLabel = "Bランク"; break;
+    case "C": filtered = products.filter((p) => p.rank === "C"); filterLabel = "Cランク"; break;
+    case "growing": filtered = growing; filterLabel = "成長商品(+10%以上)"; break;
+    case "declining": filtered = declining; filterLabel = "衰退商品(-10%以下)"; break;
+  }
+
+  const filterBtn = (key: ProductViewFilter, label: string, count: number) =>
+    `<button class="button ${activeFilter === key ? "primary" : "secondary"} small" data-product-filter="${key}">${label} (${count})</button>`;
 
   return `
     <section class="page-head">
@@ -48,18 +64,28 @@ export function renderProductPower(products: ProductPower[]): string {
       </article>
       <article class="panel kpi-card" style="border-left:4px solid #2f855a;">
         <p class="panel-title">成長商品</p>
-        <p class="kpi-value">${growing}</p>
+        <p class="kpi-value">${growing.length}</p>
         <p class="kpi-sub">前年比+10%以上</p>
       </article>
       <article class="panel kpi-card" style="border-left:4px solid #c53d3d;">
         <p class="panel-title">衰退商品</p>
-        <p class="kpi-value">${declining}</p>
+        <p class="kpi-value">${declining.length}</p>
         <p class="kpi-sub">前年比-10%以下</p>
       </article>
     </section>
 
     <section class="panel">
-      <div class="panel-header"><h2>商品ABC分析（年間売上構成比）</h2></div>
+      <div class="panel-header">
+        <h2>${filterLabel} (${filtered.length}件)</h2>
+      </div>
+      <div class="button-group" style="margin-bottom:12px;">
+        ${filterBtn("all", "全て", products.length)}
+        ${filterBtn("A", "A", aCount)}
+        ${filterBtn("B", "B", bCount)}
+        ${filterBtn("C", "C", cCount)}
+        ${filterBtn("growing", "成長", growing.length)}
+        ${filterBtn("declining", "衰退", declining.length)}
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -73,7 +99,7 @@ export function renderProductPower(products: ProductPower[]): string {
             </tr>
           </thead>
           <tbody>
-            ${products.slice(0, 50).map((p) => `
+            ${filtered.slice(0, 100).map((p) => `
               <tr>
                 <td>${rankBadge(p.rank)}</td>
                 <td>${p.name ? p.name.slice(0, 25) : p.code}${p.volumeMl ? ` <small>${p.volumeMl}ml</small>` : ""}</td>
@@ -83,6 +109,7 @@ export function renderProductPower(products: ProductPower[]): string {
                 <td class="numeric">${growthLabel(p.growthRate)}</td>
               </tr>
             `).join("")}
+            ${filtered.length === 0 ? `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-secondary);">該当なし</td></tr>` : ""}
           </tbody>
         </table>
       </div>
@@ -111,12 +138,10 @@ export function renderCustomerEfficiency(customers: CustomerEfficiency[]): strin
       <article class="panel kpi-card" style="border-left:4px solid #2b6cb0;">
         <p class="panel-title">ランクアップ</p>
         <p class="kpi-value">${upgraded} 社</p>
-        <p class="kpi-sub">前年よりランク上昇</p>
       </article>
       <article class="panel kpi-card" style="border-left:4px solid #c53d3d;">
         <p class="panel-title">ランクダウン</p>
         <p class="kpi-value">${downgraded} 社</p>
-        <p class="kpi-sub">前年よりランク低下</p>
       </article>
     </section>
 
