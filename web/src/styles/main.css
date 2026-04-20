@@ -4013,3 +4013,431 @@ details.panel[open] > summary::before {
   align-items: center;
   gap: 8px;
 }
+
+/* ── Delivery calendar ───────────────────────────────── */
+.dcal-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.dcal-header {
+  padding: 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.dcal-cell {
+  border: 1px solid var(--border);
+  padding: 4px;
+  vertical-align: top;
+  min-height: 60px;
+  height: 70px;
+  position: relative;
+}
+
+.dcal-empty {
+  background: var(--surface-alt, #f8f9fa);
+}
+
+.dcal-today {
+  background: rgba(15, 91, 141, 0.06);
+  border-color: var(--primary);
+}
+
+.dcal-day {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.dcal-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dcal-entry {
+  font-size: 9px;
+  padding: 1px 3px;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dcal-entry.dcal-scheduled {
+  background: #fef3cd;
+  color: #856404;
+}
+
+.dcal-entry.dcal-dispatched {
+  background: #cce5ff;
+  color: #004085;
+}
+
+.dcal-entry.dcal-delivered {
+  background: #d4edda;
+  color: #155724;
+}
+
+.dcal-more {
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+
+.dcal-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+.dcal-dot.scheduled { background: #ffc107; }
+.dcal-dot.dispatched { background: #007bff; }
+.dcal-dot.delivered { background: #28a745; }
+
+.dcal-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ── Demand forecast ─────────────────────────────────── */
+.forecast-table {
+  font-size: 11px;
+}
+
+.forecast-table th,
+.forecast-table td {
+  padding: 6px 4px;
+  white-space: nowrap;
+}
+
+.forecast-month-th {
+  text-align: center;
+  font-size: 10px;
+  min-width: 36px;
+}
+
+.forecast-month-th.current-month {
+  background: rgba(15, 91, 141, 0.1);
+  font-weight: 700;
+}
+
+.forecast-heat {
+  text-align: center;
+  font-size: 10px;
+  padding: 4px 2px;
+}
+
+.segment-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+}
+
+.forecast-info {
+  margin-bottom: 16px;
+}
+
+.forecast-info-card {
+  background: var(--surface-alt, #f8f9fa);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 12px;
+}
+
+.forecast-info-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 6px;
+}
+
+.forecast-info-card li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ===== レスポンシブ包括修正 ===== */
+
+/* -- 全コンテナのwidth:100%保証 -- */
+.view,
+.panel,
+.table-wrap,
+.filter-grid,
+.filter-grid--wide,
+.kpi-grid,
+.content-grid,
+.broadcast-grid,
+.relay-odbc-grid,
+.invoice-filter-grid,
+.ledger-filter-grid,
+.wf-board,
+.tour-layout,
+.cal-toolbar,
+.cal-grid,
+.category-grid,
+.email-filter-grid,
+.option-grid,
+.quote-notes-grid,
+.forecast-chart,
+.forecast-info-card,
+.mobile-order,
+section,
+form {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.view {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* -- テーブルのオーバーフロー保護 -- */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+table {
+  width: 100%;
+}
+
+/* -- SVGチャートのレスポンシブ -- */
+svg.sales-chart,
+svg[role="img"] {
+  max-width: 100%;
+  height: auto;
+}
+
+/* -- filter-grid--wide (Integrations等) -- */
+.filter-grid--wide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.filter-grid--wide > .field,
+.filter-grid--wide > label {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+/* -- タブレット (900px) ブレークポイント追加 -- */
+@media (max-width: 900px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .invoice-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .relay-odbc-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wf-board {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+
+  .ledger-filter-grid {
+    grid-template-columns: 1fr auto;
+  }
+
+  #customer-map {
+    height: 400px !important;
+  }
+}
+
+/* -- スマホ (640px) 追加ルール -- */
+@media (max-width: 640px) {
+  .invoice-filter-grid,
+  .ledger-filter-grid,
+  .relay-odbc-grid,
+  .email-filter-grid,
+  .option-grid,
+  .broadcast-grid,
+  .forecast-info-card ul {
+    grid-template-columns: 1fr;
+  }
+
+  .wf-board {
+    grid-template-columns: 1fr;
+    overflow-x: visible;
+  }
+
+  .wf-col {
+    min-width: 0;
+  }
+
+  .filter-grid > .field {
+    min-width: 0;
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  .meta-stack {
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  #customer-map {
+    height: 300px !important;
+  }
+
+  .cal-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .cal-grid {
+    font-size: 11px;
+  }
+
+  .cal-grid td,
+  .cal-grid th {
+    padding: 4px 2px;
+  }
+
+  .modal-panel {
+    width: calc(100vw - 24px);
+    max-height: 90vh;
+    border-radius: 8px;
+  }
+
+  .modal-backdrop {
+    padding: 12px;
+  }
+
+  .tour-layout {
+    grid-template-columns: 1fr;
+  }
+
+  /* インライン固定幅の上書き */
+  input[style*="width:160px"],
+  input[style*="width: 160px"] {
+    width: 100% !important;
+  }
+
+  .store-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mo-cart-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .summary-list > div {
+    flex-direction: column;
+  }
+
+  .button-group {
+    width: 100%;
+  }
+
+  .button-group > button,
+  .button-group > .button {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* 伝票入力テーブル */
+  .entry-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .entry-table table {
+    min-width: 600px;
+  }
+
+  /* パネルヘッダーのボタン */
+  .panel-header {
+    flex-wrap: wrap;
+  }
+
+  .panel-header .button,
+  .panel-header button {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  /* KPIカードのサブテキスト */
+  .kpi-sub {
+    font-size: 11px;
+    word-break: break-all;
+  }
+
+  /* アクションバー */
+  .action-bar .button,
+  .action-bar button {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* 帳票フォームの横並び防止 */
+  .form-row {
+    flex-direction: column;
+  }
+
+  .form-row > label,
+  .form-row > input,
+  .form-row > select,
+  .form-row > textarea {
+    width: 100%;
+  }
+}
+
+/* -- 超小型 (375px以下) -- */
+@media (max-width: 375px) {
+  .main {
+    padding: 8px;
+    padding-top: 60px;
+  }
+
+  .panel {
+    padding: 10px;
+  }
+
+  .kpi-value {
+    font-size: 18px;
+  }
+
+  .page-head h1 {
+    font-size: 16px;
+  }
+
+  table {
+    min-width: 280px;
+    font-size: 11px;
+  }
+
+  th, td {
+    padding: 4px 6px;
+  }
+
+  .tab-group {
+    grid-template-columns: 1fr;
+  }
+}
