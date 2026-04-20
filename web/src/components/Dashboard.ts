@@ -204,7 +204,11 @@ export function renderDashboard(
 
   const filteredDays = filterByPeriod(summary.allDailySales, activePeriod, customRange);
   const periodTotal = filteredDays.reduce((s, d) => s + d.amount, 0);
+  const periodBottles = filteredDays.reduce((s, d) => s + d.bottles, 0);
+  const periodVolume = filteredDays.reduce((s, d) => s + d.volumeMl, 0);
   const periodDays = filteredDays.length;
+  const avgPricePerBottle = periodBottles > 0 ? Math.round(periodTotal / periodBottles) : 0;
+  const avgPricePerLiter = periodVolume > 0 ? Math.round(periodTotal / (periodVolume / 1000)) : 0;
 
   // 昨対比較: 同じ期間の前年データを抽出
   const lastYearDays = filteredDays.length > 0
@@ -286,6 +290,19 @@ export function renderDashboard(
         <p class="panel-title">月次粗利率</p>
         <p class="kpi-value">${formatMonthlyGrossMargin(analytics)}</p>
         <p class="kpi-sub">売上分析データから集計</p>
+      </article>
+    </section>
+
+    <section class="kpi-grid compact">
+      <article class="panel kpi-card">
+        <p class="panel-title">出荷本数</p>
+        <p class="kpi-value">${periodBottles.toLocaleString("ja-JP")} 本</p>
+        <p class="kpi-sub">本単価 ${formatCurrency(avgPricePerBottle)}</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">出荷液体量</p>
+        <p class="kpi-value">${(periodVolume / 1000).toLocaleString("ja-JP", { maximumFractionDigits: 0 })} L</p>
+        <p class="kpi-sub">L単価 ${formatCurrency(avgPricePerLiter)}</p>
       </article>
     </section>
 
@@ -380,6 +397,39 @@ export function renderDashboard(
             </tr>
           </thead>
           <tbody>${recentSalesRows}</tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>日次推移</h2>
+          <p class="panel-caption">${PERIOD_LABELS[activePeriod]} — 売上・本数・液体量・単価</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>日付</th>
+              <th class="numeric">売上</th>
+              <th class="numeric">本数</th>
+              <th class="numeric">液体量(L)</th>
+              <th class="numeric">本単価</th>
+              <th class="numeric">L単価</th>
+            </tr>
+          </thead>
+          <tbody>${filteredDays.slice().reverse().slice(0, 31).map((d) => `
+            <tr>
+              <td class="mono">${d.date.slice(0, 10)}</td>
+              <td class="numeric">${formatCurrency(d.amount)}</td>
+              <td class="numeric">${d.bottles.toLocaleString("ja-JP")}</td>
+              <td class="numeric">${(d.volumeMl / 1000).toLocaleString("ja-JP", { maximumFractionDigits: 0 })}</td>
+              <td class="numeric">${formatCurrency(d.pricePerBottle)}</td>
+              <td class="numeric">${formatCurrency(d.pricePerLiter)}</td>
+            </tr>
+          `).join("")}</tbody>
         </table>
       </div>
     </section>

@@ -59,6 +59,10 @@ export const SEASONAL_TEMPLATES: Record<EmailTemplate["id"], EmailTemplate> = {
 export interface SalesDayPoint {
   date: string;
   amount: number;
+  bottles: number;
+  volumeMl: number;
+  pricePerBottle: number;
+  pricePerLiter: number;
 }
 
 export type SalesPeriod = "today" | "month" | "90days" | "year" | "all" | "custom";
@@ -229,6 +233,10 @@ interface DailySalesFactRow {
   sales_date: string;
   sales_amount: number | string | null;
   document_count: number | string | null;
+  bottles: number | string | null;
+  volume_ml: number | string | null;
+  price_per_bottle: number | string | null;
+  price_per_liter: number | string | null;
 }
 
 interface CustomerPaymentStatusRow {
@@ -638,8 +646,8 @@ async function fetchJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export async function fetchSalesSummary(): Promise<SalesSummary> {
-  const salesRows = await supabaseQuery<DailySalesFactRow>("daily_sales_summary", {
-    select: "sales_date,sales_amount,document_count",
+  const salesRows = await supabaseQuery<DailySalesFactRow>("daily_sales_detail", {
+    select: "sales_date,amount,document_count,bottles,volume_ml,price_per_bottle,price_per_liter",
     order: "sales_date.desc",
     limit: "3000"
   });
@@ -663,15 +671,20 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
       .sort((left, right) => left.sales_date.localeCompare(right.sales_date))
       .map((row) => ({
         date: new Date(`${row.sales_date}T00:00:00Z`).toISOString(),
-        amount: toNumber(row.sales_amount)
+        amount: toNumber((row as Record<string, unknown>).amount ?? row.sales_amount),
+        bottles: toNumber(row.bottles),
+        volumeMl: toNumber(row.volume_ml),
+        pricePerBottle: toNumber(row.price_per_bottle),
+        pricePerLiter: toNumber(row.price_per_liter)
       }));
     const recentDailySales = allDailySales.slice(-30);
 
+    const toAmt = (row: DailySalesFactRow) => toNumber((row as Record<string, unknown>).amount ?? row.sales_amount);
     const todaySales = salesRows.reduce((sum, row) => {
-      return row.sales_date === todayKey ? sum + toNumber(row.sales_amount) : sum;
+      return row.sales_date === todayKey ? sum + toAmt(row) : sum;
     }, 0);
     const monthSales = salesRows.reduce((sum, row) => {
-      return row.sales_date.startsWith(monthKey) ? sum + toNumber(row.sales_amount) : sum;
+      return row.sales_date.startsWith(monthKey) ? sum + toAmt(row) : sum;
     }, 0);
     const unpaidRows = paymentRows.filter((row) => toNumber(row.balance_amount) > 0);
 
@@ -976,8 +989,8 @@ export async function fetchCustomerLedger(code: string): Promise<CustomerLedger>
 
 export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
   const [dailyRows, invoiceRows, lineRows] = await Promise.all([
-    supabaseQuery<DailySalesFactRow>("daily_sales_summary", {
-      select: "sales_date,sales_amount",
+    supabaseQuery<DailySalesFactRow>("daily_sales_detail", {
+      select: "sales_date,amount,bottles,volume_ml,price_per_bottle,price_per_liter",
       order: "sales_date.asc",
       limit: "365"
     }),
