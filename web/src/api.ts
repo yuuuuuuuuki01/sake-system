@@ -6,6 +6,7 @@ export type PipelineStatus = "success" | "warning" | "error" | "running";
 export type PaymentState = "unpaid" | "partial" | "paid";
 export type MasterTab = "customers" | "products";
 export type AnalyticsTab = "products" | "customers";
+export type AnalyticsPeriod = "all" | "yearly" | "monthly" | "weekly" | "daily";
 export type EmailCampaignStatus = "draft" | "sent";
 
 export interface EmailTemplate {
@@ -965,6 +966,59 @@ export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
   return mockSalesAnalytics;
 }
 
+export interface PeriodBreakdownRow {
+  code: string;
+  name: string;
+  period: string;
+  amount: number;
+  quantity: number;
+  documents: number;
+}
+
+const PERIOD_VIEW_MAP: Record<AnalyticsPeriod, { products: string; customers: string }> = {
+  all: { products: "mv_product_sales_totals", customers: "mv_customer_sales_totals" },
+  yearly: { products: "mv_product_sales_yearly", customers: "mv_customer_sales_yearly" },
+  monthly: { products: "mv_product_sales_monthly", customers: "mv_customer_sales_monthly" },
+  weekly: { products: "mv_product_sales_weekly", customers: "mv_product_sales_weekly" },
+  daily: { products: "mv_product_sales_daily", customers: "mv_product_sales_daily" }
+};
+
+export async function fetchAnalyticsByPeriod(
+  tab: AnalyticsTab,
+  period: AnalyticsPeriod,
+  periodFilter?: string
+): Promise<PeriodBreakdownRow[]> {
+  const view = PERIOD_VIEW_MAP[period][tab];
+  const params: Record<string, string> = { order: "amount.desc", limit: "200" };
+  if (periodFilter && period !== "all") {
+    params["period"] = `eq.${periodFilter}`;
+  }
+  const rows = await supabaseQuery<LooseRow>(view, params);
+  return rows.map((r) => ({
+    code: getString(r, ["code"], ""),
+    name: getString(r, ["name"], ""),
+    period: getString(r, ["period"], ""),
+    amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0),
+    documents: getNumber(r, ["documents"], 0)
+  }));
+}
+
+export async function fetchAvailablePeriods(
+  tab: AnalyticsTab,
+  period: AnalyticsPeriod
+): Promise<string[]> {
+  if (period === "all") return [];
+  const view = PERIOD_VIEW_MAP[period][tab];
+  const rows = await supabaseQuery<LooseRow>(view, {
+    select: "period",
+    order: "period.desc",
+    limit: "100"
+  });
+  const unique = [...new Set(rows.map((r) => getString(r, ["period"], "")))].filter(Boolean);
+  return unique.sort().reverse();
+}
+
 // ─── 伝票入力 ────────────────────────────────────────────────────────────────
 
 export type InvoiceType = "sales" | "return" | "export_return";
@@ -1462,6 +1516,30 @@ export async function fetchProductPower(): Promise<ProductPower[]> {
     sharePct: Number(r.share_pct ?? 0),
     growthRate: r.growth_rate != null ? Number(r.growth_rate) : null,
     rank: String(r.rank ?? "C")
+  }));
+}
+
+export interface ProductDailyRow {
+  date: string;
+  productCode: string;
+  productName: string;
+  volumeMl: number | null;
+  amount: number;
+  qty: number;
+}
+
+export async function fetchProductDaily(): Promise<ProductDailyRow[]> {
+  const rows = await supabaseQueryAll<Record<string, unknown>>("product_daily", {
+    select: "sales_date,legacy_product_code,product_name,volume_ml,amount,qty",
+    order: "sales_date.desc"
+  });
+  return rows.map((r) => ({
+    date: String(r.sales_date ?? ""),
+    productCode: String(r.legacy_product_code ?? ""),
+    productName: String(r.product_name ?? ""),
+    volumeMl: r.volume_ml ? Number(r.volume_ml) : null,
+    amount: Number(r.amount ?? 0),
+    qty: Number(r.qty ?? 0)
   }));
 }
 

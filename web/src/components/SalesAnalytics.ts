@@ -1,4 +1,4 @@
-import type { AnalyticsBreakdownRow, AnalyticsTab, SalesAnalytics } from "../api";
+import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, PeriodBreakdownRow, SalesAnalytics } from "../api";
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", {
@@ -11,6 +11,14 @@ function formatCurrency(amount: number): string {
 function formatMonth(value: string): string {
   return value.replace("-", "/");
 }
+
+const PERIOD_LABELS: Record<AnalyticsPeriod, string> = {
+  all: "全期間",
+  yearly: "年次",
+  monthly: "月次",
+  weekly: "週次",
+  daily: "日次"
+};
 
 function buildBars(points: SalesAnalytics["monthlySales"]): string {
   if (points.length === 0) {
@@ -81,9 +89,48 @@ function renderBreakdownRows(rows: AnalyticsBreakdownRow[]): string {
     .join("");
 }
 
-export function renderSalesAnalytics(summary: SalesAnalytics, activeTab: AnalyticsTab): string {
+function renderPeriodRows(rows: PeriodBreakdownRow[]): string {
+  if (rows.length === 0) {
+    return `<tr><td colspan="6" class="empty-row">データなし</td></tr>`;
+  }
+
+  return rows
+    .map(
+      (row) => `
+        <tr>
+          <td class="mono">${row.code}</td>
+          <td>${row.name}</td>
+          <td class="mono">${row.period}</td>
+          <td class="numeric">${formatCurrency(row.amount)}</td>
+          <td class="numeric">${row.quantity.toLocaleString("ja-JP")}</td>
+          <td class="numeric">${row.documents.toLocaleString("ja-JP")}</td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+export function renderSalesAnalytics(
+  summary: SalesAnalytics,
+  activeTab: AnalyticsTab,
+  activePeriod: AnalyticsPeriod = "all",
+  periodFilter: string = "",
+  periodRows: PeriodBreakdownRow[] = [],
+  periodOptions: string[] = []
+): string {
   const tableTitle = activeTab === "products" ? "商品別集計" : "得意先別集計";
   const rows = activeTab === "products" ? summary.productTotals : summary.customerTotals;
+  const showPeriodData = activePeriod !== "all" && periodRows.length > 0;
+
+  const periodButtons = (["all", "yearly", "monthly", "weekly", "daily"] as AnalyticsPeriod[])
+    .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-analytics-period="${p}">${PERIOD_LABELS[p]}</button>`)
+    .join("");
+
+  const periodSelect = activePeriod !== "all" && periodOptions.length > 0
+    ? `<select id="analytics-period-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+        ${periodOptions.map((o) => `<option value="${o}" ${o === periodFilter ? "selected" : ""}>${o}</option>`).join("")}
+      </select>`
+    : "";
 
   return `
     <section class="page-head">
@@ -117,18 +164,25 @@ export function renderSalesAnalytics(summary: SalesAnalytics, activeTab: Analyti
             <button class="tab-button ${activeTab === "customers" ? "active" : ""}" data-analytics-tab="customers">得意先別</button>
           </div>
         </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+          <div class="button-group">${periodButtons}</div>
+          ${periodSelect}
+        </div>
+
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>コード</th>
                 <th>名称</th>
+                ${showPeriodData ? "<th>期間</th>" : ""}
                 <th class="numeric">売上額</th>
                 <th class="numeric">数量</th>
                 <th class="numeric">伝票数</th>
               </tr>
             </thead>
-            <tbody>${renderBreakdownRows(rows)}</tbody>
+            <tbody>${showPeriodData ? renderPeriodRows(periodRows) : renderBreakdownRows(rows)}</tbody>
           </table>
         </div>
       </article>

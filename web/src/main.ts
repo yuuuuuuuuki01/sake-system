@@ -519,6 +519,10 @@ interface AppState {
   masterTab: MasterTab;
   masterFilter: MasterFilterState;
   analyticsTab: AnalyticsTab;
+  analyticsPeriod: import("./api").AnalyticsPeriod;
+  analyticsPeriodFilter: string;
+  analyticsPeriodRows: import("./api").PeriodBreakdownRow[];
+  analyticsPeriodOptions: string[];
   emailAudienceMode: EmailAudienceMode;
   emailRegion: string;
   emailHistorySegment: string;
@@ -775,6 +779,10 @@ const state: AppState = {
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
+  analyticsPeriod: "all" as import("./api").AnalyticsPeriod,
+  analyticsPeriodFilter: "",
+  analyticsPeriodRows: [] as import("./api").PeriodBreakdownRow[],
+  analyticsPeriodOptions: [] as string[],
   emailAudienceMode: defaultEmailState.mode,
   emailRegion: defaultEmailState.region,
   emailHistorySegment: defaultEmailState.historySegment,
@@ -1692,7 +1700,7 @@ function renderView(): string {
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions);
     case "/":
     default:
       return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
@@ -2601,10 +2609,42 @@ function bindEvents(root: HTMLElement): void {
   });
 
   root.querySelectorAll<HTMLButtonElement>("[data-analytics-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       state.analyticsTab = button.dataset.analyticsTab as AnalyticsTab;
+      // 期間が全期間以外なら再取得
+      if (state.analyticsPeriod !== "all") {
+        const { fetchAnalyticsByPeriod, fetchAvailablePeriods } = await import("./api");
+        state.analyticsPeriodOptions = await fetchAvailablePeriods(state.analyticsTab, state.analyticsPeriod);
+        state.analyticsPeriodFilter = state.analyticsPeriodOptions[0] ?? "";
+        state.analyticsPeriodRows = await fetchAnalyticsByPeriod(state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter);
+      }
       renderApp();
     });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-analytics-period]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const { fetchAnalyticsByPeriod, fetchAvailablePeriods } = await import("./api");
+      const period = button.dataset.analyticsPeriod as import("./api").AnalyticsPeriod;
+      state.analyticsPeriod = period;
+      if (period === "all") {
+        state.analyticsPeriodRows = [];
+        state.analyticsPeriodOptions = [];
+        state.analyticsPeriodFilter = "";
+      } else {
+        state.analyticsPeriodOptions = await fetchAvailablePeriods(state.analyticsTab, period);
+        state.analyticsPeriodFilter = state.analyticsPeriodOptions[0] ?? "";
+        state.analyticsPeriodRows = await fetchAnalyticsByPeriod(state.analyticsTab, period, state.analyticsPeriodFilter);
+      }
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLSelectElement>("#analytics-period-select")?.addEventListener("change", async (e) => {
+    const { fetchAnalyticsByPeriod } = await import("./api");
+    state.analyticsPeriodFilter = (e.target as HTMLSelectElement).value;
+    state.analyticsPeriodRows = await fetchAnalyticsByPeriod(state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter);
+    renderApp();
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='add-line']")?.addEventListener("click", () => {
