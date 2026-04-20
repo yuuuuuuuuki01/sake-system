@@ -102,6 +102,7 @@ import {
 import { renderGlobalSearch } from "./components/GlobalSearch";
 import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
+import { renderQuoteBuilder, defaultQuoteState, type QuoteState } from "./components/QuoteBuilder";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
@@ -186,6 +187,7 @@ type RoutePath =
   | "/customer-analysis"
   | "/product-abc"
   | "/invoice-entry"
+  | "/quote"
   | "/delivery"
   | "/billing"
   | "/report"
@@ -484,6 +486,9 @@ interface AppState {
   ledgerCustomerCode: string;
   salesPeriod: SalesPeriod;
   customRange: { start: string; end: string };
+  quoteState: QuoteState;
+  quoteCustomerQuery: string;
+  quoteProductQuery: string;
   masterTab: MasterTab;
   masterFilter: MasterFilterState;
   analyticsTab: AnalyticsTab;
@@ -705,6 +710,9 @@ const state: AppState = {
   ledgerCustomerCode: defaultLedgerCustomerCode,
   salesPeriod: "month",
   customRange: { start: "", end: "" },
+  quoteState: { ...defaultQuoteState },
+  quoteCustomerQuery: "",
+  quoteProductQuery: "",
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
@@ -1396,6 +1404,14 @@ function renderView(): string {
         state.invoiceSaving,
         state.invoiceErrors
       );
+    case "/quote":
+      return renderQuoteBuilder(
+        state.quoteState,
+        state.masterStats?.customers ?? [],
+        state.masterStats?.products ?? [],
+        state.quoteCustomerQuery,
+        state.quoteProductQuery
+      );
     case "/email":
       return renderEmailBroadcast(buildEmailViewState());
     case "/delivery":
@@ -1645,6 +1661,7 @@ function renderShell(): string {
         items: [
           { path: "/cat/sales", label: "販売管理トップ", kicker: "Category" },
           { path: "/invoice-entry", label: "伝票入力", kicker: "Entry" },
+          { path: "/quote", label: "見積作成", kicker: "Quote" },
           { path: "/delivery", label: "納品書", kicker: "Delivery" },
           { path: "/billing", label: "月次請求", kicker: "Billing" },
           { path: "/report", label: "集計帳票", kicker: "Report" },
@@ -2100,6 +2117,86 @@ function bindEvents(root: HTMLElement): void {
         if (ok) { document.getElementById("edit-modal")?.remove(); void loadData(); }
       });
     });
+  });
+
+  // 見積もり作成
+  root.querySelector<HTMLInputElement>("#q-cust-search")?.addEventListener("input", (e) => {
+    state.quoteCustomerQuery = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+  root.querySelector<HTMLInputElement>("#q-prod-search")?.addEventListener("input", (e) => {
+    state.quoteProductQuery = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-select-customer]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.quoteState.customerCode = btn.dataset.selectCustomer ?? "";
+      state.quoteState.customerName = btn.dataset.custName ?? "";
+      state.quoteState.customerAddress = btn.dataset.custAddr ?? "";
+      state.quoteCustomerQuery = "";
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-add-product]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const code = btn.dataset.addProduct ?? "";
+      const name = btn.dataset.prodName ?? "";
+      const price = parseInt(btn.dataset.prodPrice ?? "0");
+      state.quoteState.lines.push({ productCode: code, productName: name, quantity: 1, unit: "本", unitPrice: price, amount: price });
+      state.quoteProductQuery = "";
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLInputElement>(".qty-input").forEach((inp) => {
+    inp.addEventListener("change", () => {
+      const idx = parseInt(inp.dataset.lineIdx ?? "0");
+      const line = state.quoteState.lines[idx];
+      if (line) { line.quantity = parseInt(inp.value) || 0; line.amount = line.quantity * line.unitPrice; renderApp(); }
+    });
+  });
+  root.querySelectorAll<HTMLInputElement>(".price-input").forEach((inp) => {
+    inp.addEventListener("change", () => {
+      const idx = parseInt(inp.dataset.lineIdx ?? "0");
+      const line = state.quoteState.lines[idx];
+      if (line) { line.unitPrice = parseInt(inp.value) || 0; line.amount = line.quantity * line.unitPrice; renderApp(); }
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-remove-line]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.removeLine ?? "0");
+      state.quoteState.lines.splice(idx, 1);
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='save-quote']")?.addEventListener("click", async () => {
+    const q = state.quoteState;
+    q.quoteNo = q.quoteNo || `Q${Date.now().toString(36).toUpperCase()}`;
+    q.quoteDate = (document.getElementById("q-date") as HTMLInputElement)?.value ?? q.quoteDate;
+    q.validUntil = (document.getElementById("q-valid") as HTMLInputElement)?.value ?? "";
+    q.subject = (document.getElementById("q-subject") as HTMLInputElement)?.value ?? "";
+    q.remarks = (document.getElementById("q-remarks") as HTMLTextAreaElement)?.value ?? "";
+    const subtotal = q.lines.reduce((s, l) => s + l.amount, 0);
+    const tax = Math.round(subtotal * q.taxRate / 100);
+    const { supabaseInsert: insert } = await import("./supabase");
+    const saved = await insert<{ id: string }>("quotes", {
+      quote_no: q.quoteNo, quote_date: q.quoteDate, valid_until: q.validUntil || null,
+      legacy_customer_code: q.customerCode, customer_name: q.customerName,
+      customer_address: q.customerAddress, subject: q.subject,
+      subtotal, tax_amount: tax, total_amount: subtotal + tax, remarks: q.remarks
+    });
+    if (saved?.id) {
+      for (let i = 0; i < q.lines.length; i++) {
+        const l = q.lines[i];
+        await insert("quote_lines", {
+          quote_id: saved.id, line_no: i + 1,
+          legacy_product_code: l.productCode, product_name: l.productName,
+          quantity: l.quantity, unit: l.unit, unit_price: l.unitPrice, amount: l.amount
+        });
+      }
+      alert(`見積 ${q.quoteNo} を保存しました`);
+      state.quoteState = { ...defaultQuoteState };
+      renderApp();
+    }
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='dashboard-refresh']")?.addEventListener("click", async (e) => {

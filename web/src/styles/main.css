@@ -3704,3 +3704,85 @@ details.panel[open] > summary::before {
   margin: 0 0 16px;
   font-size: 16px;
 }
+
+/* ===== 見積作成 ===== */
+.quote-header-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.quote-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: start;
+}
+
+.quote-totals {
+  min-width: 200px;
+  font-size: 14px;
+}
+
+.quote-totals > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.quote-totals .total-row {
+  font-weight: 700;
+  font-size: 16px;
+  border-bottom: 2px solid var(--primary);
+}
+
+.search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+.search-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.search-item:hover {
+  background: var(--primary-soft);
+}
+
+.selected-item {
+  padding: 8px 12px;
+  background: var(--primary-soft);
+  border-radius: 6px;
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.qty-input, .price-input {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .quote-header-grid {
+    grid-template-columns: 1fr;
+  }
+  .quote-summary {
+    grid-template-columns: 1fr;
+  }
+}
