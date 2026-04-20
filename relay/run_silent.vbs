@@ -5,7 +5,7 @@
 '   1. relay_agent.py — 酒仙iバイナリ→Supabase sake_*テーブルにraw同期
 '   2. decoder_customers.py — 得意先デコード（MSTファイル直読み）
 '   3. decoder_products.py --from-file — 商品デコード（MSTファイル直読み）
-'   4. decoder_sales_lines.py — 売上明細デコード（SHTOR.DATバイナリ直読み）
+'   4. decoder_sales_diff.py — 売上明細デコード（SHTOR.DATバイナリdiff方式）
 '   5. refresh_facts.py — ダッシュボード集計テーブル更新
 '   6. decoder_suppliers.py — 仕入先デコード（raw→Supabase経由）
 '   7. decoder_special_prices.py — 特価デコード（raw→Supabase経由）
@@ -26,8 +26,8 @@ objShell.Run "python relay_agent.py", 0, True
 objShell.Run "python decoder_customers.py", 0, True
 objShell.Run "python decoder_products.py --from-file", 0, True
 
-' 3. 売上明細（SHTOR.DATバイナリ直読み — リアルタイム）
-objShell.Run "python decoder_sales_lines.py", 0, True
+' 3. 売上明細（SHTOR.DAT差分検出 — 変更されたスロットのみ、偽陽性なし）
+objShell.Run "python decoder_sales_diff.py", 0, True
 
 ' 4. ダッシュボード集計更新
 objShell.Run "python refresh_facts.py", 0, True
