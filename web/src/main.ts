@@ -35,6 +35,8 @@ import {
   fetchCustomerPricing,
   resolveProductPrice,
   fetchProductPower,
+  fetchProductDaily,
+  type ProductDailyRow,
   fetchCustomerEfficiency,
   type CustomerPricing,
   type ProductPower,
@@ -112,7 +114,7 @@ import { renderGlobalSearch } from "./components/GlobalSearch";
 import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
 import { renderQuoteBuilder, defaultQuoteState, generateQuotePdf, type QuoteState } from "./components/QuoteBuilder";
-import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter } from "./components/BusinessIntelligence";
+import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter, type ProductPeriod } from "./components/BusinessIntelligence";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
@@ -775,6 +777,10 @@ const state: AppState = {
   quotePricing: null,
   productPower: [],
   productFilter: "all" as ProductViewFilter,
+  productPeriod: "year" as ProductPeriod,
+  productDaily: [] as ProductDailyRow[],
+  productCustomStart: "",
+  productCustomEnd: "",
   customerEfficiency: [],
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
@@ -1512,7 +1518,7 @@ function renderView(): string {
         ? renderSalesReport(state.salesReport)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/product-power":
-      return renderProductPower(state.productPower, state.productFilter as ProductViewFilter);
+      return renderProductPower(state.productPower, state.productFilter as ProductViewFilter, state.productDaily, state.productPeriod as ProductPeriod, state.productCustomStart, state.productCustomEnd);
     case "/customer-efficiency":
       return renderCustomerEfficiency(state.customerEfficiency);
     case "/customer-analysis":
@@ -2497,6 +2503,24 @@ function bindEvents(root: HTMLElement): void {
       state.demandForecast.selectedSegment = seg;
       renderApp();
     });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-product-period]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.productPeriod = (btn.dataset.productPeriod ?? "year") as ProductPeriod;
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='pp-apply-range']")?.addEventListener("click", () => {
+    const start = (document.getElementById("pp-range-start") as HTMLInputElement)?.value ?? "";
+    const end = (document.getElementById("pp-range-end") as HTMLInputElement)?.value ?? "";
+    if (start && end) {
+      state.productCustomStart = start;
+      state.productCustomEnd = end;
+      state.productPeriod = "custom";
+      renderApp();
+    }
   });
 
   root.querySelectorAll<HTMLButtonElement>("[data-product-filter]").forEach((btn) => {

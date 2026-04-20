@@ -1,4 +1,4 @@
-import type { ProductPower, CustomerEfficiency } from "../api";
+import type { ProductPower, CustomerEfficiency, ProductDailyRow } from "../api";
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 }).format(amount);
@@ -10,7 +10,7 @@ function rankBadge(rank: string): string {
 }
 
 function growthLabel(rate: number | null): string {
-  if (rate == null) return `<span style="color:#9aa5b1;">新規</span>`;
+  if (rate == null) return `<span style="color:#9aa5b1;">―</span>`;
   const color = rate >= 0 ? "#2f855a" : "#c53d3d";
   return `<span style="color:${color};font-weight:700;">${rate >= 0 ? "+" : ""}${rate.toFixed(1)}%</span>`;
 }
@@ -24,8 +24,117 @@ function rankChange(current: string, prev: string): string {
 }
 
 export type ProductViewFilter = "all" | "A" | "B" | "C" | "growing" | "declining";
+export type ProductPeriod = "week" | "month" | "90days" | "year" | "custom";
 
-export function renderProductPower(products: ProductPower[], activeFilter: ProductViewFilter = "all"): string {
+interface AggregatedProduct {
+  code: string; name: string; volumeMl: number | null;
+  amount: number; qty: number; sharePct: number; rank: string;
+  prevAmount: number; growthRate: number | null;
+}
+
+function aggregateByPeriod(
+  daily: ProductDailyRow[],
+  startDate: string,
+  endDate: string,
+  prevStartDate: string,
+  prevEndDate: string
+): AggregatedProduct[] {
+  // 現期間集計
+  const current = new Map<string, { name: string; vol: number | null; amt: number; qty: number }>();
+  const prev = new Map<string, number>();
+
+  for (const r of daily) {
+    if (r.date >= startDate && r.date <= endDate) {
+      const existing = current.get(r.productCode);
+      if (existing) {
+        existing.amt += r.amount;
+        existing.qty += r.qty;
+      } else {
+        current.set(r.productCode, { name: r.productName, vol: r.volumeMl, amt: r.amount, qty: r.qty });
+      }
+    }
+    if (r.date >= prevStartDate && r.date <= prevEndDate) {
+      prev.set(r.productCode, (prev.get(r.productCode) ?? 0) + r.amount);
+    }
+  }
+
+  // ソートして構成比計算
+  const sorted = [...current.entries()]
+    .map(([code, d]) => ({ code, ...d }))
+    .sort((a, b) => b.amt - a.amt);
+
+  const total = sorted.reduce((s, p) => s + p.amt, 0);
+  let cumulative = 0;
+
+  return sorted.map((p) => {
+    cumulative += p.amt;
+    const sharePct = total > 0 ? Math.round(p.amt * 10000 / total) / 100 : 0;
+    const rank = cumulative <= total * 0.7 ? "A" : cumulative <= total * 0.9 ? "B" : "C";
+    const prevAmt = prev.get(p.code) ?? 0;
+    const growthRate = prevAmt > 0 ? Math.round(((p.amt - prevAmt) / prevAmt) * 1000) / 10 : null;
+    return {
+      code: p.code, name: p.name, volumeMl: p.vol,
+      amount: p.amt, qty: p.qty, sharePct, rank,
+      prevAmount: prevAmt, growthRate
+    };
+  });
+}
+
+function calcDates(period: ProductPeriod, customStart?: string, customEnd?: string): { start: string; end: string; prevStart: string; prevEnd: string; label: string } {
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+  let start = todayKey, end = todayKey, label = "";
+
+  switch (period) {
+    case "week": {
+      const d = new Date(now); d.setDate(d.getDate() - 7);
+      start = d.toISOString().slice(0, 10); end = todayKey; label = "直近7日間";
+      break;
+    }
+    case "month": {
+      start = todayKey.slice(0, 7) + "-01"; end = todayKey; label = "当月";
+      break;
+    }
+    case "90days": {
+      const d = new Date(now); d.setDate(d.getDate() - 90);
+      start = d.toISOString().slice(0, 10); end = todayKey; label = "直近90日間";
+      break;
+    }
+    case "year": {
+      const d = new Date(now); d.setFullYear(d.getFullYear() - 1);
+      start = d.toISOString().slice(0, 10); end = todayKey; label = "直近1年間";
+      break;
+    }
+    case "custom": {
+      start = customStart || todayKey; end = customEnd || todayKey;
+      label = `${start} 〜 ${end}`;
+      break;
+    }
+  }
+
+  // 前年同期間
+  const sDate = new Date(start); sDate.setFullYear(sDate.getFullYear() - 1);
+  const eDate = new Date(end); eDate.setFullYear(eDate.getFullYear() - 1);
+  return { start, end, prevStart: sDate.toISOString().slice(0, 10), prevEnd: eDate.toISOString().slice(0, 10), label };
+}
+
+export function renderProductPower(
+  _staticProducts: ProductPower[],
+  activeFilter: ProductViewFilter = "all",
+  daily: ProductDailyRow[] = [],
+  period: ProductPeriod = "year",
+  customStart?: string,
+  customEnd?: string
+): string {
+  const dates = calcDates(period, customStart, customEnd);
+  const products = daily.length > 0
+    ? aggregateByPeriod(daily, dates.start, dates.end, dates.prevStart, dates.prevEnd)
+    : _staticProducts.map((p) => ({
+        code: p.code, name: p.name, volumeMl: p.volumeMl,
+        amount: p.yearAmount, qty: p.yearQty, sharePct: p.sharePct,
+        rank: p.rank, prevAmount: p.prevAmount, growthRate: p.growthRate
+      }));
+
   const aCount = products.filter((p) => p.rank === "A").length;
   const bCount = products.filter((p) => p.rank === "B").length;
   const cCount = products.filter((p) => p.rank === "C").length;
@@ -45,11 +154,31 @@ export function renderProductPower(products: ProductPower[], activeFilter: Produ
   const filterBtn = (key: ProductViewFilter, label: string, count: number) =>
     `<button class="button ${activeFilter === key ? "primary" : "secondary"} small" data-product-filter="${key}">${label} (${count})</button>`;
 
+  const periodBtn = (key: ProductPeriod, label: string) =>
+    `<button class="button ${period === key ? "primary" : "secondary"} small" data-product-period="${key}">${label}</button>`;
+
   return `
     <section class="page-head">
       <div>
         <p class="eyebrow">分析</p>
         <h1>商品力分析</h1>
+      </div>
+    </section>
+
+    <section class="period-filter">
+      <div class="button-group">
+        ${periodBtn("week", "週次")}
+        ${periodBtn("month", "月次")}
+        ${periodBtn("90days", "90日")}
+        ${periodBtn("year", "年間")}
+        ${periodBtn("custom", "指定期間")}
+      </div>
+      <div class="custom-range" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+        <input type="date" id="pp-range-start" class="range-input" value="${customStart || ""}" />
+        <span>〜</span>
+        <input type="date" id="pp-range-end" class="range-input" value="${customEnd || ""}" />
+        <button class="button secondary small" type="button" data-action="pp-apply-range">適用</button>
+        <span style="color:var(--text-secondary);font-size:13px;margin-left:8px;">${dates.label}</span>
       </div>
     </section>
 
@@ -65,12 +194,12 @@ export function renderProductPower(products: ProductPower[], activeFilter: Produ
       <article class="panel kpi-card" style="border-left:4px solid #2f855a;">
         <p class="panel-title">成長商品</p>
         <p class="kpi-value">${growing.length}</p>
-        <p class="kpi-sub">前年比+10%以上</p>
+        <p class="kpi-sub">前年同期比+10%以上</p>
       </article>
       <article class="panel kpi-card" style="border-left:4px solid #c53d3d;">
         <p class="panel-title">衰退商品</p>
         <p class="kpi-value">${declining.length}</p>
-        <p class="kpi-sub">前年比-10%以下</p>
+        <p class="kpi-sub">前年同期比-10%以下</p>
       </article>
     </section>
 
@@ -92,10 +221,10 @@ export function renderProductPower(products: ProductPower[], activeFilter: Produ
             <tr>
               <th>ABC</th>
               <th>商品名</th>
-              <th class="numeric">年間売上</th>
+              <th class="numeric">売上</th>
               <th class="numeric">構成比</th>
               <th class="numeric">本数</th>
-              <th class="numeric">前年比</th>
+              <th class="numeric">前年同期比</th>
             </tr>
           </thead>
           <tbody>
@@ -103,9 +232,9 @@ export function renderProductPower(products: ProductPower[], activeFilter: Produ
               <tr>
                 <td>${rankBadge(p.rank)}</td>
                 <td>${p.name ? p.name.slice(0, 25) : p.code}${p.volumeMl ? ` <small>${p.volumeMl}ml</small>` : ""}</td>
-                <td class="numeric">${formatCurrency(p.yearAmount)}</td>
+                <td class="numeric">${formatCurrency(p.amount)}</td>
                 <td class="numeric">${p.sharePct}%</td>
-                <td class="numeric">${p.yearQty.toLocaleString()}</td>
+                <td class="numeric">${p.qty.toLocaleString()}</td>
                 <td class="numeric">${growthLabel(p.growthRate)}</td>
               </tr>
             `).join("")}
