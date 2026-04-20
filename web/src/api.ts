@@ -830,58 +830,37 @@ export async function fetchSyncDashboard(): Promise<SyncDashboard> {
 
 export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecord[]> {
   const params: Record<string, string> = {
-    select:
-      "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
-    order: "sales_date.desc"
+    select: "id,document_no,legacy_document_no,sales_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount,line_count",
+    order: "sales_date.desc",
+    limit: "500"
   };
-  if (filter.startDate) params["sales_date"] = `gte.${filter.startDate}`;
-  if (filter.endDate) params["sales_date"] = filter.startDate
-    ? `gte.${filter.startDate}`
-    : `lte.${filter.endDate}`;
   if (filter.startDate && filter.endDate) {
     params["and"] = `(sales_date.gte.${filter.startDate},sales_date.lte.${filter.endDate})`;
-    delete params["sales_date"];
+  } else if (filter.startDate) {
+    params["sales_date"] = `gte.${filter.startDate}`;
+  } else if (filter.endDate) {
+    params["sales_date"] = `lte.${filter.endDate}`;
   }
   const orClauses: string[] = [];
   if (filter.customerCode.trim()) orClauses.push(`customer_code.ilike.*${filter.customerCode.trim()}*`, `legacy_customer_code.ilike.*${filter.customerCode.trim()}*`);
   if (filter.documentNo.trim()) orClauses.push(`document_no.ilike.*${filter.documentNo.trim()}*`, `legacy_document_no.ilike.*${filter.documentNo.trim()}*`);
   if (orClauses.length > 0) params["or"] = `(${orClauses.join(",")})`;
 
-  const headerRows = await supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
-    ...params,
-    limit: "500"
-  });
+  const rows = await supabaseQuery<LooseRow>("mv_invoice_with_line_count", params);
 
-  const lineRows = headerRows.length > 0
-    ? await supabaseQueryAll<SalesDocumentLineRow>("sales_document_lines", {
-        select: "id,header_id,document_header_id,document_no,amount,line_amount"
-      })
-    : [];
-
-  if (headerRows.length > 0) {
-    const lineCountByHeader = new Map<string, number>();
-    lineRows.forEach((row) => {
-      const key = String(
-        row.header_id ?? row.document_header_id ?? row.document_no ?? row.id ?? ""
-      );
-      if (!key) {
-        return;
-      }
-      lineCountByHeader.set(key, (lineCountByHeader.get(key) ?? 0) + 1);
-    });
-
-    const records = headerRows.map((row, index) => {
-      const invoice = createInvoiceRecordFromHeader(row, index);
-      const lineKey = String(row.id ?? row.document_no ?? row.legacy_document_no ?? "");
-      return {
-        ...invoice,
-        itemCount: lineCountByHeader.get(lineKey) ?? invoice.itemCount
-      };
-    });
-    return applyInvoiceFilter(records, filter);
+  if (rows.length > 0) {
+    return rows.map((row, index) => ({
+      id: getString(row, ["id"], `invoice-${index}`),
+      documentNo: getString(row, ["document_no", "legacy_document_no"], ""),
+      date: getDateString(row, ["sales_date"], ""),
+      customerCode: getString(row, ["legacy_customer_code", "customer_code"], ""),
+      customerName: getString(row, ["customer_name", "legacy_customer_code"], ""),
+      itemCount: getNumber(row, ["line_count"], 0),
+      amount: getNumber(row, ["total_amount", "billed_amount"], 0)
+    }));
   }
 
-  return applyInvoiceFilter(mockInvoiceRecords, filter);
+  return [];
 }
 
 export async function fetchCustomerLedger(code: string): Promise<CustomerLedger> {
@@ -953,72 +932,37 @@ export async function fetchCustomerLedger(code: string): Promise<CustomerLedger>
 }
 
 export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
-  const [dailyRows, invoiceRows, lineRows] = await Promise.all([
-    supabaseQueryAll<DailySalesFactRow>("daily_sales_detail", {
-      select: "sales_date,amount,bottles,volume_ml,price_per_bottle,price_per_liter",
-      order: "sales_date.asc"
-    }),
-    supabaseQueryAll<SalesDocumentHeaderRow>("sales_document_headers", {
-      select:
-        "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount"
-    }),
-    supabaseQueryAll<SalesDocumentLineRow>("sales_document_lines", {
-      select:
-        "id,header_id,document_header_id,document_no,product_code,legacy_product_code,product_name,quantity,amount,line_amount"
-    })
+  const [monthlyRows, customerRows, productRows] = await Promise.all([
+    supabaseQuery<LooseRow>("mv_monthly_sales", { order: "month.asc" }),
+    supabaseQuery<LooseRow>("mv_customer_sales_totals", { order: "amount.desc", limit: "100" }),
+    supabaseQuery<LooseRow>("mv_product_sales_totals", { order: "amount.desc", limit: "100" })
   ]);
 
-  if (dailyRows.length > 0) {
-    const monthlyMap = new Map<string, number>();
-    dailyRows.forEach((row) => {
-      const month = formatMonthKey(row.sales_date);
-      monthlyMap.set(month, (monthlyMap.get(month) ?? 0) + toNumber(row.sales_amount));
-    });
-
-    const customerMap = new Map<string, AnalyticsBreakdownRow>();
-    invoiceRows.forEach((row, index) => {
-      const invoice = createInvoiceRecordFromHeader(row, index);
-      const entry = customerMap.get(invoice.customerCode) ?? {
-        code: invoice.customerCode,
-        name: invoice.customerName,
-        amount: 0,
-        quantity: 0,
-        documents: 0
-      };
-      entry.amount += invoice.amount;
-      entry.documents += 1;
-      customerMap.set(invoice.customerCode, entry);
-    });
-
-    const productMap = new Map<string, AnalyticsBreakdownRow>();
-    lineRows.forEach((row, index) => {
-      const productCode =
-        row.product_code ?? row.legacy_product_code ?? `P${String(index + 1).padStart(5, "0")}`;
-      const entry = productMap.get(productCode) ?? {
-        code: productCode,
-        name: row.product_name ?? productCode,
-        amount: 0,
-        quantity: 0,
-        documents: 0
-      };
-      entry.amount += toNumber(row.line_amount ?? row.amount);
-      entry.quantity += toNumber(row.quantity);
-      entry.documents += 1;
-      productMap.set(productCode, entry);
-    });
-
+  if (monthlyRows.length > 0) {
     return {
       generatedAt: new Date().toISOString(),
-      monthlySales: Array.from(monthlyMap.entries())
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([month, amount]) => ({ month, amount }))
-        .slice(-12),
-      productTotals: Array.from(productMap.values()).sort((left, right) => right.amount - left.amount),
-      customerTotals: Array.from(customerMap.values()).sort((left, right) => right.amount - left.amount)
+      monthlySales: monthlyRows.slice(-12).map((r) => ({
+        month: getString(r, ["month"], ""),
+        amount: getNumber(r, ["amount"], 0)
+      })),
+      productTotals: productRows.map((r) => ({
+        code: getString(r, ["code"], ""),
+        name: getString(r, ["name"], ""),
+        amount: getNumber(r, ["amount"], 0),
+        quantity: getNumber(r, ["quantity"], 0),
+        documents: getNumber(r, ["documents"], 0)
+      })),
+      customerTotals: customerRows.map((r) => ({
+        code: getString(r, ["code"], ""),
+        name: getString(r, ["name"], ""),
+        amount: getNumber(r, ["amount"], 0),
+        quantity: getNumber(r, ["quantity"], 0),
+        documents: getNumber(r, ["documents"], 0)
+      }))
     };
   }
 
-  return aggregateMockAnalytics();
+  return mockSalesAnalytics;
 }
 
 // ─── 伝票入力 ────────────────────────────────────────────────────────────────
@@ -1147,70 +1091,29 @@ const mockBilling: BillingSummary = {
 };
 
 export async function fetchBillingSummary(yearMonth: string): Promise<BillingSummary> {
-  const [year, month] = yearMonth.split("-").map(Number);
-  const startDate = `${yearMonth}-01`;
-  const endDate = `${yearMonth}-31`;
+  const rows = await supabaseQuery<LooseRow>("mv_billing_summary", {
+    year_month: `eq.${yearMonth}`,
+    order: "sales_amount.desc"
+  });
 
-  const [headerRows, customerRows, paymentRows] = await Promise.all([
-    supabaseQueryAll<SalesDocumentHeaderRow>("sales_document_headers", {
-      select: "legacy_customer_code,customer_name,total_amount,billed_amount,sales_date",
-      and: `(sales_date.gte.${startDate},sales_date.lte.${endDate})`
-    }),
-    supabaseQueryAll<LooseRow>("customers", {
-      select: "code,legacy_customer_code,name,closing_day"
-    }),
-    supabaseQueryAll<CustomerPaymentStatusRow>("customer_payment_status", {
-      select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
-    })
-  ]);
-
-  if (headerRows.length > 0) {
-    const customerMap = new Map<string, BillingCustomer>();
-    const closingDayMap = new Map<string, number>();
-    customerRows.forEach((c) => {
-      const code = getString(c, ["code", "legacy_customer_code"], "");
-      if (code) closingDayMap.set(code, getNumber(c, ["closing_day"], 31));
+  if (rows.length > 0) {
+    const customers: BillingCustomer[] = rows.map((r) => {
+      const salesAmount = getNumber(r, ["sales_amount"], 0);
+      const taxAmount = getNumber(r, ["tax_amount"], 0);
+      return {
+        customerCode: getString(r, ["customer_code"], ""),
+        customerName: getString(r, ["customer_name"], ""),
+        closingDay: 31,
+        salesAmount,
+        taxAmount,
+        prevBalance: 0,
+        paymentAmount: 0,
+        billingAmount: salesAmount,
+        status: "open" as const
+      };
     });
-    const balanceMap = new Map<string, number>();
-    paymentRows.forEach((p) => {
-      const code = p.legacy_customer_code ?? "";
-      balanceMap.set(code, toNumber(p.balance_amount));
-    });
-
-    headerRows.forEach((row) => {
-      const code = row.legacy_customer_code ?? row.customer_code ?? "";
-      const existing = customerMap.get(code);
-      const amount = toNumber(row.total_amount ?? row.billed_amount);
-      if (existing) {
-        existing.salesAmount += amount;
-        existing.taxAmount = Math.floor((existing.salesAmount * 10) / 110);
-        existing.billingAmount = existing.salesAmount + existing.prevBalance - existing.paymentAmount;
-      } else {
-        const taxAmt = Math.floor((amount * 10) / 110);
-        const prevBal = balanceMap.get(code) ?? 0;
-        customerMap.set(code, {
-          customerCode: code,
-          customerName: row.customer_name ?? code,
-          closingDay: closingDayMap.get(code) ?? 31,
-          salesAmount: amount,
-          taxAmount: taxAmt,
-          prevBalance: prevBal,
-          paymentAmount: 0,
-          billingAmount: amount + prevBal,
-          status: "open"
-        });
-      }
-    });
-
-    const customers = Array.from(customerMap.values()).sort((a, b) => b.billingAmount - a.billingAmount);
     const totalBilling = customers.reduce((s, c) => s + c.billingAmount, 0);
-
-    return {
-      targetYearMonth: yearMonth,
-      closingDay: 31,
-      totalBilling,
-      customers
-    };
+    return { targetYearMonth: yearMonth, closingDay: 31, totalBilling, customers };
   }
 
   return { ...mockBilling, targetYearMonth: yearMonth } as BillingSummary;
@@ -1246,71 +1149,53 @@ const mockReport: SalesReport = {
 };
 
 export async function fetchSalesReport(): Promise<SalesReport> {
-  const [dailyRows, lineRows] = await Promise.all([
-    supabaseQueryAll<DailySalesFactRow>("daily_sales_detail", {
-      select: "sales_date,amount",
-      order: "sales_date.asc"
-    }),
-    supabaseQueryAll<SalesDocumentLineRow>("sales_document_lines", {
-      select: "document_no,product_code,legacy_product_code,product_name,quantity,amount,line_amount"
-    })
+  const [monthlyRows, productMonthlyRows, customerRows] = await Promise.all([
+    supabaseQuery<LooseRow>("mv_monthly_sales", { order: "month.asc" }),
+    supabaseQuery<LooseRow>("mv_product_monthly_shipments", { order: "code.asc,month.asc" }),
+    supabaseQuery<LooseRow>("mv_customer_sales_totals", { order: "amount.desc", limit: "10" })
   ]);
 
-  if (dailyRows.length === 0) return mockReport;
+  if (monthlyRows.length === 0) return mockReport;
 
-  // 月次売上集計
-  const monthProductMap = new Map<string, Map<string, number>>();
-  const monthCustomerMap = new Map<string, Map<string, number>>();
-  const productNameMap = new Map<string, string>();
+  const months = monthlyRows.slice(-12).map((r) => getString(r, ["month"], ""));
 
-  lineRows.forEach((row) => {
-    const code = row.product_code ?? row.legacy_product_code ?? "";
-    if (!code) return;
-    if (row.product_name) productNameMap.set(code, row.product_name);
+  // 商品別月次データをピボット
+  const productMap = new Map<string, { name: string; monthValues: Map<string, number> }>();
+  productMonthlyRows.forEach((r) => {
+    const code = getString(r, ["code"], "");
+    if (!productMap.has(code)) {
+      productMap.set(code, { name: getString(r, ["name"], code), monthValues: new Map() });
+    }
+    productMap.get(code)!.monthValues.set(getString(r, ["month"], ""), getNumber(r, ["amount"], 0));
   });
 
-  // daily_sales_detailから月次集計
-  const monthlyTotals = new Map<string, number>();
-  dailyRows.forEach((row) => {
-    const month = formatMonthKey(row.sales_date);
-    monthlyTotals.set(month, (monthlyTotals.get(month) ?? 0) + toNumber(row.sales_amount ?? (row as Record<string, unknown>).amount));
-  });
-
-  const months = Array.from(monthlyTotals.keys()).sort().slice(-12);
-
-  // 商品別月次をlineRowsから構築
-  const productMonthly = new Map<string, Map<string, number>>();
-  const headerDateCache = new Map<string, string>();
-
-  // sales_document_headersから日付を取得してlineRowsと紐づける場合は重いので、
-  // productTotals (金額のみ) を使う
-  const productTotalMap = new Map<string, number>();
-  lineRows.forEach((row) => {
-    const code = row.product_code ?? row.legacy_product_code ?? "";
-    if (!code) return;
-    const amt = toNumber(row.line_amount ?? row.amount);
-    productTotalMap.set(code, (productTotalMap.get(code) ?? 0) + amt);
-  });
-
-  const topProducts = Array.from(productTotalMap.entries())
-    .sort((a, b) => b[1] - a[1])
+  // 上位10商品のみ
+  const productTotals = Array.from(productMap.entries())
+    .map(([code, data]) => ({
+      code,
+      name: data.name,
+      total: months.reduce((s, m) => s + (data.monthValues.get(m) ?? 0), 0),
+      monthValues: data.monthValues
+    }))
+    .sort((a, b) => b.total - a.total)
     .slice(0, 10);
 
-  const salesByProduct = topProducts.map(([code, total]) => ({
-    label: productNameMap.get(code) ?? code,
-    values: months.map(() => Math.round(total / months.length))
+  const salesByProduct = productTotals.map((p) => ({
+    label: p.name,
+    values: months.map((m) => p.monthValues.get(m) ?? 0)
   }));
 
-  const salesByCustomer: { label: string; values: number[] }[] = [];
-
-  const costSimulation: CostSimRow[] = [];
+  const salesByCustomer = customerRows.map((r) => ({
+    label: getString(r, ["name"], ""),
+    values: months.map(() => Math.round(getNumber(r, ["amount"], 0) / months.length))
+  }));
 
   return {
     generatedAt: new Date().toISOString(),
     months,
     salesByProduct,
     salesByCustomer,
-    costSimulation
+    costSimulation: []
   };
 }
 
@@ -1326,56 +1211,29 @@ export interface ProductMonthlyShipment {
 }
 
 export async function fetchProductMonthlyShipments(): Promise<ProductMonthlyShipment[]> {
-  // headersとlinesを両方取得して商品×月マトリクスを構築
-  const [headers, lines] = await Promise.all([
-    supabaseQueryAll<SalesDocumentHeaderRow>("sales_document_headers", {
-      select: "id,document_no,legacy_document_no,sales_date,document_date"
-    }),
-    supabaseQueryAll<SalesDocumentLineRow>("sales_document_lines", {
-      select: "header_id,document_header_id,document_no,product_code,legacy_product_code,product_name,quantity,amount,line_amount"
-    })
-  ]);
-
-  if (headers.length === 0 || lines.length === 0) return [];
-
-  // header日付マップ構築: id → sales_date, document_no → sales_date
-  const headerDateById = new Map<string, string>();
-  const headerDateByDocNo = new Map<string, string>();
-  headers.forEach((h) => {
-    const date = h.sales_date ?? h.document_date ?? "";
-    if (!date) return;
-    if (h.id) headerDateById.set(String(h.id), date);
-    if (h.document_no) headerDateByDocNo.set(h.document_no, date);
-    if (h.legacy_document_no) headerDateByDocNo.set(h.legacy_document_no, date);
+  const rows = await supabaseQueryAll<LooseRow>("mv_product_monthly_shipments", {
+    order: "code.asc,month.asc"
   });
 
-  // 商品×月 集計
+  if (rows.length === 0) return [];
+
+  // ピボット: code → { name, qty[12], amt[12] }
   const productMap = new Map<string, { name: string; qty: number[]; amt: number[] }>();
 
-  lines.forEach((line) => {
-    // 日付を特定
-    let date = "";
-    const headerId = line.header_id ?? line.document_header_id;
-    if (headerId) date = headerDateById.get(String(headerId)) ?? "";
-    if (!date && line.document_no) date = headerDateByDocNo.get(line.document_no) ?? "";
-    if (!date) return;
-
-    const monthIdx = parseInt(date.slice(5, 7)) - 1;
-    if (monthIdx < 0 || monthIdx > 11) return;
-
-    const code = line.product_code ?? line.legacy_product_code ?? "";
+  rows.forEach((r) => {
+    const code = getString(r, ["code"], "");
     if (!code) return;
-
-    const qty = toNumber(line.quantity);
-    const amt = toNumber(line.line_amount ?? line.amount);
+    const month = getString(r, ["month"], "");
+    const monthIdx = parseInt(month.slice(5, 7)) - 1;
+    if (monthIdx < 0 || monthIdx > 11) return;
 
     let entry = productMap.get(code);
     if (!entry) {
-      entry = { name: line.product_name ?? code, qty: new Array(12).fill(0), amt: new Array(12).fill(0) };
+      entry = { name: getString(r, ["name"], code), qty: new Array(12).fill(0), amt: new Array(12).fill(0) };
       productMap.set(code, entry);
     }
-    entry.qty[monthIdx] += qty;
-    entry.amt[monthIdx] += amt;
+    entry.qty[monthIdx] += getNumber(r, ["quantity"], 0);
+    entry.amt[monthIdx] += getNumber(r, ["amount"], 0);
   });
 
   return Array.from(productMap.entries())
@@ -1681,19 +1539,20 @@ function buildAbcRanking<T extends { amount: number }>(
 }
 
 export async function fetchCustomerAnalysis(): Promise<CustomerAnalysisData> {
-  const [analytics, report] = await Promise.all([
-    fetchSalesAnalytics(),
+  const [abcRows, report] = await Promise.all([
+    supabaseQuery<LooseRow>("mv_customer_abc", { order: "amount.desc" }),
     fetchSalesReport()
   ]);
 
-  const ranking = buildAbcRanking(
-    analytics.customerTotals.map((c) => ({
-      code: c.code,
-      name: c.name,
-      amount: c.amount,
-      documents: c.documents
-    }))
-  );
+  const ranking: CustomerRankRow[] = abcRows.map((r) => ({
+    code: getString(r, ["code"], ""),
+    name: getString(r, ["name"], ""),
+    amount: getNumber(r, ["amount"], 0),
+    documents: getNumber(r, ["documents"], 0),
+    ratio: getNumber(r, ["ratio"], 0),
+    cumRatio: getNumber(r, ["cum_ratio"], 0),
+    abcRank: (getString(r, ["abc_rank"], "C") as "A" | "B" | "C")
+  }));
 
   return {
     generatedAt: new Date().toISOString(),
@@ -1704,23 +1563,22 @@ export async function fetchCustomerAnalysis(): Promise<CustomerAnalysisData> {
 }
 
 export async function fetchProductABC(): Promise<ProductABCData> {
-  const [analytics, report] = await Promise.all([
-    fetchSalesAnalytics(),
+  const [abcRows, report] = await Promise.all([
+    supabaseQuery<LooseRow>("mv_product_abc", { order: "amount.desc" }),
     fetchSalesReport()
   ]);
 
-  const ranking = buildAbcRanking(
-    analytics.productTotals.map((p) => ({
-      code: p.code,
-      name: p.name,
-      amount: p.amount,
-      quantity: p.quantity
-    }))
-  );
+  const ranking: ProductRankRow[] = abcRows.map((r) => ({
+    code: getString(r, ["code"], ""),
+    name: getString(r, ["name"], ""),
+    amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0),
+    ratio: getNumber(r, ["ratio"], 0),
+    cumRatio: getNumber(r, ["cum_ratio"], 0),
+    abcRank: (getString(r, ["abc_rank"], "C") as "A" | "B" | "C")
+  }));
 
   const totalAmount = ranking.reduce((s, r) => s + r.amount, 0);
-
-  // Monthly data for A-rank products only
   const aRankNames = new Set(ranking.filter((r) => r.abcRank === "A").map((r) => r.name));
   const monthlyByProduct = report.salesByProduct.filter((p) => aRankNames.has(p.label));
 
