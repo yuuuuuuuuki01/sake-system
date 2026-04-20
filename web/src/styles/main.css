@@ -719,12 +719,14 @@ textarea:focus {
 
 .table-wrap {
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 720px;
+  min-width: 480px;
 }
 
 thead {
@@ -1664,8 +1666,8 @@ tbody tr:hover {
 
 @media (max-width: 640px) {
   .main {
-    padding: 16px;
-    padding-top: 76px;
+    padding: 12px;
+    padding-top: 68px;
   }
 
   .sidebar {
@@ -1675,12 +1677,81 @@ tbody tr:hover {
   .page-head {
     align-items: start;
     flex-direction: column;
+    gap: 8px;
+  }
+
+  .page-head h1 {
+    font-size: 18px;
   }
 
   .tab-group {
     width: 100%;
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .panel {
+    padding: 12px;
+    border-radius: 8px;
+  }
+
+  .panel-header {
+    gap: 8px;
+  }
+
+  .panel-header h2 {
+    font-size: 14px;
+  }
+
+  .kpi-value {
+    font-size: 20px;
+  }
+
+  .kpi-grid {
+    gap: 8px;
+  }
+
+  .kpi-card {
+    padding: 12px;
+  }
+
+  table {
+    min-width: 320px;
+    font-size: 12px;
+  }
+
+  th, td {
+    padding: 6px 8px;
+  }
+
+  .sales-chart {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .content-grid {
+    gap: 12px;
+  }
+
+  .button-group {
+    flex-wrap: wrap;
+  }
+
+  .button.small {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  .period-filter {
+    margin-bottom: 8px;
+  }
+
+  .meta-stack {
+    gap: 4px;
+  }
+
+  .feature-form {
+    padding: 12px;
   }
 
   .setup-step {
@@ -1713,6 +1784,14 @@ tbody tr:hover {
   .global-search-panel {
     min-height: calc(100vh - 24px);
     max-height: calc(100vh - 24px);
+  }
+
+  .quick-link-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-panel {
+    font-size: 13px;
   }
 }
 
