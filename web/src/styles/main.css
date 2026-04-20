@@ -95,6 +95,8 @@ a {
   padding: 24px 18px;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   z-index: 10;
 }
 
@@ -180,6 +182,11 @@ a {
 
 .nav-link:hover {
   background: rgba(255, 255, 255, 0.06);
+}
+
+.nav-link:active {
+  background: rgba(255, 255, 255, 0.12);
+  transform: scale(0.98);
 }
 
 .nav-link.active {
@@ -660,10 +667,38 @@ textarea:focus {
   font-size: 13px;
 }
 
+.button.primary:hover {
+  background: #0a4a74;
+}
+
+.button.primary:active {
+  background: #083d61;
+  transform: scale(0.97);
+}
+
 .button.secondary:hover,
 .tab-button:hover {
   border-color: var(--border);
   background: var(--surface-alt);
+}
+
+.button.secondary:active,
+.tab-button:active {
+  background: #e2e8f0;
+  transform: scale(0.97);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.button {
+  transition: background 120ms ease, transform 80ms ease, box-shadow 120ms ease;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .period-filter {
@@ -1601,12 +1636,14 @@ tbody tr:hover {
     inset: 0;
     z-index: 20;
     border: 0;
-    background: rgba(15, 23, 42, 0.36);
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
     opacity: 0;
     visibility: hidden;
     transition:
-      opacity 180ms ease,
-      visibility 180ms ease;
+      opacity 200ms ease,
+      visibility 200ms ease;
   }
 
   .sidebar-backdrop.open {
@@ -4175,6 +4212,54 @@ details.panel[open] > summary::before {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* ===== タッチターゲット・アクセシビリティ ===== */
+
+/* チェックボックス・ラジオの最小サイズ */
+input[type="checkbox"],
+input[type="radio"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+/* フォーカスリング（キーボード操作時） */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ボタン最小タッチターゲット */
+button, .button, [role="button"] {
+  min-height: 36px;
+}
+
+/* ===== ページ遷移・フェードイン ===== */
+.view {
+  animation: fadeIn 180ms ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ローディング中のビジュアルフィードバック強化 */
+.view.is-busy {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 150ms ease;
 }
 
 /* ===== レスポンシブ包括修正 ===== */

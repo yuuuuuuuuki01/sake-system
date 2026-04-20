@@ -2125,6 +2125,22 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // サイドバーのスワイプで閉じる
+  const sidebar = root.querySelector<HTMLElement>(".sidebar");
+  if (sidebar && state.sidebarOpen) {
+    let touchStartX = 0;
+    sidebar.addEventListener("touchstart", (e) => {
+      touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    sidebar.addEventListener("touchend", (e) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      if (dx < -60) {
+        state.sidebarOpen = false;
+        renderApp();
+      }
+    }, { passive: true });
+  }
+
   root.querySelectorAll<HTMLElement>("[data-link]").forEach((element) => {
     element.addEventListener("click", (event) => {
       event.preventDefault();
@@ -4369,6 +4385,11 @@ function renderApp(): void {
       }
     }
   });
+
+  // サイドバー・モーダル開放時のbodyスクロールロック
+  const isLocked = state.sidebarOpen || state.pickerMode !== null || state.globalSearchOpen;
+  document.body.style.overflow = isLocked ? "hidden" : "";
+  document.body.style.touchAction = isLocked ? "none" : "";
 }
 
 const CACHE_KEY = "sake-cloud-cache";
