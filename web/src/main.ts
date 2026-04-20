@@ -29,6 +29,7 @@ import {
   fetchProductABC,
   fetchSalesAnalytics,
   fetchSalesReport,
+  submitFeatureRequest,
   fetchSalesSummary,
   fetchStoreOrders,
   fetchStoreSales,
@@ -2000,6 +2001,24 @@ function bindEvents(root: HTMLElement): void {
       event.preventDefault();
       navigate(element.dataset.link as RoutePath);
     });
+  });
+
+  root.querySelector<HTMLFormElement>("#feature-request-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = root.querySelector<HTMLInputElement>("#fr-title")?.value ?? "";
+    const category = root.querySelector<HTMLSelectElement>("#fr-category")?.value ?? "feature";
+    const description = root.querySelector<HTMLTextAreaElement>("#fr-description")?.value ?? "";
+    const result = root.querySelector<HTMLSpanElement>("#fr-result");
+    if (!title.trim()) return;
+    const ok = await submitFeatureRequest(title, category, description);
+    if (result) {
+      result.textContent = ok ? "送信しました" : "送信に失敗しました";
+      result.className = `fr-result ${ok ? "success" : "error"}`;
+    }
+    if (ok) {
+      const form = root.querySelector<HTMLFormElement>("#feature-request-form");
+      if (form) form.reset();
+    }
   });
 
   root.querySelectorAll<HTMLButtonElement>("[data-period]").forEach((btn) => {

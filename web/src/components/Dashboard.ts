@@ -345,6 +345,36 @@ export function renderDashboard(
     </section>
 
     ${extras ? renderExtraWidgets(extras) : ""}
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>機能要望・フィードバック</h2>
+          <p class="panel-caption">改善のご要望やバグ報告をお寄せください</p>
+        </div>
+      </div>
+      <form id="feature-request-form" class="feature-form">
+        <div class="form-row">
+          <label for="fr-title">タイトル</label>
+          <input type="text" id="fr-title" placeholder="要望の概要" required />
+        </div>
+        <div class="form-row">
+          <label for="fr-category">カテゴリ</label>
+          <select id="fr-category">
+            <option value="feature">機能追加</option>
+            <option value="improvement">改善</option>
+            <option value="bug">バグ報告</option>
+            <option value="question">質問</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="fr-description">詳細</label>
+          <textarea id="fr-description" rows="3" placeholder="具体的な内容"></textarea>
+        </div>
+        <button type="submit" class="button primary">送信</button>
+        <span id="fr-result" class="fr-result"></span>
+      </form>
+    </section>
   `;
 }
 

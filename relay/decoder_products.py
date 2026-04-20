@@ -283,6 +283,9 @@ def extract_products_from_file(filepath: Path) -> list[dict[str, Any]]:
 
     for slot_idx in range(total_slots):
         slot_start = HEADER_SIZE + slot_idx * record_size
+        # 次スロットと連結してスロット境界跨ぎに対応
+        next_end = min(slot_start + record_size * 2, len(data))
+        extended_data = data[slot_start:next_end]
         slot_data = data[slot_start : slot_start + record_size]
         search_from = 0
 
@@ -292,13 +295,13 @@ def extract_products_from_file(filepath: Path) -> list[dict[str, Any]]:
                 break
 
             data_start = marker_pos + len(RECORD_MARKER)
-            remaining = len(slot_data) - data_start
+            remaining = len(extended_data) - data_start
 
             if remaining < 50:
                 search_from = marker_pos + 1
                 continue
 
-            code_bytes = slot_data[data_start : data_start + 7]
+            code_bytes = extended_data[data_start : data_start + 7]
             code_str = code_bytes.decode("ascii", errors="replace").strip()
 
             if not code_str or not code_str.replace(" ", "").isdigit():
@@ -311,7 +314,7 @@ def extract_products_from_file(filepath: Path) -> list[dict[str, Any]]:
                 continue
 
             try:
-                rec = _extract_fields_from_slot(slot_data, data_start, remaining)
+                rec = _extract_fields_from_slot(extended_data, data_start, remaining)
             except Exception:
                 search_from = marker_pos + 1
                 continue

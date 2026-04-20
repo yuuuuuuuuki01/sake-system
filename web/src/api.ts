@@ -1244,6 +1244,17 @@ export async function fetchSalesReport(): Promise<SalesReport> {
   return fetchJson("data/api/latest/sales-report.json", mockReport);
 }
 
+// ─── 機能要望 ────────────────────────────────────────────────────────────────
+
+export async function submitFeatureRequest(title: string, category: string, description: string): Promise<boolean> {
+  try {
+    await supabaseInsert("feature_requests", { title, category, description });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ─── 得意先別集計・ABC分析 ──────────────────────────────────────────────────
 
 export interface CustomerRankRow {

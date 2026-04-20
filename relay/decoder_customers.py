@@ -76,8 +76,12 @@ def extract_customers(filepath: Path) -> list[dict[str, Any]]:
     seen_codes: set[str] = set()
 
     # 全スロットをスキャンし、マーカーを検出
+    # スロット境界を跨ぐレコードに対応するため、隣接スロットを連結して読む
     for slot_idx in range(total_slots):
         slot_start = HEADER_SIZE + slot_idx * record_size
+        # 現スロット + 次スロットを連結（境界跨ぎ対応）
+        next_end = min(slot_start + record_size * 2, len(data))
+        extended_data = data[slot_start:next_end]
         slot_data = data[slot_start : slot_start + record_size]
 
         # スロット内の全マーカー位置を検出
@@ -89,7 +93,7 @@ def extract_customers(filepath: Path) -> list[dict[str, Any]]:
 
             # マーカー直後の位置
             data_start = marker_pos + len(RECORD_MARKER)
-            remaining = len(slot_data) - data_start
+            remaining = len(extended_data) - data_start
 
             # 最低限必要なバイト数（コード7 + カナ10 + 名前30 = 47バイト）
             if remaining < 50:
@@ -97,7 +101,7 @@ def extract_customers(filepath: Path) -> list[dict[str, Any]]:
                 continue
 
             # 6桁数字 + スペースのパターンをチェック
-            code_bytes = slot_data[data_start : data_start + 7]
+            code_bytes = extended_data[data_start : data_start + 7]
             code_str = code_bytes.decode("ascii", errors="replace").strip()
 
             # 顧客コード検証: 数字のみ（5〜6桁）
@@ -112,9 +116,9 @@ def extract_customers(filepath: Path) -> list[dict[str, Any]]:
                 search_from = marker_pos + 1
                 continue
 
-            # フィールド抽出（マーカー直後からの相対オフセット）
+            # フィールド抽出（連結データから読むことでスロット境界跨ぎに対応）
             try:
-                rec = _extract_fields(slot_data, data_start, remaining)
+                rec = _extract_fields(extended_data, data_start, remaining)
             except Exception:
                 search_from = marker_pos + 1
                 continue

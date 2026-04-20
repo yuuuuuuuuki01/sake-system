@@ -22,9 +22,8 @@ objShell.CurrentDirectory = scriptDir
 ' 1. raw同期
 objShell.Run "python relay_agent.py", 0, True
 
-' 2. マスタデコーダ（MSTファイル直読み — 高品質）
-objShell.Run "python decoder_customers.py", 0, True
-objShell.Run "python decoder_products.py --from-file", 0, True
+' 2. マスタデコーダ（MSTファイル変更時のみ実行）
+objShell.Run "python decoder_master_diff.py", 0, True
 
 ' 3. 売上明細（SHTOR.DAT差分検出 — 変更されたスロットのみ、偽陽性なし）
 objShell.Run "python decoder_sales_diff.py", 0, True
