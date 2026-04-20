@@ -3,19 +3,38 @@ import type { MasterCustomer, MasterProduct, MasterStatsSummary, MasterTab } fro
 export function renderEditCustomerModal(c: MasterCustomer): string {
   return `
     <div class="modal-overlay" id="edit-modal">
-      <div class="modal-content panel">
+      <div class="modal-content panel" style="max-width:600px;">
         <h2>得意先編集: ${c.code}</h2>
         <form id="edit-customer-form" class="feature-form">
           <input type="hidden" id="ec-id" value="${c.id}" />
-          <div class="form-row"><label>得意先名</label><input type="text" id="ec-name" value="${c.name}" /></div>
-          <div class="form-row"><label>カナ</label><input type="text" id="ec-kana" value="${c.kanaName || ""}" /></div>
-          <div class="form-row"><label>電話番号</label><input type="text" id="ec-phone" value="${c.phone || ""}" /></div>
-          <div class="form-row"><label>FAX</label><input type="text" id="ec-fax" value="${c.fax || ""}" /></div>
-          <div class="form-row"><label>郵便番号</label><input type="text" id="ec-postal" value="${c.postalCode || ""}" /></div>
-          <div class="form-row"><label>住所</label><input type="text" id="ec-address" value="${c.address1 || ""}" /></div>
-          <div class="form-row"><label>締日</label><input type="number" id="ec-closing" value="${c.closingDay || ""}" /></div>
-          <div class="form-row"><label>支払日</label><input type="number" id="ec-payment" value="${c.paymentDay || ""}" /></div>
-          <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div class="form-row"><label>得意先名</label><input type="text" id="ec-name" value="${c.name}" /></div>
+            <div class="form-row"><label>カナ</label><input type="text" id="ec-kana" value="${c.kanaName || ""}" /></div>
+            <div class="form-row"><label>略称</label><input type="text" id="ec-short" value="${c.shortName || ""}" /></div>
+            <div class="form-row"><label>業態</label><input type="text" id="ec-business" value="${c.businessType || ""}" /></div>
+            <div class="form-row"><label>電話番号</label><input type="text" id="ec-phone" value="${c.phone || ""}" /></div>
+            <div class="form-row"><label>FAX</label><input type="text" id="ec-fax" value="${c.fax || ""}" /></div>
+            <div class="form-row"><label>メール</label><input type="email" id="ec-email" value="${c.email || ""}" /></div>
+            <div class="form-row"><label>郵便番号</label><input type="text" id="ec-postal" value="${c.postalCode || ""}" /></div>
+            <div class="form-row" style="grid-column:1/-1;"><label>住所1</label><input type="text" id="ec-address" value="${c.address1 || ""}" /></div>
+            <div class="form-row" style="grid-column:1/-1;"><label>住所2</label><input type="text" id="ec-address2" value="${c.address2 || ""}" /></div>
+            <div class="form-row"><label>締日</label><input type="number" id="ec-closing" value="${c.closingDay || ""}" /></div>
+            <div class="form-row"><label>支払日</label><input type="number" id="ec-payment" value="${c.paymentDay || ""}" /></div>
+            <div class="form-row"><label>支払サイト</label><input type="text" id="ec-pay-cycle" value="${c.paymentCycle || ""}" /></div>
+            <div class="form-row"><label>与信限度額</label><input type="number" id="ec-credit" value="${c.creditLimit || ""}" /></div>
+            <div class="form-row"><label>価格区分</label>
+              <select id="ec-price-type">
+                <option value="" ${!c.priceType ? "selected" : ""}>未設定</option>
+                <option value="000" ${c.priceType === "000" ? "selected" : ""}>000: 生産者価格</option>
+                <option value="001" ${c.priceType === "001" ? "selected" : ""}>001: 小売価格</option>
+                <option value="002" ${c.priceType === "002" ? "selected" : ""}>002: 卸価格</option>
+              </select>
+            </div>
+            <div class="form-row"><label>地区コード</label><input type="text" id="ec-area" value="${c.areaCode || ""}" /></div>
+            <div class="form-row"><label>担当者コード</label><input type="text" id="ec-staff" value="${c.staffCode || ""}" /></div>
+            <div class="form-row"><label>税区分</label><input type="text" id="ec-tax" value="${c.taxMode || ""}" /></div>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
             <button type="button" class="button secondary" data-action="close-modal">キャンセル</button>
             <button type="submit" class="button primary">保存</button>
           </div>
@@ -29,17 +48,39 @@ export function renderEditCustomerModal(c: MasterCustomer): string {
 export function renderEditProductModal(p: MasterProduct): string {
   return `
     <div class="modal-overlay" id="edit-modal">
-      <div class="modal-content panel">
+      <div class="modal-content panel" style="max-width:600px;">
         <h2>商品編集: ${p.code}</h2>
         <form id="edit-product-form" class="feature-form">
           <input type="hidden" id="ep-id" value="${p.id}" />
-          <div class="form-row"><label>商品名</label><input type="text" id="ep-name" value="${p.name}" /></div>
-          <div class="form-row"><label>分類</label><input type="text" id="ep-category" value="${p.category || ""}" /></div>
-          <div class="form-row"><label>度数(%)</label><input type="number" step="0.1" id="ep-alcohol" value="${p.alcoholDegree ?? ""}" /></div>
-          <div class="form-row"><label>容量(ml)</label><input type="number" id="ep-volume" value="${p.volumeMl ?? ""}" /></div>
-          <div class="form-row"><label>容器</label><input type="text" id="ep-bottle" value="${p.bottleType || ""}" /></div>
-          <div class="form-row"><label>仕入単価</label><input type="number" id="ep-purchase" value="${p.purchasePrice || ""}" /></div>
-          <div class="form-row"><label>売価</label><input type="number" id="ep-sale" value="${p.salePrice || ""}" /></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div class="form-row" style="grid-column:1/-1;"><label>商品名</label><input type="text" id="ep-name" value="${p.name}" /></div>
+            <div class="form-row"><label>カナ</label><input type="text" id="ep-kana" value="${p.kanaName || ""}" /></div>
+            <div class="form-row"><label>略称</label><input type="text" id="ep-short" value="${p.shortName || ""}" /></div>
+            <div class="form-row"><label>分類</label><input type="text" id="ep-category" value="${p.category || ""}" /></div>
+            <div class="form-row"><label>酒税区分</label><input type="text" id="ep-tax-cat" value="${p.taxCategoryCode || ""}" /></div>
+            <div class="form-row"><label>度数(%)</label><input type="number" step="0.1" id="ep-alcohol" value="${p.alcoholDegree ?? ""}" /></div>
+            <div class="form-row"><label>容量(ml)</label><input type="number" id="ep-volume" value="${p.volumeMl ?? ""}" /></div>
+            <div class="form-row"><label>容器</label><input type="text" id="ep-bottle" value="${p.bottleType || ""}" /></div>
+            <div class="form-row"><label>単位</label><input type="text" id="ep-unit" value="${p.unit || "本"}" /></div>
+          </div>
+          <fieldset style="border:1px solid var(--border);border-radius:6px;padding:12px;margin:12px 0;">
+            <legend style="font-weight:700;font-size:13px;">価格設定</legend>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div class="form-row"><label>生産者価格(仕入)</label><input type="number" id="ep-purchase" value="${p.purchasePrice || ""}" /></div>
+              <div class="form-row"><label>卸価格(デフォルト売価)</label><input type="number" id="ep-sale" value="${p.salePrice || ""}" /></div>
+              <div class="form-row"><label>定価(小売価格)</label><input type="number" id="ep-list" value="${p.listPrice || ""}" /></div>
+              <div class="form-row"><label>原価</label><input type="number" id="ep-cost" value="${p.costPrice || ""}" /></div>
+            </div>
+          </fieldset>
+          <fieldset style="border:1px solid var(--border);border-radius:6px;padding:12px;margin:12px 0;">
+            <legend style="font-weight:700;font-size:13px;">醸造情報</legend>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div class="form-row"><label>精米歩合(%)</label><input type="number" step="0.1" id="ep-polish" value="${p.polishRate ?? ""}" /></div>
+              <div class="form-row"><label>原料米</label><input type="text" id="ep-rice" value="${p.riceType || ""}" /></div>
+              <div class="form-row"><label>季節</label><input type="text" id="ep-season" value="${p.season || ""}" /></div>
+              <div class="form-row"><label>熟成年数</label><input type="number" id="ep-aging" value="${p.agingYears || ""}" /></div>
+            </div>
+          </fieldset>
           <div style="display:flex;gap:8px;justify-content:flex-end;">
             <button type="button" class="button secondary" data-action="close-modal">キャンセル</button>
             <button type="submit" class="button primary">保存</button>
@@ -182,6 +223,15 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen) + "…";
 }
 
+function formatPriceType(pt: string): string {
+  switch (pt) {
+    case "000": return "生産者";
+    case "001": return "小売";
+    case "002": return "卸";
+    default: return pt || "―";
+  }
+}
+
 function renderCustomerRows(customers: MasterCustomer[]): string {
   return customers
     .map(
@@ -189,9 +239,14 @@ function renderCustomerRows(customers: MasterCustomer[]): string {
         <tr>
           <td class="mono">${customer.code}</td>
           <td>${customer.name}</td>
+          <td>${customer.kanaName || ""}</td>
+          <td>${customer.businessType || ""}</td>
+          <td>${formatPriceType(customer.priceType)}</td>
           <td>${customer.phone || ""}</td>
-          <td title="${customer.address1 || ""}">${truncate(customer.address1 || "", 20)}</td>
+          <td title="${customer.address1 || ""}">${truncate(customer.address1 || "", 16)}</td>
           <td class="numeric">${customer.closingDay ? customer.closingDay + "日" : ""}</td>
+          <td class="numeric">${customer.paymentDay ? customer.paymentDay + "日" : ""}</td>
+          <td>${customer.areaCode || ""}</td>
           <td><span class="status-pill ${customer.isActive ? "success" : "neutral"}">${customer.isActive ? "有効" : "停止"}</span></td>
           <td><button class="button secondary small" data-edit-customer="${customer.id}">編集</button></td>
         </tr>
@@ -200,17 +255,26 @@ function renderCustomerRows(customers: MasterCustomer[]): string {
     .join("");
 }
 
+function fmtPrice(v: number): string {
+  return v ? `¥${v.toLocaleString("ja-JP")}` : "―";
+}
+
 function renderProductRows(products: MasterProduct[]): string {
   return products
     .map(
       (product) => `
         <tr>
           <td class="mono">${product.code}</td>
-          <td>${truncate(product.name, 25)}</td>
+          <td>${truncate(product.name, 20)}</td>
           <td>${product.category}</td>
           <td class="numeric">${product.alcoholDegree != null ? `${product.alcoholDegree}%` : "―"}</td>
           <td class="numeric">${product.volumeMl != null ? `${product.volumeMl}ml` : "―"}</td>
-          <td class="numeric">${product.salePrice ? product.salePrice.toLocaleString("ja-JP") : "―"}</td>
+          <td>${product.bottleType || "―"}</td>
+          <td class="numeric">${fmtPrice(product.purchasePrice)}</td>
+          <td class="numeric">${fmtPrice(product.salePrice)}</td>
+          <td class="numeric">${fmtPrice(product.listPrice)}</td>
+          <td>${product.season || ""}</td>
+          <td class="numeric">${product.polishRate != null ? `${product.polishRate}%` : ""}</td>
           <td><span class="status-pill ${product.isActive ? "success" : "neutral"}">${product.isActive ? "有効" : "停止"}</span></td>
           <td><button class="button secondary small" data-edit-product="${product.id}">編集</button></td>
         </tr>
@@ -272,9 +336,14 @@ export function renderMasterStats(
               <tr>
                 <th>コード</th>
                 <th>得意先名</th>
+                <th>カナ</th>
+                <th>業態</th>
+                <th>価格区分</th>
                 <th>電話番号</th>
                 <th>住所</th>
                 <th class="numeric">締日</th>
+                <th class="numeric">支払日</th>
+                <th>地区</th>
                 <th>状態</th>
                 <th></th>
               </tr>
@@ -294,7 +363,12 @@ export function renderMasterStats(
                 <th>分類</th>
                 <th class="numeric">度数</th>
                 <th class="numeric">容量</th>
-                <th class="numeric">売価</th>
+                <th>容器</th>
+                <th class="numeric">生産者価格</th>
+                <th class="numeric">卸価格</th>
+                <th class="numeric">定価(小売)</th>
+                <th>季節</th>
+                <th class="numeric">精米歩合</th>
                 <th>状態</th>
                 <th></th>
               </tr>

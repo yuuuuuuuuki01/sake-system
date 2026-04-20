@@ -135,19 +135,25 @@ export interface MasterCustomer {
   address2: string;
   phone: string;
   fax: string;
+  email: string;
   staffCode: string;
   businessType: string;
   areaCode: string;
   closingDay: number;
   paymentDay: number;
+  paymentCycle: string;
   billingCycleType: string;
+  creditLimit: number;
+  taxMode: string;
+  invoiceType: string;
   priceGroup: string;
+  priceType: string;
+  bankName: string;
+  bankBranch: string;
+  bankAccount: string;
   isActive: boolean;
   lat?: number;
   lng?: number;
-  address1?: string;
-  businessType?: string;
-  phone?: string;
 }
 
 export interface MasterProduct {
@@ -155,15 +161,24 @@ export interface MasterProduct {
   code: string;
   janCode: string;
   name: string;
+  kanaName: string;
+  shortName: string;
   category: string;
+  taxCategoryCode: string;
   isActive: boolean;
-  listPrice: number;
-  purchasePrice: number;
-  salePrice: number;
+  listPrice: number;       // 定価（小売価格）
+  purchasePrice: number;   // 仕入単価（生産者価格）
+  salePrice: number;       // 卸価格（デフォルト売価）
+  costPrice: number;       // 原価
   alcoholDegree: number | null;
   volumeMl: number | null;
+  unit: string;
   bottleType: string;
+  containerCode: string;
   polishRate: number | null;
+  riceType: string;
+  season: string;
+  agingYears: number;
 }
 
 export interface MasterStatsSummary {
@@ -665,13 +680,22 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
             address2: getString(row, ["address2"], ""),
             phone: getString(row, ["phone"], ""),
             fax: getString(row, ["fax"], ""),
+            email: getString(row, ["email"], ""),
             staffCode: getString(row, ["staff_code"], ""),
             businessType: getString(row, ["business_type"], ""),
             areaCode: getString(row, ["delivery_area_code"], ""),
             closingDay: getNumber(row, ["closing_day", "close_day"], 31),
             paymentDay: getNumber(row, ["payment_day", "due_day"], 15),
+            paymentCycle: getString(row, ["payment_cycle"], ""),
             billingCycleType: getString(row, ["billing_cycle_type"], ""),
+            creditLimit: getNumber(row, ["credit_limit"], 0),
+            taxMode: getString(row, ["tax_mode"], ""),
+            invoiceType: getString(row, ["invoice_type"], ""),
             priceGroup: String(memo.price_group ?? ""),
+            priceType: String(memo.price_type ?? ""),
+            bankName: getString(row, ["bank_name"], ""),
+            bankBranch: getString(row, ["bank_branch"], ""),
+            bankAccount: getString(row, ["bank_account"], ""),
             isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
             lat: row["lat"] ? Number(row["lat"]) : undefined,
             lng: row["lng"] ? Number(row["lng"]) : undefined
@@ -685,15 +709,24 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
           code: getString(row, ["code", "product_code", "legacy_product_code"], `P${String(index + 1).padStart(5, "0")}`),
           janCode: getString(row, ["jan_code", "jan", "barcode"], ""),
           name: getString(row, ["name", "product_name", "display_name"], `Product ${index + 1}`),
+          kanaName: getString(row, ["kana_name"], ""),
+          shortName: getString(row, ["short_name"], ""),
           category: getString(row, ["category", "category_name", "category_code"], "未分類"),
+          taxCategoryCode: getString(row, ["tax_category_code"], ""),
           isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
           listPrice: getNumber(row, ["list_price"], 0),
           purchasePrice: getNumber(row, ["purchase_price"], 0),
           salePrice: getNumber(row, ["default_sale_price", "sale_price"], 0),
+          costPrice: getNumber(row, ["default_cost_price"], 0),
           alcoholDegree: row["alcohol_degree"] != null ? Number(row["alcohol_degree"]) : null,
           volumeMl: row["volume_ml"] != null ? Number(row["volume_ml"]) : null,
+          unit: getString(row, ["unit"], "本"),
           bottleType: getString(row, ["bottle_type"], ""),
-          polishRate: row["polish_rate"] != null ? Number(row["polish_rate"]) : null
+          containerCode: getString(row, ["container_code"], ""),
+          polishRate: row["polish_rate"] != null ? Number(row["polish_rate"]) : null,
+          riceType: getString(row, ["rice_type"], ""),
+          season: getString(row, ["season"], ""),
+          agingYears: getNumber(row, ["aging_years"], 0)
         }))
       : mockMasterStats.products;
 
