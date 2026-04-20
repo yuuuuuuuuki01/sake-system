@@ -3,13 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <!-- index.htmlは最新を取得させる(SPA redirect破綻を防ぐ) -->
-    <meta http-equiv="Cache-Control" content="no-cache" />
+    <!-- 常に最新を取得 -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>syusen-cloud</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAceSBzOjpcOjXa5F0sA-326kdZdqz9r-s&language=ja" defer></script>
     <script>
+      // Service Worker解除 + キャッシュクリア
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          regs.forEach(function(r) { r.unregister(); });
+        });
+      }
+      if ('caches' in window) {
+        caches.keys().then(function(names) {
+          names.forEach(function(name) { caches.delete(name); });
+        });
+      }
       // 404.htmlから渡された元のパスを復元してSPAルーターに引き渡す
       (function redirectSpaPath() {
         try {
@@ -25,8 +38,8 @@
         }
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-ChqNdlgq.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BI07bXFt.css">
+    <script type="module" crossorigin src="/assets/index-D2g1LG0t.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BCsuiggu.css">
   </head>
   <body>
     <div id="app"></div>
