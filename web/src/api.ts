@@ -1397,6 +1397,35 @@ export async function fetchDeliverySchedule(): Promise<DeliveryScheduleEntry[]> 
   return entries.sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// ─── システムお知らせ ────────────────────────────────────────────────────────
+
+export interface SystemAnnouncement {
+  id: string;
+  message: string;
+  level: "info" | "warning" | "maintenance" | "update";
+  startsAt: string;
+  endsAt: string | null;
+  dismissible: boolean;
+}
+
+export async function fetchAnnouncements(): Promise<SystemAnnouncement[]> {
+  const now = new Date().toISOString();
+  const rows = await supabaseQuery<LooseRow>("system_announcements", {
+    is_active: "eq.true",
+    starts_at: `lte.${now}`,
+    or: `(ends_at.is.null,ends_at.gte.${now})`,
+    order: "created_at.desc"
+  });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    message: getString(r, ["message"], ""),
+    level: getString(r, ["level"], "info") as SystemAnnouncement["level"],
+    startsAt: getDateString(r, ["starts_at"], ""),
+    endsAt: r["ends_at"] ? getDateString(r, ["ends_at"], "") : null,
+    dismissible: getBoolean(r, ["dismissible"], true)
+  }));
+}
+
 // ─── 機能要望 ────────────────────────────────────────────────────────────────
 
 export async function submitFeatureRequest(title: string, category: string, description: string): Promise<boolean> {
@@ -1488,6 +1517,58 @@ export function resolveProductPrice(product: MasterProduct, pricing: CustomerPri
   }
   // 3. フォールバック
   return { price: product.salePrice || 0, label: "標準価格" };
+}
+
+// ─── 商品力・営業効率 ───────────────────────────────────────────────────────
+
+export interface ProductPower {
+  code: string; name: string; volumeMl: number | null; category: string;
+  recentAmount: number; recentQty: number; prevAmount: number;
+  growthRate: number | null; rank: string;
+}
+
+export interface CustomerEfficiency {
+  code: string; name: string; address: string;
+  recentAmount: number; recentQty: number; orderDays: number;
+  prevAmount: number; growthRate: number | null;
+  currentRank: string; prevRank: string;
+}
+
+export async function fetchProductPower(): Promise<ProductPower[]> {
+  const rows = await supabaseQuery<Record<string, unknown>>("product_power", {
+    select: "legacy_product_code,product_name,volume_ml,category_code,recent_amount,recent_quantity,prev_amount,growth_rate,rank",
+    order: "recent_amount.desc", limit: "100"
+  });
+  return rows.map((r) => ({
+    code: String(r.legacy_product_code ?? ""),
+    name: String(r.product_name ?? ""),
+    volumeMl: r.volume_ml ? Number(r.volume_ml) : null,
+    category: String(r.category_code ?? ""),
+    recentAmount: Number(r.recent_amount ?? 0),
+    recentQty: Number(r.recent_quantity ?? 0),
+    prevAmount: Number(r.prev_amount ?? 0),
+    growthRate: r.growth_rate != null ? Number(r.growth_rate) : null,
+    rank: String(r.rank ?? "D")
+  }));
+}
+
+export async function fetchCustomerEfficiency(): Promise<CustomerEfficiency[]> {
+  const rows = await supabaseQuery<Record<string, unknown>>("customer_efficiency", {
+    select: "legacy_customer_code,customer_name,address1,recent_amount,recent_quantity,order_days,prev_amount,growth_rate,current_rank,prev_rank",
+    order: "recent_amount.desc", limit: "100"
+  });
+  return rows.map((r) => ({
+    code: String(r.legacy_customer_code ?? ""),
+    name: String(r.customer_name ?? ""),
+    address: String(r.address1 ?? ""),
+    recentAmount: Number(r.recent_amount ?? 0),
+    recentQty: Number(r.recent_quantity ?? 0),
+    orderDays: Number(r.order_days ?? 0),
+    prevAmount: Number(r.prev_amount ?? 0),
+    growthRate: r.growth_rate != null ? Number(r.growth_rate) : null,
+    currentRank: String(r.current_rank ?? "D"),
+    prevRank: String(r.prev_rank ?? "D")
+  }));
 }
 
 // ─── 得意先別集計・ABC分析 ──────────────────────────────────────────────────

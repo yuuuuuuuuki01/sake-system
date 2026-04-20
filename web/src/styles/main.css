@@ -4214,6 +4214,51 @@ details.panel[open] > summary::before {
   gap: 8px;
 }
 
+/* ===== お知らせバー ===== */
+.announcement-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 13px;
+  animation: slideDown 200ms ease-out;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.announcement-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.announcement-dismiss {
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: inherit;
+  opacity: 0.6;
+  min-height: auto;
+  transition: opacity 120ms ease;
+}
+
+.announcement-dismiss:hover {
+  opacity: 1;
+}
+
+@media (max-width: 640px) {
+  .announcement-bar {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+}
+
 /* ===== 折りたたみパネル ===== */
 .collapsible-panel {
   border: 1px solid #e5edf5;

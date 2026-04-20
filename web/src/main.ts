@@ -34,7 +34,11 @@ import {
   updateProduct,
   fetchCustomerPricing,
   resolveProductPrice,
+  fetchProductPower,
+  fetchCustomerEfficiency,
   type CustomerPricing,
+  type ProductPower,
+  type CustomerEfficiency,
   fetchSalesSummary,
   fetchStoreOrders,
   fetchStoreSales,
@@ -88,7 +92,9 @@ import {
   type StoreOrder,
   type StoreSale,
   type TankRecord,
-  type TaxDeclaration
+  type TaxDeclaration,
+  fetchAnnouncements,
+  type SystemAnnouncement
 } from "./api";
 import { REQUIRE_AUTH } from "./config";
 import { renderBilling } from "./components/Billing";
@@ -106,6 +112,7 @@ import { renderGlobalSearch } from "./components/GlobalSearch";
 import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
 import { renderQuoteBuilder, defaultQuoteState, generateQuotePdf, type QuoteState } from "./components/QuoteBuilder";
+import { renderProductPower, renderCustomerEfficiency } from "./components/BusinessIntelligence";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
@@ -190,6 +197,8 @@ type RoutePath =
   | "/analytics"
   | "/customer-analysis"
   | "/product-abc"
+  | "/product-power"
+  | "/customer-efficiency"
   | "/invoice-entry"
   | "/quote"
   | "/delivery"
@@ -496,6 +505,9 @@ interface AppState {
   route: RoutePath;
   currentCategory: CategoryKey;
   sidebarOpen: boolean;
+  announcements: SystemAnnouncement[];
+  dismissedAnnouncements: Set<string>;
+  updateAvailable: boolean;
   salesFilter: { startDate: string; endDate: string };
   invoiceFilter: InvoiceFilter;
   ledgerCustomerCode: string;
@@ -505,6 +517,8 @@ interface AppState {
   quoteCustomerQuery: string;
   quoteProductQuery: string;
   quotePricing: CustomerPricing | null;
+  productPower: ProductPower[];
+  customerEfficiency: CustomerEfficiency[];
   masterTab: MasterTab;
   masterFilter: MasterFilterState;
   analyticsTab: AnalyticsTab;
@@ -551,6 +565,8 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/analytics":
     case "/customer-analysis":
     case "/product-abc":
+    case "/product-power":
+    case "/customer-efficiency":
     case "/report":
     case "/demand-forecast":
       return "analytics";
@@ -741,6 +757,9 @@ const state: AppState = {
   route: initialRoute,
   currentCategory: inferCurrentCategory(initialRoute),
   sidebarOpen: false,
+  announcements: [] as SystemAnnouncement[],
+  dismissedAnnouncements: new Set<string>(),
+  updateAvailable: false,
   salesFilter: { startDate: "", endDate: "" },
   invoiceFilter: { documentNo: "", startDate: "", endDate: "", customerCode: "" },
   ledgerCustomerCode: defaultLedgerCustomerCode,
@@ -754,6 +773,8 @@ const state: AppState = {
   quoteCustomerQuery: "",
   quoteProductQuery: "",
   quotePricing: null,
+  productPower: [],
+  customerEfficiency: [],
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
@@ -1209,14 +1230,13 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           state.salesReport = await fetchSalesReport();
         }
         break;
+      case "/product-power":
+      return renderProductPower(state.productPower);
+    case "/customer-efficiency":
+      return renderCustomerEfficiency(state.customerEfficiency);
       case "/customer-analysis":
         if (!state.customerAnalysis) {
           state.customerAnalysis = await fetchCustomerAnalysis();
-        }
-        break;
-      case "/product-abc":
-        if (!state.productABC) {
-          state.productABC = await fetchProductABC();
         }
         break;
       case "/demand-forecast":
@@ -1480,11 +1500,17 @@ function renderView(): string {
       return state.salesReport
         ? renderSalesReport(state.salesReport)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
+    case "/product-power":
+      return renderProductPower(state.productPower);
+    case "/customer-efficiency":
+      return renderCustomerEfficiency(state.customerEfficiency);
     case "/customer-analysis":
       return state.customerAnalysis
         ? renderCustomerAnalysis(state.customerAnalysis)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/product-abc":
+    case "/product-power":
+    case "/customer-efficiency":
       return state.productABC
         ? renderProductABC(state.productABC)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
@@ -1689,6 +1715,37 @@ function renderView(): string {
   }
 }
 
+function renderAnnouncementBar(): string {
+  const LEVEL_STYLES: Record<string, { bg: string; border: string; icon: string }> = {
+    info: { bg: "#edf6ff", border: "#b8d4e8", icon: "ℹ️" },
+    warning: { bg: "#fff8e6", border: "#e6c54d", icon: "⚠️" },
+    maintenance: { bg: "#fff3e0", border: "#f5a623", icon: "🔧" },
+    update: { bg: "#e8f5e9", border: "#66bb6a", icon: "🆕" }
+  };
+
+  const visibleAnnouncements = state.announcements.filter(
+    (a) => !state.dismissedAnnouncements.has(a.id)
+  );
+
+  const bars = visibleAnnouncements.map((a) => {
+    const s = LEVEL_STYLES[a.level] ?? LEVEL_STYLES.info;
+    return `
+      <div class="announcement-bar" style="background:${s.bg};border-bottom:2px solid ${s.border};">
+        <span class="announcement-text">${s.icon} ${a.message}</span>
+        ${a.dismissible ? `<button class="announcement-dismiss" data-action="dismiss-announcement" data-id="${a.id}" aria-label="閉じる">✕</button>` : ""}
+      </div>`;
+  }).join("");
+
+  const updateBar = state.updateAvailable
+    ? `<div class="announcement-bar" style="background:#e8f5e9;border-bottom:2px solid #66bb6a;">
+        <span class="announcement-text">🆕 新しいバージョンが利用可能です</span>
+        <button class="button primary small" data-action="reload-app">更新する</button>
+      </div>`
+    : "";
+
+  return bars + updateBar;
+}
+
 function renderShell(): string {
   if (shouldShowLogin()) {
     return `
@@ -1731,6 +1788,8 @@ function renderShell(): string {
           { path: "/analytics", label: "売上分析", kicker: "Analytics" },
           { path: "/customer-analysis", label: "得意先分析", kicker: "CustABC" },
           { path: "/product-abc", label: "商品ABC", kicker: "ProdABC" },
+          { path: "/product-power", label: "商品力分析", kicker: "Power" },
+          { path: "/customer-efficiency", label: "営業効率", kicker: "Efficiency" },
           { path: "/demand-forecast", label: "需要予測", kicker: "Forecast" },
           { path: "/report", label: "集計帳票", kicker: "Report" }
         ]
@@ -1912,6 +1971,7 @@ function renderShell(): string {
           <button class="button secondary" type="button" data-action="global-search-open">検索 (Ctrl+K)</button>
           ${userHtml}
         </header>
+        ${renderAnnouncementBar()}
         <div class="view ${state.actionLoading ? "is-busy" : ""}">${renderView()}</div>
       </main>
       ${pickerHtml}
@@ -2124,6 +2184,20 @@ function bindEvents(root: HTMLElement): void {
       }
     }, { passive: true });
   }
+
+  // お知らせバーの閉じるボタン
+  root.querySelectorAll<HTMLButtonElement>("[data-action='dismiss-announcement']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id ?? "";
+      state.dismissedAnnouncements.add(id);
+      renderApp();
+    });
+  });
+
+  // アプデ通知のリロードボタン
+  root.querySelector<HTMLButtonElement>("[data-action='reload-app']")?.addEventListener("click", () => {
+    location.reload();
+  });
 
   root.querySelectorAll<HTMLElement>("[data-link]").forEach((element) => {
     element.addEventListener("click", (event) => {
@@ -4448,6 +4522,12 @@ async function loadData(): Promise<void> {
     state.salesAnalytics = salesAnalytics;
     state.syncDashboard = syncDashboard;
 
+    // お知らせ取得
+    fetchAnnouncements().then((list) => {
+      state.announcements = list;
+      renderApp();
+    });
+
     // メール配信先をバックグラウンドで取得
     if (EMAIL_RECIPIENTS.length === 0) {
       void loadEmailRecipients();
@@ -4744,3 +4824,22 @@ setInterval(() => {
     void loadData();
   }
 }, AUTO_REFRESH_INTERVAL);
+
+// アプデ検知（2分間隔でindex.htmlのハッシュを比較）
+let initialHtml = "";
+fetch(`${location.origin}${import.meta.env.BASE_URL}index.html?_t=${Date.now()}`)
+  .then((r) => r.text())
+  .then((t) => { initialHtml = t; })
+  .catch(() => {});
+
+setInterval(async () => {
+  if (!initialHtml || document.hidden) return;
+  try {
+    const resp = await fetch(`${location.origin}${import.meta.env.BASE_URL}index.html?_t=${Date.now()}`);
+    const text = await resp.text();
+    if (text !== initialHtml && !state.updateAvailable) {
+      state.updateAvailable = true;
+      renderApp();
+    }
+  } catch { /* ネットワークエラーは無視 */ }
+}, 2 * 60 * 1000);
