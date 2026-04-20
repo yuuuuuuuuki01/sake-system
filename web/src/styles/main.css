@@ -3549,3 +3549,131 @@ details.panel[open] > summary::before {
     width: calc(100% - 16px);
   }
 }
+
+/* ===== 全ページ レスポンシブ強化 (640px以下) ===== */
+@media (max-width: 640px) {
+  /* グリッド全般 */
+  .content-grid,
+  .analytics-grid,
+  .ledger-grid,
+  .broadcast-grid,
+  .print-layout,
+  .tour-layout,
+  .cal-toolbar {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+
+  /* フィルターパネル */
+  .filter-grid,
+  .filter-panel > div {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filter-grid > .field {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
+
+  /* ワークフロー カンバン */
+  .wf-board {
+    flex-direction: column;
+  }
+
+  .wf-col {
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* パイプライン・見込客カンバン */
+  .pk-board {
+    flex-direction: column;
+  }
+
+  .pk-col {
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* 伝票入力 */
+  .inv-header-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .inv-line-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .inv-summary-table {
+    min-width: 0;
+    font-size: 0.85em;
+  }
+
+  /* マップ */
+  #customer-map {
+    height: 400px !important;
+  }
+
+  /* メール配信 */
+  .email-preview-panel {
+    max-width: 100%;
+  }
+
+  /* 帳票デザイナー */
+  .fd-canvas {
+    transform: scale(0.6);
+    transform-origin: top left;
+  }
+
+  /* カレンダー */
+  .cal-grid {
+    font-size: 11px;
+  }
+
+  .cal-grid td {
+    padding: 2px;
+    height: 40px;
+  }
+
+  /* 設定・連携 */
+  .setup-grid,
+  .integration-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* 汎用フォーム */
+  .form-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* モーダル・ダイアログ */
+  .modal-content,
+  .dialog-content {
+    max-width: calc(100vw - 24px) !important;
+    margin: 12px;
+  }
+
+  /* サマリーリスト */
+  .summary-list {
+    font-size: 13px;
+  }
+
+  .summary-list dt {
+    min-width: auto;
+  }
+
+  /* メタリスト */
+  .meta-list {
+    font-size: 13px;
+    gap: 8px;
+  }
+
+  /* ボタンバー */
+  .action-bar .button {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+}

@@ -315,118 +315,15 @@ const mockPipelineMeta: PipelineMeta = {
   message: "データ未取得"
 };
 
-const mockInvoiceRecords: InvoiceRecord[] = mockSalesSummary.salesRecords.map((record, index) => ({
-  ...record,
-  itemCount: (index % 4) + 1
-}));
+const mockInvoiceRecords: InvoiceRecord[] = [];
 
-const mockLedgerData: Record<string, CustomerLedger> = {
-  C0011: {
-    customerCode: "C0011",
-    customerName: "青葉商事",
-    balanceAmount: 540000,
-    salesTotal: 1140000,
-    paymentTotal: 600000,
-    salesHistory: [
-      {
-        id: "ledger-sale-1",
-        date: "2026-04-15T00:00:00+09:00",
-        documentNo: "D240100",
-        amount: 420000
-      },
-      {
-        id: "ledger-sale-2",
-        date: "2026-04-08T00:00:00+09:00",
-        documentNo: "D240087",
-        amount: 390000
-      },
-      {
-        id: "ledger-sale-3",
-        date: "2026-03-28T00:00:00+09:00",
-        documentNo: "D240059",
-        amount: 330000
-      }
-    ],
-    paymentHistory: [
-      {
-        id: "ledger-payment-1",
-        date: "2026-04-10T00:00:00+09:00",
-        amount: 300000,
-        method: "振込"
-      },
-      {
-        id: "ledger-payment-2",
-        date: "2026-03-31T00:00:00+09:00",
-        amount: 300000,
-        method: "振込"
-      }
-    ]
-  },
-  C0012: {
-    customerCode: "C0012",
-    customerName: "北斗酒販",
-    balanceAmount: 420000,
-    salesTotal: 1020000,
-    paymentTotal: 600000,
-    salesHistory: [
-      {
-        id: "ledger-sale-4",
-        date: "2026-04-14T00:00:00+09:00",
-        documentNo: "D240101",
-        amount: 360000
-      },
-      {
-        id: "ledger-sale-5",
-        date: "2026-04-05T00:00:00+09:00",
-        documentNo: "D240082",
-        amount: 320000
-      },
-      {
-        id: "ledger-sale-6",
-        date: "2026-03-25T00:00:00+09:00",
-        documentNo: "D240054",
-        amount: 340000
-      }
-    ],
-    paymentHistory: [
-      {
-        id: "ledger-payment-3",
-        date: "2026-04-11T00:00:00+09:00",
-        amount: 300000,
-        method: "振込"
-      },
-      {
-        id: "ledger-payment-4",
-        date: "2026-03-30T00:00:00+09:00",
-        amount: 300000,
-        method: "現金"
-      }
-    ]
-  }
-};
+const mockLedgerData: Record<string, CustomerLedger> = {};
 
 const mockSalesAnalytics: SalesAnalytics = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  monthlySales: [
-    { month: "2025-11", amount: 12840000 },
-    { month: "2025-12", amount: 13620000 },
-    { month: "2026-01", amount: 14110000 },
-    { month: "2026-02", amount: 13380000 },
-    { month: "2026-03", amount: 15860000 },
-    { month: "2026-04", amount: 18245000 }
-  ],
-  productTotals: [
-    { code: "P00001", name: "純米吟醸 720ml", amount: 5840000, quantity: 820, documents: 148 },
-    { code: "P00002", name: "本醸造 1.8L", amount: 4980000, quantity: 610, documents: 131 },
-    { code: "P00003", name: "特別純米 300ml", amount: 3560000, quantity: 1240, documents: 112 },
-    { code: "P00004", name: "梅酒 500ml", amount: 2870000, quantity: 540, documents: 89 }
-  ],
-  customerTotals: [
-    { code: "C0011", name: "青葉商事", amount: 4620000, quantity: 320, documents: 54 },
-    { code: "C0012", name: "北斗酒販", amount: 4380000, quantity: 294, documents: 49 },
-    { code: "C0013", name: "中央フーズ", amount: 3910000, quantity: 276, documents: 45 },
-    { code: "C0014", name: "東海酒店", amount: 3240000, quantity: 221, documents: 37 }
-  ]
+  generatedAt: new Date().toISOString(),
+  monthlySales: [],
+  productTotals: [],
+  customerTotals: []
 };
 
 function toNumber(value: unknown): number {
@@ -1138,19 +1035,9 @@ export interface DeliveryNote {
 }
 
 const mockDeliveryNote: DeliveryNote = {
-  documentNo: "D240122",
-  invoiceDate: "2026-04-14",
-  customerCode: "C0011",
-  customerName: "青葉商事 株式会社",
-  customerAddress: "〒123-4567 東京都千代田区〇〇 1-2-3",
-  lines: [
-    { productCode: "P00012", productName: "純米吟醸 720ml", quantity: 6, unitPrice: 12000, unit: "本", amount: 72000 },
-    { productCode: "P00008", productName: "本醸造 1.8L", quantity: 4, unitPrice: 8500, unit: "本", amount: 34000 },
-    { productCode: "P00021", productName: "梅酒 500ml", quantity: 12, unitPrice: 5800, unit: "本", amount: 69600 }
-  ],
-  totalAmount: 175600,
-  taxAmount: 15960,
-  note: ""
+  documentNo: "", salesDate: "", customerCode: "", customerName: "",
+  customerAddress: "", deliveryAddress: "", lines: [], subtotal: 0,
+  taxAmount: 0, totalAmount: 0, remarks: ""
 };
 
 export async function fetchDeliveryNote(documentNo: string): Promise<DeliveryNote> {
@@ -1198,15 +1085,7 @@ export interface BillingSummary {
 }
 
 const mockBilling: BillingSummary = {
-  targetYearMonth: "2026-04",
-  closingDay: 15,
-  totalBilling: 4820000,
-  customers: [
-    { customerCode: "C0011", customerName: "青葉商事", closingDay: 15, salesAmount: 540000, taxAmount: 54000, prevBalance: 280000, paymentAmount: 280000, billingAmount: 594000, status: "open" },
-    { customerCode: "C0012", customerName: "北斗酒販", closingDay: 15, salesAmount: 720000, taxAmount: 72000, prevBalance: 140000, paymentAmount: 140000, billingAmount: 792000, status: "closed" },
-    { customerCode: "C0013", customerName: "中央フーズ", closingDay: 15, salesAmount: 380000, taxAmount: 38000, prevBalance: 0, paymentAmount: 0, billingAmount: 418000, status: "open" },
-    { customerCode: "C0014", customerName: "東海酒店", closingDay: 15, salesAmount: 610000, taxAmount: 61000, prevBalance: 230000, paymentAmount: 150000, billingAmount: 751000, status: "open" }
-  ]
+  yearMonth: "", generatedAt: new Date().toISOString(), customers: []
 };
 
 export async function fetchBillingSummary(yearMonth: string): Promise<BillingSummary> {
@@ -1235,22 +1114,9 @@ export interface SalesReport {
 const MONTHS = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
 
 const mockReport: SalesReport = {
-  generatedAt: new Date().toISOString(),
-  months: MONTHS,
-  salesByProduct: [
-    { label: "純米吟醸 720ml", values: [380,410,520,480,390,320,450,480,510,420,380,350].map(v => v * 10000) },
-    { label: "本醸造 1.8L", values: [290,310,380,340,280,250,320,360,390,310,280,260].map(v => v * 10000) },
-    { label: "梅酒 500ml", values: [210,240,310,290,230,180,260,300,320,250,200,190].map(v => v * 10000) }
-  ],
-  salesByCustomer: [
-    { label: "青葉商事", values: [480,510,620,590,480,390,540,580,610,510,460,430].map(v => v * 10000) },
-    { label: "北斗酒販", values: [390,420,520,490,400,330,460,500,530,430,380,360].map(v => v * 10000) }
-  ],
-  costSimulation: [
-    { productCode: "P00012", productName: "純米吟醸 720ml", costPrice: 7200, sellPrice: 12000, margin: 4800, marginRate: 40.0 },
-    { productCode: "P00008", productName: "本醸造 1.8L", costPrice: 4800, sellPrice: 8500, margin: 3700, marginRate: 43.5 },
-    { productCode: "P00021", productName: "梅酒 500ml", costPrice: 3200, sellPrice: 5800, margin: 2600, marginRate: 44.8 }
-  ]
+  generatedAt: new Date().toISOString(), yearMonth: "",
+  totalSales: 0, totalCost: 0, grossProfit: 0, grossMarginRate: 0,
+  byProduct: [], byCustomer: [], byArea: []
 };
 
 export async function fetchSalesReport(): Promise<SalesReport> {
@@ -1397,12 +1263,7 @@ export interface JikomiRecord {
   note: string;
 }
 
-const mockJikomi: JikomiRecord[] = [
-  { id: "j1", jikomiNo: "J2026-01", productName: "純米吟醸", riceType: "山田錦", plannedKg: 400, actualKg: 400, startDate: "2026-01-10", expectedDoneDate: "2026-02-20", status: "done", tankNo: "T01", note: "" },
-  { id: "j2", jikomiNo: "J2026-02", productName: "本醸造", riceType: "日本晴", plannedKg: 600, actualKg: 600, startDate: "2026-02-01", expectedDoneDate: "2026-03-15", status: "done", tankNo: "T02", note: "" },
-  { id: "j3", jikomiNo: "J2026-03", productName: "特別純米", riceType: "五百万石", plannedKg: 500, actualKg: 480, startDate: "2026-03-05", expectedDoneDate: "2026-04-20", status: "active", tankNo: "T03", note: "経過良好" },
-  { id: "j4", jikomiNo: "J2026-04", productName: "純米大吟醸", riceType: "山田錦", plannedKg: 300, actualKg: 0, startDate: "2026-04-15", expectedDoneDate: "2026-06-01", status: "planned", tankNo: "T04", note: "" }
-];
+const mockJikomi: JikomiRecord[] = [];
 
 export async function fetchJikomiList(): Promise<JikomiRecord[]> {
   return fetchJson("data/api/latest/jikomi.json", mockJikomi);
@@ -1419,13 +1280,7 @@ export interface TankRecord {
   lastUpdated: string;
 }
 
-const mockTanks: TankRecord[] = [
-  { id: "t1", tankNo: "T01", capacity: 3000, currentVolume: 0, productName: "", jikomiNo: "", status: "empty", lastUpdated: "2026-03-01" },
-  { id: "t2", tankNo: "T02", capacity: 4000, currentVolume: 0, productName: "", jikomiNo: "", status: "empty", lastUpdated: "2026-03-20" },
-  { id: "t3", tankNo: "T03", capacity: 3500, currentVolume: 2800, productName: "特別純米", jikomiNo: "J2026-03", status: "in_use", lastUpdated: "2026-04-10" },
-  { id: "t4", tankNo: "T04", capacity: 2000, currentVolume: 0, productName: "純米大吟醸", jikomiNo: "J2026-04", status: "in_use", lastUpdated: "2026-04-15" },
-  { id: "t5", tankNo: "T05", capacity: 5000, currentVolume: 3200, productName: "本醸造（貯蔵）", jikomiNo: "J2026-02", status: "aging", lastUpdated: "2026-03-20" }
-];
+const mockTanks: TankRecord[] = [];
 
 export async function fetchTankList(): Promise<TankRecord[]> {
   return fetchJson("data/api/latest/tanks.json", mockTanks);
@@ -1445,11 +1300,7 @@ export interface KenteiRecord {
   status: "pending" | "submitted" | "approved";
 }
 
-const mockKentei: KenteiRecord[] = [
-  { id: "k1", kenteiNo: "K2026-001", jikomiNo: "J2026-01", productName: "純米吟醸", kenteiDate: "2026-02-25", alcoholDegree: 16.2, extractDegree: 3.8, sakaMeterValue: 2.5, volume: 2850, taxCategory: "清酒", status: "approved" },
-  { id: "k2", kenteiNo: "K2026-002", jikomiNo: "J2026-02", productName: "本醸造", kenteiDate: "2026-03-18", alcoholDegree: 15.5, extractDegree: 4.1, sakaMeterValue: 1.8, volume: 3600, taxCategory: "清酒", status: "submitted" },
-  { id: "k3", kenteiNo: "K2026-003", jikomiNo: "J2026-03", productName: "特別純米", kenteiDate: "2026-04-18", alcoholDegree: 0, extractDegree: 0, sakaMeterValue: 0, volume: 0, taxCategory: "清酒", status: "pending" }
-];
+const mockKentei: KenteiRecord[] = [];
 
 export async function fetchKenteiList(): Promise<KenteiRecord[]> {
   return fetchJson("data/api/latest/kentei.json", mockKentei);
@@ -1466,14 +1317,7 @@ export interface MaterialRecord {
   lastUpdated: string;
 }
 
-const mockMaterials: MaterialRecord[] = [
-  { id: "m1", code: "M001", name: "720ml瓶", unit: "本", currentStock: 2400, minimumStock: 500, unitCost: 85, lastUpdated: "2026-04-10" },
-  { id: "m2", code: "M002", name: "1.8L瓶", unit: "本", currentStock: 1800, minimumStock: 300, unitCost: 140, lastUpdated: "2026-04-10" },
-  { id: "m3", code: "M003", name: "300ml瓶", unit: "本", currentStock: 3600, minimumStock: 600, unitCost: 55, lastUpdated: "2026-04-08" },
-  { id: "m4", code: "M004", name: "キャップ（金）", unit: "個", currentStock: 8000, minimumStock: 1000, unitCost: 12, lastUpdated: "2026-04-05" },
-  { id: "m5", code: "M005", name: "ラベル（純米吟醸）", unit: "枚", currentStock: 1200, minimumStock: 300, unitCost: 28, lastUpdated: "2026-04-01" },
-  { id: "m6", code: "M006", name: "化粧箱（720ml）", unit: "個", currentStock: 180, minimumStock: 100, unitCost: 320, lastUpdated: "2026-04-01" }
-];
+const mockMaterials: MaterialRecord[] = [];
 
 export async function fetchMaterialList(): Promise<MaterialRecord[]> {
   return fetchJson("data/api/latest/materials.json", mockMaterials);
@@ -1494,12 +1338,7 @@ export interface PurchaseRecord {
   status: "pending" | "confirmed" | "paid";
 }
 
-const mockPurchases: PurchaseRecord[] = [
-  { id: "p1", documentNo: "K240050", purchaseDate: "2026-04-05", supplierCode: "S001", supplierName: "山田農場", itemName: "山田錦（精米65%）", quantity: 500, unitPrice: 480, amount: 240000, status: "confirmed" },
-  { id: "p2", documentNo: "K240051", purchaseDate: "2026-04-06", supplierCode: "S002", supplierName: "日本瓶工業", itemName: "720ml瓶", quantity: 1200, unitPrice: 85, amount: 102000, status: "confirmed" },
-  { id: "p3", documentNo: "K240052", purchaseDate: "2026-04-10", supplierCode: "S003", supplierName: "山本麹店", itemName: "米麹", quantity: 80, unitPrice: 1200, amount: 96000, status: "pending" },
-  { id: "p4", documentNo: "K240053", purchaseDate: "2026-04-12", supplierCode: "S001", supplierName: "山田農場", itemName: "五百万石（精米60%）", quantity: 300, unitPrice: 420, amount: 126000, status: "pending" }
-];
+const mockPurchases: PurchaseRecord[] = [];
 
 export interface PayableRecord {
   supplierCode: string;
@@ -1511,11 +1350,7 @@ export interface PayableRecord {
   status: "unpaid" | "partial" | "paid";
 }
 
-const mockPayables: PayableRecord[] = [
-  { supplierCode: "S001", supplierName: "山田農場", totalPurchase: 366000, paidAmount: 240000, balance: 126000, nextPaymentDate: "2026-04-30", status: "partial" },
-  { supplierCode: "S002", supplierName: "日本瓶工業", totalPurchase: 102000, paidAmount: 102000, balance: 0, nextPaymentDate: "", status: "paid" },
-  { supplierCode: "S003", supplierName: "山本麹店", totalPurchase: 96000, paidAmount: 0, balance: 96000, nextPaymentDate: "2026-04-30", status: "unpaid" }
-];
+const mockPayables: PayableRecord[] = [];
 
 export interface BillRecord {
   id: string;
@@ -1527,11 +1362,7 @@ export interface BillRecord {
   status: "holding" | "due" | "cleared";
 }
 
-const mockBills: BillRecord[] = [
-  { id: "b1", billNo: "H240001", supplierName: "山田農場", amount: 240000, issueDate: "2026-03-31", dueDate: "2026-04-30", status: "holding" },
-  { id: "b2", billNo: "H240002", supplierName: "大阪資材", amount: 185000, issueDate: "2026-03-31", dueDate: "2026-05-31", status: "holding" },
-  { id: "b3", billNo: "H230045", supplierName: "中部農業", amount: 320000, issueDate: "2026-02-28", dueDate: "2026-03-31", status: "cleared" }
-];
+const mockBills: BillRecord[] = [];
 
 export interface RawMaterialStock {
   code: string;
@@ -1543,13 +1374,7 @@ export interface RawMaterialStock {
   unitCost: number;
 }
 
-const mockRawStock: RawMaterialStock[] = [
-  { code: "R001", name: "山田錦（精米65%）", unit: "kg", currentStock: 380, minimumStock: 100, lastPurchaseDate: "2026-04-05", unitCost: 480 },
-  { code: "R002", name: "五百万石（精米60%）", unit: "kg", currentStock: 290, minimumStock: 100, lastPurchaseDate: "2026-04-12", unitCost: 420 },
-  { code: "R003", name: "米麹", unit: "kg", currentStock: 62, minimumStock: 20, lastPurchaseDate: "2026-04-10", unitCost: 1200 },
-  { code: "R004", name: "醸造用アルコール", unit: "L", currentStock: 240, minimumStock: 50, lastPurchaseDate: "2026-03-20", unitCost: 180 },
-  { code: "R005", name: "清酒用酵母", unit: "g", currentStock: 500, minimumStock: 100, lastPurchaseDate: "2026-02-15", unitCost: 3200 }
-];
+const mockRawStock: RawMaterialStock[] = [];
 
 export async function fetchPurchaseList(): Promise<PurchaseRecord[]> {
   return fetchJson("data/api/latest/purchases.json", mockPurchases);
@@ -1634,67 +1459,9 @@ export interface TaxDeclaration {
 }
 
 const mockTaxDeclaration: TaxDeclaration = {
-  targetYear: 2026,
-  targetMonth: 3,
-  companyName: "金井酒造店",
-  companyNo: "1234567890123",
-  companyAddress: "神奈川県秦野市堀山下182",
-  companyRepresentative: "金井 和雄",
-  taxOffice: "小田原税務署",
-  rows: [
-    {
-      taxCategory: "01",
-      taxCategoryName: "清酒（普通酒）",
-      alcoholDegree: 15.5,
-      productionVolume: 3800,
-      previousBalance: 0,
-      currentAdjustment: 0,
-      exportDeduction: 100,
-      sampleDeduction: 100,
-      taxableVolume: 3600,
-      volume: 3600,
-      taxRate: 100,
-      taxAmount: 360000
-    },
-    {
-      taxCategory: "02",
-      taxCategoryName: "清酒（純米酒）",
-      alcoholDegree: 16.2,
-      productionVolume: 2900,
-      previousBalance: 0,
-      currentAdjustment: 0,
-      exportDeduction: 0,
-      sampleDeduction: 50,
-      taxableVolume: 2850,
-      volume: 2850,
-      taxRate: 100,
-      taxAmount: 285000
-    },
-    {
-      taxCategory: "03",
-      taxCategoryName: "清酒（吟醸酒）",
-      alcoholDegree: 16.5,
-      productionVolume: 1250,
-      previousBalance: 0,
-      currentAdjustment: 0,
-      exportDeduction: 0,
-      sampleDeduction: 50,
-      taxableVolume: 1200,
-      volume: 1200,
-      taxRate: 100,
-      taxAmount: 120000
-    }
-  ],
-  deductions: [
-    { type: "export", categoryCode: "01", volume: 100, reason: "シンガポール向け輸出", documentNo: "EX2026-003" },
-    { type: "sample", categoryCode: "01", volume: 100, reason: "展示会サンプル出荷" },
-    { type: "sample", categoryCode: "02", volume: 50, reason: "品評会出品" },
-    { type: "sample", categoryCode: "03", volume: 50, reason: "全国新酒鑑評会出品" }
-  ],
-  totalVolume: 7650,
-  totalTax: 765000,
-  status: "draft",
-  submittedAt: null
+  targetYear: 0, targetMonth: 0, companyName: "", companyNo: "",
+  companyAddress: "", companyRepresentative: "", taxOffice: "",
+  rows: [], totalTaxAmount: 0, filingDeadline: ""
 };
 
 export async function fetchTaxDeclaration(year: number, month: number): Promise<TaxDeclaration> {
@@ -1877,23 +1644,9 @@ export interface StoreOrder {
   shippingDate: string;
 }
 
-const mockStoreSales: StoreSale[] = Array.from({ length: 10 }, (_, i) => ({
-  id: `ss${i + 1}`,
-  saleDate: "2026-04-15",
-  saleTime: `${9 + i}:${String(i * 7 % 60).padStart(2, "0")}`,
-  productCode: `P${String((i % 4) + 1).padStart(5, "0")}`,
-  productName: ["純米吟醸 720ml", "本醸造 1.8L", "梅酒 500ml", "特別純米 300ml"][i % 4],
-  quantity: 1 + (i % 3),
-  unitPrice: [2200, 1800, 980, 680][i % 4],
-  amount: (1 + (i % 3)) * [2200, 1800, 980, 680][i % 4],
-  paymentMethod: (["cash", "card", "paypay", "cash"] as const)[i % 4]
-}));
+const mockStoreSales: StoreSale[] = [];
 
-const mockStoreOrders: StoreOrder[] = [
-  { id: "o1", orderNo: "ORD-2604001", orderDate: "2026-04-13", customerName: "鈴木 太郎", postalCode: "150-0001", address: "東京都渋谷区〇〇1-1", items: [{ productName: "純米吟醸 720ml", quantity: 2, amount: 4400 }], totalAmount: 4400, status: "shipped", shippingDate: "2026-04-14" },
-  { id: "o2", orderNo: "ORD-2604002", orderDate: "2026-04-14", customerName: "田中 花子", postalCode: "530-0001", address: "大阪府大阪市北区〇〇2-3", items: [{ productName: "梅酒 500ml", quantity: 3, amount: 2940 }, { productName: "本醸造 1.8L", quantity: 1, amount: 1800 }], totalAmount: 4740, status: "processing", shippingDate: "" },
-  { id: "o3", orderNo: "ORD-2604003", orderDate: "2026-04-15", customerName: "佐藤 一郎", postalCode: "460-0001", address: "愛知県名古屋市中区〇〇3-5", items: [{ productName: "特別純米 300ml ×6本セット", quantity: 1, amount: 3980 }], totalAmount: 3980, status: "new", shippingDate: "" }
-];
+const mockStoreOrders: StoreOrder[] = [];
 
 export async function fetchStoreSales(date: string): Promise<StoreSale[]> {
   return fetchJson(`data/api/latest/store-sales-${date}.json`, mockStoreSales);
