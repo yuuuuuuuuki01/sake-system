@@ -346,10 +346,26 @@ def upsert_to_supabase(
         "Prefer": "resolution=merge-duplicates,missing=default",
     })
 
+    # 手動編集されたレコードをスキップ
+    protected: set[str] = set()
+    try:
+        resp = session.get(
+            f"{url}/rest/v1/products?manual_override=eq.true&select=legacy_product_code",
+            timeout=30,
+        )
+        if resp.ok:
+            protected = {r["legacy_product_code"] for r in resp.json()}
+            if protected:
+                logger.info("Skipping %d manually edited products", len(protected))
+    except Exception:
+        pass
+
     batch_size = 200
     total = 0
     for i in range(0, len(products), batch_size):
-        batch = products[i : i + batch_size]
+        batch = [p for p in products[i : i + batch_size] if p.get("legacy_product_code") not in protected]
+        if not batch:
+            continue
         if dry_run:
             logger.info("[DRY-RUN] would upsert %d products (sample: %s)", len(batch), batch[0]["legacy_product_code"])
         else:

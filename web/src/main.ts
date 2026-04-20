@@ -32,6 +32,8 @@ import {
   submitFeatureRequest,
   updateCustomer,
   updateProduct,
+  fetchSpecialPrices,
+  getCustomerPriceGroup,
   fetchSalesSummary,
   fetchStoreOrders,
   fetchStoreSales,
@@ -489,6 +491,7 @@ interface AppState {
   quoteState: QuoteState;
   quoteCustomerQuery: string;
   quoteProductQuery: string;
+  quoteSpecialPrices: Map<string, number>;
   masterTab: MasterTab;
   masterFilter: MasterFilterState;
   analyticsTab: AnalyticsTab;
@@ -713,6 +716,7 @@ const state: AppState = {
   quoteState: { ...defaultQuoteState },
   quoteCustomerQuery: "",
   quoteProductQuery: "",
+  quoteSpecialPrices: new Map(),
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
@@ -1410,7 +1414,8 @@ function renderView(): string {
         state.masterStats?.customers ?? [],
         state.masterStats?.products ?? [],
         state.quoteCustomerQuery,
-        state.quoteProductQuery
+        state.quoteProductQuery,
+        state.quoteSpecialPrices
       );
     case "/email":
       return renderEmailBroadcast(buildEmailViewState());
@@ -2083,6 +2088,7 @@ function bindEvents(root: HTMLElement): void {
           address1: (document.getElementById("ec-address") as HTMLInputElement).value,
           closing_day: parseInt((document.getElementById("ec-closing") as HTMLInputElement).value) || null,
           payment_day: parseInt((document.getElementById("ec-payment") as HTMLInputElement).value) || null,
+          manual_override: true,
         });
         if (r) { r.textContent = ok ? "保存しました" : "保存に失敗"; r.className = `fr-result ${ok ? "success" : "error"}`; }
         if (ok) { document.getElementById("edit-modal")?.remove(); void loadData(); }
@@ -2112,6 +2118,7 @@ function bindEvents(root: HTMLElement): void {
           bottle_type: (document.getElementById("ep-bottle") as HTMLInputElement).value,
           purchase_price: parseInt((document.getElementById("ep-purchase") as HTMLInputElement).value) || null,
           default_sale_price: parseInt((document.getElementById("ep-sale") as HTMLInputElement).value) || null,
+          manual_override: true,
         });
         if (r) { r.textContent = ok ? "保存しました" : "保存に失敗"; r.className = `fr-result ${ok ? "success" : "error"}`; }
         if (ok) { document.getElementById("edit-modal")?.remove(); void loadData(); }
@@ -2129,11 +2136,16 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
   root.querySelectorAll<HTMLButtonElement>("[data-select-customer]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.quoteState.customerCode = btn.dataset.selectCustomer ?? "";
+    btn.addEventListener("click", async () => {
+      const custCode = btn.dataset.selectCustomer ?? "";
+      state.quoteState.customerCode = custCode;
       state.quoteState.customerName = btn.dataset.custName ?? "";
       state.quoteState.customerAddress = btn.dataset.custAddr ?? "";
       state.quoteCustomerQuery = "";
+      // 特価テーブル読込
+      const priceGroup = getCustomerPriceGroup(state.masterStats?.customers ?? [], custCode);
+      const prices = await fetchSpecialPrices(priceGroup);
+      state.quoteSpecialPrices = new Map(prices.map((p) => [p.productCode, p.price]));
       renderApp();
     });
   });
@@ -2141,7 +2153,10 @@ function bindEvents(root: HTMLElement): void {
     btn.addEventListener("click", () => {
       const code = btn.dataset.addProduct ?? "";
       const name = btn.dataset.prodName ?? "";
-      const price = parseInt(btn.dataset.prodPrice ?? "0");
+      const defaultPrice = parseInt(btn.dataset.prodPrice ?? "0");
+      // 特価テーブルから優先取得
+      const specialPrice = state.quoteSpecialPrices.get(code);
+      const price = specialPrice ?? defaultPrice;
       state.quoteState.lines.push({ productCode: code, productName: name, quantity: 1, unit: "本", unitPrice: price, amount: price });
       state.quoteProductQuery = "";
       renderApp();

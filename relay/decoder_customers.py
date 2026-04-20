@@ -262,10 +262,26 @@ def upsert_to_supabase(
         }
     )
 
+    # 手動編集されたレコードをスキップ
+    protected: set[str] = set()
+    try:
+        resp = session.get(
+            f"{url}/rest/v1/customers?manual_override=eq.true&select=legacy_customer_code",
+            timeout=30,
+        )
+        if resp.ok:
+            protected = {r["legacy_customer_code"] for r in resp.json()}
+            if protected:
+                logger.info("Skipping %d manually edited customers", len(protected))
+    except Exception:
+        pass
+
     batch_size = 200
     total = 0
     for i in range(0, len(customers), batch_size):
-        batch = customers[i : i + batch_size]
+        batch = [c for c in customers[i : i + batch_size] if c.get("legacy_customer_code") not in protected]
+        if not batch:
+            continue
         if dry_run:
             logger.info("[DRY-RUN] would upsert %d customers (sample: %s)", len(batch), batch[0]["legacy_customer_code"])
         else:

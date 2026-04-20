@@ -1144,6 +1144,27 @@ export async function updateProduct(id: string, data: Record<string, unknown>): 
   return supabaseUpdate("products", id, data);
 }
 
+// ─── 特価テーブル ───────────────────────────────────────────────────────────
+
+export interface SpecialPrice {
+  productCode: string;
+  price: number;
+}
+
+export async function fetchSpecialPrices(priceGroup: string): Promise<SpecialPrice[]> {
+  if (!priceGroup) return [];
+  const rows = await supabaseQuery<{ legacy_product_code: string; special_price: number }>(
+    "customer_product_prices",
+    { price_group: `eq.${priceGroup}`, select: "legacy_product_code,special_price" }
+  );
+  return rows.map((r) => ({ productCode: r.legacy_product_code, price: r.special_price }));
+}
+
+export function getCustomerPriceGroup(customers: MasterCustomer[], customerCode: string): string {
+  const c = customers.find((cust) => cust.code === customerCode);
+  return c?.priceGroup || customerCode;
+}
+
 // ─── 得意先別集計・ABC分析 ──────────────────────────────────────────────────
 
 export interface CustomerRankRow {

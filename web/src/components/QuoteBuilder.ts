@@ -44,7 +44,8 @@ export function renderQuoteBuilder(
   customers: MasterCustomer[],
   products: MasterProduct[],
   customerQuery: string,
-  productQuery: string
+  productQuery: string,
+  specialPrices?: Map<string, number>
 ): string {
   const subtotal = quote.lines.reduce((s, l) => s + l.amount, 0);
   const tax = Math.round(subtotal * quote.taxRate / 100);
@@ -120,11 +121,16 @@ export function renderQuoteBuilder(
       </div>
       ${filteredProducts.length > 0 ? `
         <div class="search-results">
-          ${filteredProducts.map((p) => `
-            <button class="search-item" type="button" data-add-product="${p.code}" data-prod-name="${p.name}" data-prod-price="${p.salePrice || 0}">
-              <span class="mono">${p.code}</span> ${p.name} <span class="numeric">${p.salePrice ? formatCurrency(p.salePrice) : ""}</span>
-            </button>
-          `).join("")}
+          ${filteredProducts.map((p) => {
+            const sp = specialPrices?.get(p.code);
+            const displayPrice = sp ?? p.salePrice ?? 0;
+            const isSpecial = sp != null;
+            return `
+            <button class="search-item" type="button" data-add-product="${p.code}" data-prod-name="${p.name}" data-prod-price="${displayPrice}">
+              <span class="mono">${p.code}</span> ${p.name}
+              <span class="numeric" ${isSpecial ? 'style="color:#2f855a;font-weight:700;"' : ""}>${displayPrice ? formatCurrency(displayPrice) : ""}${isSpecial ? " (特価)" : ""}</span>
+            </button>`;
+          }).join("")}
         </div>
       ` : ""}
 
