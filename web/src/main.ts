@@ -32,8 +32,9 @@ import {
   submitFeatureRequest,
   updateCustomer,
   updateProduct,
-  fetchSpecialPrices,
-  getCustomerPriceGroup,
+  fetchCustomerPricing,
+  resolveProductPrice,
+  type CustomerPricing,
   fetchSalesSummary,
   fetchStoreOrders,
   fetchStoreSales,
@@ -491,7 +492,7 @@ interface AppState {
   quoteState: QuoteState;
   quoteCustomerQuery: string;
   quoteProductQuery: string;
-  quoteSpecialPrices: Map<string, number>;
+  quotePricing: CustomerPricing | null;
   masterTab: MasterTab;
   masterFilter: MasterFilterState;
   analyticsTab: AnalyticsTab;
@@ -716,7 +717,7 @@ const state: AppState = {
   quoteState: { ...defaultQuoteState },
   quoteCustomerQuery: "",
   quoteProductQuery: "",
-  quoteSpecialPrices: new Map(),
+  quotePricing: null,
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
@@ -1415,7 +1416,7 @@ function renderView(): string {
         state.masterStats?.products ?? [],
         state.quoteCustomerQuery,
         state.quoteProductQuery,
-        state.quoteSpecialPrices
+        state.quotePricing
       );
     case "/email":
       return renderEmailBroadcast(buildEmailViewState());
@@ -2142,10 +2143,8 @@ function bindEvents(root: HTMLElement): void {
       state.quoteState.customerName = btn.dataset.custName ?? "";
       state.quoteState.customerAddress = btn.dataset.custAddr ?? "";
       state.quoteCustomerQuery = "";
-      // 特価テーブル読込
-      const priceGroup = getCustomerPriceGroup(state.masterStats?.customers ?? [], custCode);
-      const prices = await fetchSpecialPrices(priceGroup);
-      state.quoteSpecialPrices = new Map(prices.map((p) => [p.productCode, p.price]));
+      // 価格テーブル読込（個別単価 + price_type）
+      state.quotePricing = await fetchCustomerPricing(state.masterStats?.customers ?? [], custCode);
       renderApp();
     });
   });
@@ -2153,10 +2152,7 @@ function bindEvents(root: HTMLElement): void {
     btn.addEventListener("click", () => {
       const code = btn.dataset.addProduct ?? "";
       const name = btn.dataset.prodName ?? "";
-      const defaultPrice = parseInt(btn.dataset.prodPrice ?? "0");
-      // 特価テーブルから優先取得
-      const specialPrice = state.quoteSpecialPrices.get(code);
-      const price = specialPrice ?? defaultPrice;
+      const price = parseInt(btn.dataset.prodPrice ?? "0");
       state.quoteState.lines.push({ productCode: code, productName: name, quantity: 1, unit: "本", unitPrice: price, amount: price });
       state.quoteProductQuery = "";
       renderApp();

@@ -1,4 +1,4 @@
-import { supabaseCount, supabaseInsert, supabaseQuery, supabaseRpc, supabaseUpdate } from "./supabase";
+import { supabaseCount, supabaseInsert, supabaseQuery, supabaseQueryAll, supabaseRpc, supabaseUpdate } from "./supabase";
 import type { TourInquiry } from "./components/BreweryTour";
 export type { TourInquiry };
 
@@ -157,6 +157,7 @@ export interface MasterProduct {
   name: string;
   category: string;
   isActive: boolean;
+  listPrice: number;
   purchasePrice: number;
   salePrice: number;
   alcoholDegree: number | null;
@@ -642,8 +643,8 @@ export async function fetchPaymentStatus(): Promise<PaymentStatusSummary> {
 
 export async function fetchMasterStats(): Promise<MasterStatsSummary> {
   const [customerRows, productRows] = await Promise.all([
-    supabaseQuery<LooseRow>("customers"),
-    supabaseQuery<LooseRow>("products")
+    supabaseQueryAll<LooseRow>("customers"),
+    supabaseQueryAll<LooseRow>("products")
   ]);
 
   if (customerRows.length > 0 || productRows.length > 0) {
@@ -687,6 +688,7 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
           name: getString(row, ["name", "product_name", "display_name"], `Product ${index + 1}`),
           category: getString(row, ["category", "category_name", "category_code"], "未分類"),
           isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
+          listPrice: getNumber(row, ["list_price"], 0),
           purchasePrice: getNumber(row, ["purchase_price"], 0),
           salePrice: getNumber(row, ["default_sale_price", "sale_price"], 0),
           alcoholDegree: row["alcohol_degree"] != null ? Number(row["alcohol_degree"]) : null,
@@ -1144,25 +1146,76 @@ export async function updateProduct(id: string, data: Record<string, unknown>): 
   return supabaseUpdate("products", id, data);
 }
 
-// ─── 特価テーブル ───────────────────────────────────────────────────────────
+// ─── 価格テーブル ───────────────────────────────────────────────────────────
+// 価格優先順位:
+//   1. customer_product_prices (個別単価)
+//   2. price_type別の標準価格:
+//      000 → purchase_price (生産者価格)
+//      001 → list_price (小売価格)
+//      002 → default_sale_price (卸価格)
+//   3. default_sale_price (フォールバック)
 
-export interface SpecialPrice {
-  productCode: string;
-  price: number;
+export type PriceType = "000" | "001" | "002" | "";
+
+export interface CustomerPricing {
+  priceType: PriceType;
+  priceGroup: string;
+  individualPrices: Map<string, number>;
 }
 
-export async function fetchSpecialPrices(priceGroup: string): Promise<SpecialPrice[]> {
-  if (!priceGroup) return [];
-  const rows = await supabaseQuery<{ legacy_product_code: string; special_price: number }>(
-    "customer_product_prices",
-    { price_group: `eq.${priceGroup}`, select: "legacy_product_code,special_price" }
-  );
-  return rows.map((r) => ({ productCode: r.legacy_product_code, price: r.special_price }));
-}
-
-export function getCustomerPriceGroup(customers: MasterCustomer[], customerCode: string): string {
+export async function fetchCustomerPricing(customers: MasterCustomer[], customerCode: string): Promise<CustomerPricing> {
   const c = customers.find((cust) => cust.code === customerCode);
-  return c?.priceGroup || customerCode;
+  const priceType = (c?.priceGroup ? "" : "") as PriceType; // fallback
+  const priceGroup = c?.priceGroup || customerCode;
+
+  // memoからprice_typeを取得（フロントではpriceGroupフィールドに格納）
+  // 実際のprice_typeはSupabaseから取得
+  let actualPriceType: PriceType = "";
+  try {
+    const rows = await supabaseQuery<{ memo: string }>( "customers", {
+      select: "memo", legacy_customer_code: `eq.${customerCode}`, limit: "1"
+    });
+    if (rows[0]?.memo) {
+      const memo = typeof rows[0].memo === "string" ? JSON.parse(rows[0].memo) : rows[0].memo;
+      actualPriceType = (memo?.price_type ?? "") as PriceType;
+    }
+  } catch { /* ignore */ }
+
+  // 個別単価を取得
+  const individualPrices = new Map<string, number>();
+  if (priceGroup) {
+    const rows = await supabaseQuery<{ legacy_product_code: string; special_price: number }>(
+      "customer_product_prices",
+      { price_group: `eq.${priceGroup}`, select: "legacy_product_code,special_price" }
+    );
+    for (const r of rows) {
+      individualPrices.set(r.legacy_product_code, r.special_price);
+    }
+  }
+
+  return { priceType: actualPriceType, priceGroup, individualPrices };
+}
+
+export function resolveProductPrice(product: MasterProduct, pricing: CustomerPricing): { price: number; label: string } {
+  // 1. 個別単価
+  const individual = pricing.individualPrices.get(product.code);
+  if (individual != null && individual > 0) {
+    return { price: individual, label: "個別単価" };
+  }
+  // 2. price_type別の標準価格
+  switch (pricing.priceType) {
+    case "000":
+      if (product.purchasePrice > 0) return { price: product.purchasePrice, label: "生産者価格" };
+      break;
+    case "001":
+      if (product.listPrice > 0) return { price: product.listPrice, label: "小売価格" };
+      break;
+    case "002":
+      if (product.salePrice > 0) return { price: product.salePrice, label: "卸価格" };
+      break;
+  }
+  // 3. フォールバック
+  return { price: product.salePrice || 0, label: "標準価格" };
 }
 
 // ─── 得意先別集計・ABC分析 ──────────────────────────────────────────────────

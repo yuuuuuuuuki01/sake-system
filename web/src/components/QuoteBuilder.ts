@@ -1,4 +1,5 @@
-import type { MasterCustomer, MasterProduct } from "../api";
+import type { MasterCustomer, MasterProduct, CustomerPricing } from "../api";
+import { resolveProductPrice } from "../api";
 
 export interface QuoteLine {
   productCode: string;
@@ -45,7 +46,7 @@ export function renderQuoteBuilder(
   products: MasterProduct[],
   customerQuery: string,
   productQuery: string,
-  specialPrices?: Map<string, number>
+  pricing?: CustomerPricing | null
 ): string {
   const subtotal = quote.lines.reduce((s, l) => s + l.amount, 0);
   const tax = Math.round(subtotal * quote.taxRate / 100);
@@ -122,13 +123,12 @@ export function renderQuoteBuilder(
       ${filteredProducts.length > 0 ? `
         <div class="search-results">
           ${filteredProducts.map((p) => {
-            const sp = specialPrices?.get(p.code);
-            const displayPrice = sp ?? p.salePrice ?? 0;
-            const isSpecial = sp != null;
+            const resolved = pricing ? resolveProductPrice(p, pricing) : { price: p.salePrice || 0, label: "標準価格" };
+            const isSpecial = resolved.label !== "標準価格";
             return `
-            <button class="search-item" type="button" data-add-product="${p.code}" data-prod-name="${p.name}" data-prod-price="${displayPrice}">
+            <button class="search-item" type="button" data-add-product="${p.code}" data-prod-name="${p.name}" data-prod-price="${resolved.price}">
               <span class="mono">${p.code}</span> ${p.name}
-              <span class="numeric" ${isSpecial ? 'style="color:#2f855a;font-weight:700;"' : ""}>${displayPrice ? formatCurrency(displayPrice) : ""}${isSpecial ? " (特価)" : ""}</span>
+              <span class="numeric" ${isSpecial ? 'style="color:#2f855a;font-weight:700;"' : ""}>${resolved.price ? formatCurrency(resolved.price) : ""} <small>(${resolved.label})</small></span>
             </button>`;
           }).join("")}
         </div>
