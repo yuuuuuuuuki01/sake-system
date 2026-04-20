@@ -139,15 +139,22 @@ export interface MasterCustomer {
   staffCode: string;
   businessType: string;
   areaCode: string;
+  salesCategory: string;
   closingDay: number;
   paymentDay: number;
+  paymentMonth: number;
   paymentCycle: string;
   billingCycleType: string;
+  billingCode: string;
   creditLimit: number;
   taxMode: string;
+  taxRound: string;
+  invoiceIssue: string;
   invoiceType: string;
   priceGroup: string;
   priceType: string;
+  customerGroup1: string;
+  customerGroup2: string;
   bankName: string;
   bankBranch: string;
   bankAccount: string;
@@ -543,20 +550,6 @@ function aggregateMockAnalytics(): SalesAnalytics {
   };
 }
 
-async function fetchJson<T>(path: string, fallback: T): Promise<T> {
-  try {
-    const response = await fetch(`${import.meta.env.BASE_URL}${path}`, {
-      headers: { Accept: "application/json" }
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return (await response.json()) as T;
-  } catch (error) {
-    console.warn(`Failed to fetch ${path}, using fallback data`, error);
-    return fallback;
-  }
-}
 
 export async function fetchSalesSummary(): Promise<SalesSummary> {
   const salesRows = await supabaseQueryAll<DailySalesFactRow>("daily_sales_detail", {
@@ -625,7 +618,7 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
     };
   }
 
-  return fetchJson("data/api/latest/sales-summary.json", mockSalesSummary);
+  return mockSalesSummary;
 }
 
 export async function fetchPaymentStatus(): Promise<PaymentStatusSummary> {
@@ -652,7 +645,7 @@ export async function fetchPaymentStatus(): Promise<PaymentStatusSummary> {
     };
   }
 
-  return fetchJson("data/api/latest/payment-status.json", mockPaymentStatus);
+  return mockPaymentStatus;
 }
 
 export async function fetchMasterStats(): Promise<MasterStatsSummary> {
@@ -684,15 +677,22 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
             staffCode: getString(row, ["staff_code"], ""),
             businessType: getString(row, ["business_type"], ""),
             areaCode: getString(row, ["delivery_area_code"], ""),
+            salesCategory: String(memo.sales_category ?? ""),
             closingDay: getNumber(row, ["closing_day", "close_day"], 31),
             paymentDay: getNumber(row, ["payment_day", "due_day"], 15),
+            paymentMonth: Number(memo.payment_month ?? 0),
             paymentCycle: getString(row, ["payment_cycle"], ""),
             billingCycleType: getString(row, ["billing_cycle_type"], ""),
+            billingCode: String(memo.billing_code ?? ""),
             creditLimit: getNumber(row, ["credit_limit"], 0),
             taxMode: getString(row, ["tax_mode"], ""),
+            taxRound: String(memo.tax_round ?? ""),
+            invoiceIssue: String(memo.invoice_issue ?? ""),
             invoiceType: getString(row, ["invoice_type"], ""),
             priceGroup: String(memo.price_group ?? ""),
             priceType: String(memo.price_type ?? ""),
+            customerGroup1: String(memo.customer_group1 ?? ""),
+            customerGroup2: String(memo.customer_group2 ?? ""),
             bankName: getString(row, ["bank_name"], ""),
             bankBranch: getString(row, ["bank_branch"], ""),
             bankAccount: getString(row, ["bank_account"], ""),
@@ -747,11 +747,28 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
     };
   }
 
-  return fetchJson("data/api/latest/master-stats.json", mockMasterStats);
+  return mockMasterStats;
 }
 
-export function fetchPipelineMeta(): Promise<PipelineMeta> {
-  return fetchJson("data/api/latest/pipeline-meta.json", mockPipelineMeta);
+export async function fetchPipelineMeta(): Promise<PipelineMeta> {
+  const rows = await supabaseQuery<LooseRow>("relay_sync_log", {
+    order: "sync_ended_at.desc.nullslast",
+    limit: "1"
+  });
+  if (rows.length > 0) {
+    const row = rows[0];
+    const status = getString(row, ["status"], "success");
+    const errors = row["errors"];
+    const hasErrors = Array.isArray(errors) ? errors.length > 0 : Boolean(errors);
+    return {
+      generatedAt: new Date().toISOString(),
+      lastSyncAt: getDateString(row, ["sync_ended_at", "sync_started_at"], new Date().toISOString()),
+      status: (hasErrors ? "warning" : status === "error" ? "error" : "success") as PipelineStatus,
+      jobName: getString(row, ["agent_hostname"], "sake-relay"),
+      message: `${getNumber(row, ["rows_upserted"], 0)}行同期 / ${getNumber(row, ["files_updated"], 0)}ファイル更新`
+    };
+  }
+  return mockPipelineMeta;
 }
 
 // ── 同期ダッシュボード ──────────────────────────────────

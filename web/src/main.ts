@@ -1231,9 +1231,15 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         }
         break;
       case "/product-power":
-      return renderProductPower(state.productPower);
-    case "/customer-efficiency":
-      return renderCustomerEfficiency(state.customerEfficiency);
+        if (state.productPower.length === 0) {
+          state.productPower = await fetchProductPower();
+        }
+        break;
+      case "/customer-efficiency":
+        if (state.customerEfficiency.length === 0) {
+          state.customerEfficiency = await fetchCustomerEfficiency();
+        }
+        break;
       case "/customer-analysis":
         if (!state.customerAnalysis) {
           state.customerAnalysis = await fetchCustomerAnalysis();
