@@ -370,14 +370,19 @@ export function renderDashboard(
           <div class="quick-links">
             <div class="panel-header">
               <div>
-                <h2>クイックリンク</h2>
-                <p class="panel-caption">よく使う業務画面へ移動</p>
+                <h2>クイックアクセス</h2>
+                <p class="panel-caption">業務画面へ移動</p>
               </div>
             </div>
             <div class="quick-link-grid">
-              <button class="button secondary" type="button" data-link="/invoice-entry">伝票入力</button>
-              <button class="button secondary" type="button" data-link="/delivery">納品書</button>
-              <button class="button secondary" type="button" data-link="/billing">月次請求</button>
+              <button class="button secondary small" type="button" data-link="/invoice-entry">伝票入力</button>
+              <button class="button secondary small" type="button" data-link="/sales">売上一覧</button>
+              <button class="button secondary small" type="button" data-link="/payment">入金状況</button>
+              <button class="button secondary small" type="button" data-link="/delivery">納品書</button>
+              <button class="button secondary small" type="button" data-link="/billing">月次請求</button>
+              <button class="button secondary small" type="button" data-link="/master">マスタ</button>
+              <button class="button secondary small" type="button" data-link="/workflow">受注処理</button>
+              <button class="button secondary small" type="button" data-link="/analytics">売上分析</button>
             </div>
           </div>
         </div>
@@ -406,13 +411,14 @@ export function renderDashboard(
       </div>
     </section>
 
-    <section class="panel">
-      <div class="panel-header">
+    <details class="panel collapsible-panel">
+      <summary class="panel-header clickable">
         <div>
           <h2>日次推移</h2>
-          <p class="panel-caption">${PERIOD_LABELS[activePeriod]} — 売上・本数・液体量・単価</p>
+          <p class="panel-caption">${PERIOD_LABELS[activePeriod]} — 売上・本数・液体量・単価（${filteredDays.length}日分）</p>
         </div>
-      </div>
+        <span class="collapse-icon">▼</span>
+      </summary>
       <div class="table-wrap">
         <table>
           <thead>
@@ -437,38 +443,14 @@ export function renderDashboard(
           `).join("")}</tbody>
         </table>
       </div>
-    </section>
+    </details>
 
     ${extras ? renderExtraWidgets(extras) : ""}
 
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>機能要望・フィードバック</h2>
-          <p class="panel-caption">改善のご要望やバグ報告をお寄せください</p>
-        </div>
-      </div>
-      <form id="feature-request-form" class="feature-form">
-        <div class="form-row">
-          <label for="fr-title">タイトル</label>
-          <input type="text" id="fr-title" placeholder="要望の概要" required />
-        </div>
-        <div class="form-row">
-          <label for="fr-category">カテゴリ</label>
-          <select id="fr-category">
-            <option value="feature">機能追加</option>
-            <option value="improvement">改善</option>
-            <option value="bug">バグ報告</option>
-            <option value="question">質問</option>
-          </select>
-        </div>
-        <div class="form-row">
-          <label for="fr-description">詳細</label>
-          <textarea id="fr-description" rows="3" placeholder="具体的な内容"></textarea>
-        </div>
-        <button type="submit" class="button primary">送信</button>
-        <span id="fr-result" class="fr-result"></span>
-      </form>
+    <section class="panel" style="padding:12px 16px;">
+      <p style="margin:0;font-size:12px;color:var(--text-secondary);">
+        機能要望・バグ報告は <button class="button secondary small" type="button" data-link="/setup">設定画面</button> からお送りいただけます。
+      </p>
     </section>
   `;
 }

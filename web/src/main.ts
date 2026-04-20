@@ -167,7 +167,7 @@ import {
   type ImportableEntity
 } from "./utils/import";
 import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./components/RawBrowser";
-import { renderDemandForecast, buildForecasts, renderDeliveryCalendarWidget, defaultDemandForecastState, type DemandForecastState, type DeliveryCalendarEntry, type ProductionSegment } from "./components/DemandForecast";
+import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromSchedule, renderDeliveryCalendarWidget, defaultDemandForecastState, type DemandForecastState, type DeliveryCalendarEntry, type ProductionSegment } from "./components/DemandForecast";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { showToast } from "./components/Toast";
@@ -1221,29 +1221,13 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       case "/demand-forecast":
         if (state.demandForecast.forecasts.length === 0) {
-          const analytics = await fetchSalesAnalytics();
-          state.demandForecast.forecasts = buildForecasts(
-            analytics.productTotals,
-            analytics.monthlySales,
-            state.salesSummary?.allDailySales ?? []
-          );
-          // Load delivery data from supabase if available
-          try {
-            const { supabaseQuery } = await import("./supabase");
-            const rows = await supabaseQuery<{ delivery_date: string; customer_name: string; product_name: string; quantity: number; status: string }>("delivery_schedule", {
-              select: "delivery_date,customer_name,product_name,quantity,status",
-              order: "delivery_date.asc"
-            });
-            state.demandForecast.deliveries = rows.map((r) => ({
-              date: r.delivery_date,
-              customerName: r.customer_name,
-              productName: r.product_name,
-              quantity: typeof r.quantity === "number" ? r.quantity : parseInt(String(r.quantity)) || 0,
-              status: (r.status as "scheduled" | "dispatched" | "delivered") || "scheduled"
-            }));
-          } catch {
-            // table may not exist yet — use empty
-          }
+          const { fetchProductMonthlyShipments, fetchDeliverySchedule } = await import("./api");
+          const [shipments, schedule] = await Promise.all([
+            fetchProductMonthlyShipments(),
+            fetchDeliverySchedule()
+          ]);
+          state.demandForecast.forecasts = buildForecastsFromShipments(shipments);
+          state.demandForecast.deliveries = buildDeliveriesFromSchedule(schedule);
         }
         break;
       case "/jikomi":

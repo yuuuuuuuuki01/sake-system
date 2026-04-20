@@ -1264,6 +1264,139 @@ export async function fetchSalesReport(): Promise<SalesReport> {
   };
 }
 
+// ─── 需要予測用: 商品×月別出荷量 ──────────────────────────────────────────────
+
+export interface ProductMonthlyShipment {
+  code: string;
+  name: string;
+  monthlyQuantity: number[]; // index 0=Jan ... 11=Dec (数量)
+  monthlyAmount: number[];   // index 0=Jan ... 11=Dec (金額)
+  totalQuantity: number;
+  totalAmount: number;
+}
+
+export async function fetchProductMonthlyShipments(): Promise<ProductMonthlyShipment[]> {
+  // headersとlinesを両方取得して商品×月マトリクスを構築
+  const [headers, lines] = await Promise.all([
+    supabaseQueryAll<SalesDocumentHeaderRow>("sales_document_headers", {
+      select: "id,document_no,legacy_document_no,sales_date,document_date"
+    }),
+    supabaseQueryAll<SalesDocumentLineRow>("sales_document_lines", {
+      select: "header_id,document_header_id,document_no,product_code,legacy_product_code,product_name,quantity,amount,line_amount"
+    })
+  ]);
+
+  if (headers.length === 0 || lines.length === 0) return [];
+
+  // header日付マップ構築: id → sales_date, document_no → sales_date
+  const headerDateById = new Map<string, string>();
+  const headerDateByDocNo = new Map<string, string>();
+  headers.forEach((h) => {
+    const date = h.sales_date ?? h.document_date ?? "";
+    if (!date) return;
+    if (h.id) headerDateById.set(String(h.id), date);
+    if (h.document_no) headerDateByDocNo.set(h.document_no, date);
+    if (h.legacy_document_no) headerDateByDocNo.set(h.legacy_document_no, date);
+  });
+
+  // 商品×月 集計
+  const productMap = new Map<string, { name: string; qty: number[]; amt: number[] }>();
+
+  lines.forEach((line) => {
+    // 日付を特定
+    let date = "";
+    const headerId = line.header_id ?? line.document_header_id;
+    if (headerId) date = headerDateById.get(String(headerId)) ?? "";
+    if (!date && line.document_no) date = headerDateByDocNo.get(line.document_no) ?? "";
+    if (!date) return;
+
+    const monthIdx = parseInt(date.slice(5, 7)) - 1;
+    if (monthIdx < 0 || monthIdx > 11) return;
+
+    const code = line.product_code ?? line.legacy_product_code ?? "";
+    if (!code) return;
+
+    const qty = toNumber(line.quantity);
+    const amt = toNumber(line.line_amount ?? line.amount);
+
+    let entry = productMap.get(code);
+    if (!entry) {
+      entry = { name: line.product_name ?? code, qty: new Array(12).fill(0), amt: new Array(12).fill(0) };
+      productMap.set(code, entry);
+    }
+    entry.qty[monthIdx] += qty;
+    entry.amt[monthIdx] += amt;
+  });
+
+  return Array.from(productMap.entries())
+    .map(([code, data]) => ({
+      code,
+      name: data.name,
+      monthlyQuantity: data.qty,
+      monthlyAmount: data.amt,
+      totalQuantity: data.qty.reduce((s, v) => s + v, 0),
+      totalAmount: data.amt.reduce((s, v) => s + v, 0)
+    }))
+    .filter((p) => p.totalQuantity > 0)
+    .sort((a, b) => b.totalAmount - a.totalAmount);
+}
+
+// ─── 納品カレンダー用: 直近の伝票から納品予定を構築 ─────────────────────────────
+
+export interface DeliveryScheduleEntry {
+  date: string;
+  customerName: string;
+  productName: string;
+  quantity: number;
+  documentNo: string;
+}
+
+export async function fetchDeliverySchedule(): Promise<DeliveryScheduleEntry[]> {
+  // 直近3ヶ月の伝票から納品実績/予定を取得
+  const threeMonthsAgo = new Date();
+  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 1);
+  const cutoffDate = threeMonthsAgo.toISOString().slice(0, 10);
+
+  const headers = await supabaseQueryAll<SalesDocumentHeaderRow>("sales_document_headers", {
+    select: "id,document_no,legacy_document_no,sales_date,document_date,customer_name",
+    order: "sales_date.desc",
+    sales_date: `gte.${cutoffDate}`
+  });
+
+  if (headers.length === 0) return [];
+
+  const headerIds = headers.map((h) => String(h.id)).filter(Boolean);
+  // lineを取得（header_idで絞る）
+  const lines = await supabaseQueryAll<SalesDocumentLineRow>("sales_document_lines", {
+    select: "header_id,document_header_id,product_name,quantity"
+  });
+
+  // headerIdマップ
+  const headerMap = new Map<string, SalesDocumentHeaderRow>();
+  headers.forEach((h) => {
+    if (h.id) headerMap.set(String(h.id), h);
+  });
+
+  const entries: DeliveryScheduleEntry[] = [];
+  lines.forEach((line) => {
+    const headerId = String(line.header_id ?? line.document_header_id ?? "");
+    const header = headerMap.get(headerId);
+    if (!header) return;
+    const date = header.sales_date ?? header.document_date ?? "";
+    if (!date || date < cutoffDate) return;
+
+    entries.push({
+      date: date.slice(0, 10),
+      customerName: header.customer_name ?? "不明",
+      productName: line.product_name ?? "不明",
+      quantity: toNumber(line.quantity),
+      documentNo: header.document_no ?? header.legacy_document_no ?? ""
+    });
+  });
+
+  return entries.sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // ─── 機能要望 ────────────────────────────────────────────────────────────────
 
 export async function submitFeatureRequest(title: string, category: string, description: string): Promise<boolean> {

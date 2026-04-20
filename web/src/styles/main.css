@@ -4214,6 +4214,82 @@ details.panel[open] > summary::before {
   gap: 8px;
 }
 
+/* ===== 折りたたみパネル ===== */
+.collapsible-panel {
+  border: 1px solid #e5edf5;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.collapsible-panel > summary {
+  padding: 16px;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.collapsible-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-panel > summary .collapse-icon {
+  font-size: 11px;
+  color: var(--text-secondary);
+  transition: transform 200ms ease;
+}
+
+.collapsible-panel[open] > summary .collapse-icon {
+  transform: rotate(180deg);
+}
+
+.collapsible-panel > .table-wrap,
+.collapsible-panel > div:not(summary) {
+  padding: 0 16px 16px;
+}
+
+/* ===== クイックリンクグリッド改善 ===== */
+.quick-link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 8px;
+}
+
+/* ===== フォントサイズのレスポンシブ ===== */
+@media (max-width: 640px) {
+  h1 { font-size: 18px; }
+  h2 { font-size: 14px; }
+  h3 { font-size: 13px; }
+
+  .eyebrow { font-size: 11px; }
+  .panel-caption { font-size: 11px; }
+  .panel-title { font-size: 11px; }
+  .meta-note { font-size: 11px; }
+
+  .feature-form label,
+  .form-row label { font-size: 12px; }
+
+  p, li, dd, dt { font-size: 13px; }
+
+  .summary-list dt { font-size: 12px; }
+  .summary-list dd { font-size: 13px; }
+}
+
+@media (max-width: 375px) {
+  h1 { font-size: 16px; }
+  h2 { font-size: 13px; }
+  p, li, dd, dt { font-size: 12px; }
+  .kpi-sub { font-size: 10px; }
+  .panel-caption { font-size: 10px; }
+}
+
 /* ===== タッチターゲット・アクセシビリティ ===== */
 
 /* チェックボックス・ラジオの最小サイズ */
