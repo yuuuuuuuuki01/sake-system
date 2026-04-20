@@ -4260,15 +4260,14 @@ function initCustomerMap(container: HTMLElement) {
       iconAnchor: [14, 14]
     });
 
-  // 既存取引先 (青) — サンプル座標で100件表示
+  // 既存取引先 (青) — 実データのlat/lngを使用
   if (state.mapFilters.showCustomers) {
     const customers = state.masterStats?.customers ?? [];
-    customers.slice(0, 100).forEach((c, i) => {
-      if (state.mapFilters.filterBusinessType && state.mapFilters.filterBusinessType !== "酒店") return;
-      const lat = 35.37 + (i % 12) * 0.08 + (Math.random() - 0.5) * 0.03;
-      const lng = 139.29 + Math.floor(i / 12) * 0.08 + (Math.random() - 0.5) * 0.03;
-      const marker = (Lref.marker([lat, lng], { icon: makeIcon("#2196F3", "既") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
-      marker.bindPopup(`<div style="min-width:180px;"><strong>${c.name}</strong><br/><span style="color:#666;font-size:11px;">${c.code}</span><br/>🔵 既存取引先<br/>締日${c.closingDay}日 / 支払日${c.paymentDay}日</div>`);
+    customers.forEach((c) => {
+      if (!c.lat || !c.lng) return;
+      if (state.mapFilters.filterBusinessType && c.businessType !== state.mapFilters.filterBusinessType) return;
+      const marker = (Lref.marker([c.lat, c.lng], { icon: makeIcon("#2196F3", "既") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
+      marker.bindPopup(`<div style="min-width:180px;"><strong>${c.name}</strong><br/><span style="color:#666;font-size:11px;">${c.code}</span><br/>🔵 既存取引先<br/>締日${c.closingDay}日 / 支払日${c.paymentDay}日${c.address1 ? `<br/>📍 ${c.address1}` : ""}</div>`);
     });
   }
 
