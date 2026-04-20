@@ -2346,20 +2346,59 @@ export async function fetchShopifyOrders(): Promise<ShopifyOrder[]> {
 
 // ─── Google Calendar 連携（基本同期） ────────────────────────────────────
 
+async function refreshGoogleToken(
+  setting: IntegrationSetting
+): Promise<{ token: string; error?: string }> {
+  const refreshToken = setting.config["refresh_token"];
+  const clientId = setting.config["client_id"];
+  const clientSecret = setting.config["client_secret"];
+  if (!refreshToken || !clientId || !clientSecret) {
+    return { token: "", error: "refresh_token / client_id / client_secret が未設定です" };
+  }
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret
+    })
+  });
+  if (!resp.ok) return { token: "", error: `トークンリフレッシュ失敗: HTTP ${resp.status}` };
+  const data = (await resp.json()) as { access_token: string };
+  const newToken = data.access_token;
+  await saveIntegrationSetting({
+    ...setting,
+    config: { ...setting.config, oauth_token: newToken }
+  });
+  setting.config["oauth_token"] = newToken;
+  return { token: newToken };
+}
+
 export async function syncGoogleCalendar(
   setting: IntegrationSetting
 ): Promise<{ count: number; error?: string }> {
-  const token = setting.config["oauth_token"];
+  let token = setting.config["oauth_token"];
   const calendarId = setting.config["calendar_id"] || "primary";
-  if (!token) {
-    return { count: 0, error: "oauth_token を設定してください (Google Cloud Console で取得)" };
+  if (!token && !setting.config["refresh_token"]) {
+    return { count: 0, error: "oauth_token または refresh_token を設定してください" };
   }
   try {
-    // 直近30日のイベントを取得
     const timeMin = new Date().toISOString();
     const timeMax = new Date(Date.now() + 30 * 86400 * 1000).toISOString();
     const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+
+    let resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+
+    // トークン期限切れなら自動リフレッシュ
+    if (resp.status === 401) {
+      const refreshed = await refreshGoogleToken(setting);
+      if (refreshed.error) return { count: 0, error: refreshed.error };
+      token = refreshed.token;
+      resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    }
+
     if (!resp.ok) return { count: 0, error: `HTTP ${resp.status}` };
     const data = (await resp.json()) as { items: Array<Record<string, unknown>> };
     const { supabaseInsert } = await import("./supabase");
