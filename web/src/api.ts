@@ -1556,12 +1556,14 @@ export function resolveProductPrice(product: MasterProduct, pricing: CustomerPri
 
 export interface ProductPower {
   code: string; name: string; volumeMl: number | null; category: string;
+  yearAmount: number; yearQty: number;
   recentAmount: number; recentQty: number; prevAmount: number;
-  growthRate: number | null; rank: string;
+  sharePct: number; growthRate: number | null; rank: string;
 }
 
 export interface CustomerEfficiency {
   code: string; name: string; address: string;
+  yearAmount: number; sharePct: number;
   recentAmount: number; recentQty: number; orderDays: number;
   prevAmount: number; growthRate: number | null;
   currentRank: string; prevRank: string;
@@ -1569,38 +1571,43 @@ export interface CustomerEfficiency {
 
 export async function fetchProductPower(): Promise<ProductPower[]> {
   const rows = await supabaseQuery<Record<string, unknown>>("product_power", {
-    select: "legacy_product_code,product_name,volume_ml,category_code,recent_amount,recent_quantity,prev_amount,growth_rate,rank",
-    order: "recent_amount.desc", limit: "100"
+    select: "legacy_product_code,product_name,volume_ml,category_code,year_amount,year_qty,recent_amount,recent_qty,prev_amount,share_pct,growth_rate,rank",
+    order: "year_amount.desc", limit: "100"
   });
   return rows.map((r) => ({
     code: String(r.legacy_product_code ?? ""),
     name: String(r.product_name ?? ""),
     volumeMl: r.volume_ml ? Number(r.volume_ml) : null,
     category: String(r.category_code ?? ""),
+    yearAmount: Number(r.year_amount ?? 0),
+    yearQty: Number(r.year_qty ?? 0),
     recentAmount: Number(r.recent_amount ?? 0),
-    recentQty: Number(r.recent_quantity ?? 0),
+    recentQty: Number(r.recent_qty ?? 0),
     prevAmount: Number(r.prev_amount ?? 0),
+    sharePct: Number(r.share_pct ?? 0),
     growthRate: r.growth_rate != null ? Number(r.growth_rate) : null,
-    rank: String(r.rank ?? "D")
+    rank: String(r.rank ?? "C")
   }));
 }
 
 export async function fetchCustomerEfficiency(): Promise<CustomerEfficiency[]> {
   const rows = await supabaseQuery<Record<string, unknown>>("customer_efficiency", {
-    select: "legacy_customer_code,customer_name,address1,recent_amount,recent_quantity,order_days,prev_amount,growth_rate,current_rank,prev_rank",
-    order: "recent_amount.desc", limit: "100"
+    select: "legacy_customer_code,customer_name,address1,year_amount,share_pct,recent_amount,recent_qty,order_days,prev_amount,growth_rate,current_rank,prev_rank",
+    order: "year_amount.desc", limit: "100"
   });
   return rows.map((r) => ({
     code: String(r.legacy_customer_code ?? ""),
     name: String(r.customer_name ?? ""),
     address: String(r.address1 ?? ""),
+    yearAmount: Number(r.year_amount ?? 0),
+    sharePct: Number(r.share_pct ?? 0),
     recentAmount: Number(r.recent_amount ?? 0),
-    recentQty: Number(r.recent_quantity ?? 0),
+    recentQty: Number(r.recent_qty ?? 0),
     orderDays: Number(r.order_days ?? 0),
     prevAmount: Number(r.prev_amount ?? 0),
     growthRate: r.growth_rate != null ? Number(r.growth_rate) : null,
-    currentRank: String(r.current_rank ?? "D"),
-    prevRank: String(r.prev_rank ?? "D")
+    currentRank: String(r.current_rank ?? "C"),
+    prevRank: String(r.prev_rank ?? "")
   }));
 }
 
