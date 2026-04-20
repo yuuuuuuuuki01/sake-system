@@ -29,11 +29,13 @@ html {
   line-break: strict;
   overflow-wrap: break-word;
   word-break: normal;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  overflow-x: hidden;
   background:
     linear-gradient(
       180deg,
