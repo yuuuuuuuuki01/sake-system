@@ -4371,9 +4371,48 @@ function renderApp(): void {
   });
 }
 
+const CACHE_KEY = "sake-cloud-cache";
+const CACHE_TTL = 30 * 60 * 1000; // 30分
+
+function saveCache(): void {
+  try {
+    const cache = {
+      ts: Date.now(),
+      salesSummary: state.salesSummary,
+      paymentStatus: state.paymentStatus,
+      masterStats: state.masterStats,
+      pipelineMeta: state.pipelineMeta,
+      salesAnalytics: state.salesAnalytics,
+    };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  } catch { /* quota超えは無視 */ }
+}
+
+function restoreCache(): boolean {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return false;
+    const cache = JSON.parse(raw);
+    if (Date.now() - cache.ts > CACHE_TTL) return false;
+    if (cache.salesSummary) state.salesSummary = cache.salesSummary;
+    if (cache.paymentStatus) state.paymentStatus = cache.paymentStatus;
+    if (cache.masterStats) state.masterStats = cache.masterStats;
+    if (cache.pipelineMeta) state.pipelineMeta = cache.pipelineMeta;
+    if (cache.salesAnalytics) state.salesAnalytics = cache.salesAnalytics;
+    return true;
+  } catch { return false; }
+}
+
 async function loadData(): Promise<void> {
-  state.loading = true;
-  renderApp();
+  // キャッシュから即座に復元して表示
+  const cached = restoreCache();
+  if (cached) {
+    state.loading = false;
+    renderApp();
+  }
+
+  state.loading = !cached;
+  if (!cached) renderApp();
   try {
     const [
       salesSummary,
@@ -4441,8 +4480,11 @@ async function loadData(): Promise<void> {
     }
 
     state.error = null;
+    saveCache();
   } catch (error) {
-    state.error = error instanceof Error ? error.message : "データの取得に失敗しました。";
+    if (!cached) {
+      state.error = error instanceof Error ? error.message : "データの取得に失敗しました。";
+    }
   } finally {
     state.loading = false;
     renderApp();
