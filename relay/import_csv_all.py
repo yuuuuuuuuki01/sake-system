@@ -119,32 +119,32 @@ def import_customers() -> None:
                 "phone": clean(row[7]),
                 "fax": clean(row[8]),
                 "staff_code": clean(row[9]),
-                "business_type": clean(row[12]),       # 業態名
-                "delivery_area_code": clean(row[13]),   # 地区コード
+                "staff_name": clean(row[10]),
+                "business_type": clean(row[11]),
+                "business_type_name": clean(row[12]),
+                "delivery_area_code": clean(row[13]),
+                "area_name": clean(row[14]),
+                "sales_category_code": clean(row[15]),
+                "sales_category_name": clean(row[16]) if len(row) > 16 else None,
+                "customer_group1": clean(row[17]),
+                "customer_group1_name": clean(row[18]) if len(row) > 18 else None,
+                "customer_group2": clean(row[19]),
+                "customer_group2_name": clean(row[20]) if len(row) > 20 else None,
+                "price_group": clean(row[21]),
+                "tax_calc_type": clean(row[22]),
+                "tax_mode": clean(row[23]),
+                "tax_round": clean(row[25]) if len(row) > 25 else None,
+                "invoice_issue_type": clean(row[27]) if len(row) > 27 else None,
+                "price_type": clean(row[28]),
                 "closing_day": to_int(row[30]),
-                "payment_day": to_int(row[41]),
-                "billing_cycle_type": clean(row[34]),   # 予定入金種名
-                "tax_mode": clean(row[23]),             # 消費税計算名
-                "memo": json.dumps({k: v for k, v in {
-                    "staff_name": clean(row[10]),
-                    "biz_code": clean(row[11]), "biz_name": clean(row[12]),
-                    "area_code": clean(row[13]), "area_name": clean(row[14]),
-                    "sales_cat_code": clean(row[15]), "sales_cat_name": clean(row[16]),
-                    "grp1_code": clean(row[17]), "grp1_name": clean(row[18]),
-                    "grp2_code": clean(row[19]), "grp2_name": clean(row[20]),
-                    "price_group": clean(row[21]),
-                    "tax_calc_code": clean(row[22]), "tax_calc_name": clean(row[23]),
-                    "tax_round_code": clean(row[24]), "tax_round_name": clean(row[25]),
-                    "invoice_issue_code": clean(row[26]), "invoice_issue_name": clean(row[27]),
-                    "price_type_code": clean(row[28]), "price_type_name": clean(row[29]),
-                    "billing_code": clean(row[31]), "billing_name": clean(row[32]),
-                    "payment_type_code": clean(row[33]), "payment_type_name": clean(row[34]),
-                    "rebate_code": clean(row[35]),
-                    "rebate_tax_code": clean(row[36]), "rebate_tax_name": clean(row[37]),
-                    "rebate_round_code": clean(row[38]), "rebate_round_name": clean(row[39]),
-                    "payment_month": to_int(row[40]),
-                    "comment": clean(row[42]) if len(row) > 42 else None,
-                }.items() if v is not None}, ensure_ascii=False) or None,
+                "billing_code": clean(row[31]),
+                "billing_name": clean(row[32]) if len(row) > 32 else None,
+                "payment_type": clean(row[33]),
+                "payment_type_name": clean(row[34]) if len(row) > 34 else None,
+                "rebate_code": clean(row[35]) if len(row) > 35 else None,
+                "payment_month": to_int(row[40]) if len(row) > 40 else None,
+                "payment_day": to_int(row[41]) if len(row) > 41 else None,
+                "comment": clean(row[42]) if len(row) > 42 else None,
                 "is_active": True,
                 "updated_at": datetime.now(tz=UTC).isoformat(),
             })
@@ -270,40 +270,65 @@ def import_products() -> None:
                 "short_name": clean(row[2]),
                 "volume_ml": to_int(row[4]),
                 "alcohol_degree": to_float(row[5]),
-                "category_code": clean(row[8]),           # 製成コード
-                "tax_code": clean(row[14]),                # 消費税区分コード
-                "purchase_price": to_int(row[16]),         # 生産者価格
-                "default_sale_price": to_int(row[18]),     # 卸売価格
-                "list_price": to_int(row[20]),             # 小売価格
-                "default_cost_price": to_int(row[22]),     # 原価
+                # 酒類
+                "liquor_type_code": clean(row[6]),
+                "liquor_type_name": clean(row[7]),
+                "spec": clean(row[7]),
+                # 製成
+                "production_type_code": clean(row[8]),
+                "production_type_name": clean(row[9]),
+                "category_code": clean(row[8]),
+                "rice_type": clean(row[9]),
+                # 生/その他
+                "raw_type_code": clean(row[10]),
+                "raw_type_name": clean(row[11]) if len(row) > 11 else None,
+                # 商品区分
+                "product_type_code": clean(row[12]),
+                "product_type_name": clean(row[13]) if len(row) > 13 else None,
+                "unit_name": clean(row[13]) if len(row) > 13 else None,
+                # 消費税区分
+                "tax_code": clean(row[14]),
+                "tax_category_name": clean(row[15]) if len(row) > 15 else None,
+                # バラ価格
+                "purchase_price": to_int(row[16]),
+                "purchase_price_incl_tax": to_int(row[17]),
+                "default_sale_price": to_int(row[18]),
+                "sale_price_incl_tax": to_int(row[19]),
+                "list_price": to_int(row[20]),
+                "list_price_incl_tax": to_int(row[21]),
+                "default_cost_price": to_int(row[22]),
+                "cost_price_incl_tax": to_int(row[23]) if len(row) > 23 else None,
+                "weight_kg": to_float(row[24]),
+                # ケース
+                "case_price_type": clean(row[26]) if len(row) > 26 else None,
+                "case_qty": to_int(row[27]),
+                "case_purchase_price": to_int(row[28]),
+                "case_sale_price": to_int(row[30]),
+                "case_list_price": to_int(row[32]),
+                "case_cost_price": to_int(row[34]),
+                "case_weight_kg": to_float(row[36]),
+                # グループ
+                "product_group1": clean(row[37]),
+                "product_group1_name": clean(row[38]),
+                "season": clean(row[38]),
+                "product_group2": clean(row[39]),
+                "product_group2_name": clean(row[40]),
+                "bottle_type": clean(row[40]),
+                "container_code": clean(row[39]),
+                # 条件・容器
+                "condition_code": clean(row[41]),
+                "condition_name": clean(row[42]) if len(row) > 42 else None,
+                "container_name": clean(row[44]) if len(row) > 44 else None,
+                # 在庫
+                "stock_process_type": clean(row[46]) if len(row) > 46 else None,
                 "jan_code": parse_jan(row[47]),
-                "bottle_type": clean(row[40]),             # 商品グループ2名 = 容器表示
-                "container_code": clean(row[39]),          # 商品グループ2コード
-                "spec": clean(row[7]),                     # 酒類名
-                "unit_name": clean(row[13]),                # 商品区分名
-                "season": clean(row[38]),                   # 商品グループ1名
-                "rice_type": clean(row[9]),                 # 製成名
-                "memo": json.dumps({k: v for k, v in {
-                    "liquor_code": clean(row[6]), "liquor_name": clean(row[7]),
-                    "sei_code": clean(row[8]), "sei_name": clean(row[9]),
-                    "raw_code": clean(row[10]), "raw_name": clean(row[11]),
-                    "cat_code": clean(row[12]), "cat_name": clean(row[13]),
-                    "tax_code": clean(row[14]), "tax_name": clean(row[15]),
-                    "grp1_code": clean(row[37]), "grp1_name": clean(row[38]),
-                    "grp2_code": clean(row[39]), "grp2_name": clean(row[40]),
-                    "cond_code": clean(row[41]), "cond_name": clean(row[42]),
-                    "container_code2": clean(row[43]), "container_name2": clean(row[44]),
-                    "stock_mgmt_code": clean(row[45]), "stock_mgmt_name": clean(row[46]),
-                    "inv_mgmt_code": clean(row[48]), "inv_mgmt_name": clean(row[49]),
-                    "case_qty": to_int(row[27]),
-                    "weight_kg": to_float(row[24]),
-                    "stock_price": to_int(row[50]),
-                    "optimal_stock": to_int(row[51]),
-                    "discontinued_code": clean(row[52]),
-                    "discontinued_name": clean(row[53]) if len(row) > 53 else None,
-                    "comment": clean(row[54]) if len(row) > 54 else None,
-                }.items() if v is not None}, ensure_ascii=False) or None,
+                "stock_mgmt_type": clean(row[49]) if len(row) > 49 else None,
+                "stock_price": to_int(row[50]) if len(row) > 50 else None,
+                "optimal_stock": to_int(row[51]) if len(row) > 51 else None,
+                # 終売
+                "discontinued": clean(row[53]) if len(row) > 53 else None,
                 "is_active": not (clean(row[53]) or "").startswith("終売") if len(row) > 53 else True,
+                "comment": clean(row[54]) if len(row) > 54 else None,
                 "updated_at": datetime.now(tz=UTC).isoformat(),
             })
 
