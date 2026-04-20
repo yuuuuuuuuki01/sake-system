@@ -182,7 +182,9 @@ export function renderProductABC(data: ProductABCData): string {
           <p class="panel-caption">棒：売上金額 / 線：累積構成比（上位20品）</p>
         </div>
       </div>
-      ${buildParetoChart(data.ranking)}
+      <div class="chart-scroll">
+        ${buildParetoChart(data.ranking)}
+      </div>
       <div class="pareto-legend">
         <span class="legend-item"><span class="legend-dot" style="background:#2F855A"></span>Aランク（〜70%）</span>
         <span class="legend-item"><span class="legend-dot" style="background:#B7791F"></span>Bランク（70〜90%）</span>

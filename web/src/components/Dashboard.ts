@@ -1,5 +1,6 @@
 import type { PipelineMeta, SalesSummary, SalesAnalytics, Prospect, CalendarEvent, TourInquiry, SalesPeriod, SalesDayPoint } from "../api";
 import { PROSPECT_STAGE_COLORS, PROSPECT_STAGE_LABELS } from "../api";
+import { renderDeliveryCalendarWidget, type DeliveryCalendarEntry } from "./DemandForecast";
 
 const PERIOD_LABELS: Record<SalesPeriod, string> = {
   today: "当日",
@@ -185,6 +186,8 @@ export interface DashboardExtras {
   workflowOrdersCount: { new: number; picking: number; packed: number; shipped: number; total: number };
   lowStockCount: number;
   masterCounts?: { customers: number; products: number; suppliers: number; specialPrices: number };
+  deliveries?: DeliveryCalendarEntry[];
+  deliveryCalendarMonth?: string;
 }
 
 export function renderDashboard(
@@ -334,7 +337,9 @@ export function renderDashboard(
             <p class="panel-caption">${PERIOD_LABELS[activePeriod]} (${filteredDays.length}日分)</p>
           </div>
         </div>
-        ${buildBars(filteredDays.length > 0 ? filteredDays : summary.dailySales)}
+        <div class="chart-scroll">
+          ${buildBars(filteredDays.length > 0 ? filteredDays : summary.dailySales)}
+        </div>
       </article>
 
       <aside class="panel sync-panel">
@@ -549,5 +554,9 @@ function renderExtraWidgets(extras: DashboardExtras): string {
         }
       </aside>
     </section>
+
+    ${extras.deliveries && extras.deliveries.length > 0
+      ? renderDeliveryCalendarWidget(extras.deliveries, extras.deliveryCalendarMonth || new Date().toISOString().slice(0, 7))
+      : ""}
   `;
 }

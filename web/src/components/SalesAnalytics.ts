@@ -101,7 +101,9 @@ export function renderSalesAnalytics(summary: SalesAnalytics, activeTab: Analyti
             <p class="panel-caption">直近月の売上推移</p>
           </div>
         </div>
-        ${buildBars(summary.monthlySales)}
+        <div class="chart-scroll">
+          ${buildBars(summary.monthlySales)}
+        </div>
       </article>
 
       <article class="panel">

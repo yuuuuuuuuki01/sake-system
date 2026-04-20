@@ -288,6 +288,8 @@ a {
   border-radius: 12px;
   box-shadow: var(--shadow);
   padding: 16px;
+  overflow-x: auto;
+  min-width: 0;
 }
 
 .panel-header {
@@ -1178,6 +1180,8 @@ tbody tr:hover {
 .chart-wrap {
   display: grid;
   gap: 24px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .chart-series {
@@ -4206,7 +4210,7 @@ form {
 
 .view {
   width: 100%;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 /* -- テーブルのオーバーフロー保護 -- */
@@ -4218,6 +4222,13 @@ form {
 
 table {
   width: 100%;
+}
+
+/* -- チャート用スクロールコンテナ -- */
+.chart-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* -- SVGチャートのレスポンシブ -- */

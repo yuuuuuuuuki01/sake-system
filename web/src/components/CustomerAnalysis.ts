@@ -148,7 +148,9 @@ export function renderCustomerAnalysis(data: CustomerAnalysisData): string {
           <p class="panel-caption">売上金額上位15社</p>
         </div>
       </div>
-      ${buildRankingChart(data.ranking)}
+      <div class="chart-scroll">
+        ${buildRankingChart(data.ranking)}
+      </div>
     </section>
 
     <section class="panel">
