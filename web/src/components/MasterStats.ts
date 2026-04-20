@@ -1,5 +1,56 @@
 import type { MasterCustomer, MasterProduct, MasterStatsSummary, MasterTab } from "../api";
 
+export function renderEditCustomerModal(c: MasterCustomer): string {
+  return `
+    <div class="modal-overlay" id="edit-modal">
+      <div class="modal-content panel">
+        <h2>得意先編集: ${c.code}</h2>
+        <form id="edit-customer-form" class="feature-form">
+          <input type="hidden" id="ec-id" value="${c.id}" />
+          <div class="form-row"><label>得意先名</label><input type="text" id="ec-name" value="${c.name}" /></div>
+          <div class="form-row"><label>カナ</label><input type="text" id="ec-kana" value="${c.kanaName || ""}" /></div>
+          <div class="form-row"><label>電話番号</label><input type="text" id="ec-phone" value="${c.phone || ""}" /></div>
+          <div class="form-row"><label>FAX</label><input type="text" id="ec-fax" value="${c.fax || ""}" /></div>
+          <div class="form-row"><label>郵便番号</label><input type="text" id="ec-postal" value="${c.postalCode || ""}" /></div>
+          <div class="form-row"><label>住所</label><input type="text" id="ec-address" value="${c.address1 || ""}" /></div>
+          <div class="form-row"><label>締日</label><input type="number" id="ec-closing" value="${c.closingDay || ""}" /></div>
+          <div class="form-row"><label>支払日</label><input type="number" id="ec-payment" value="${c.paymentDay || ""}" /></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button type="button" class="button secondary" data-action="close-modal">キャンセル</button>
+            <button type="submit" class="button primary">保存</button>
+          </div>
+          <span id="edit-result" class="fr-result"></span>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
+export function renderEditProductModal(p: MasterProduct): string {
+  return `
+    <div class="modal-overlay" id="edit-modal">
+      <div class="modal-content panel">
+        <h2>商品編集: ${p.code}</h2>
+        <form id="edit-product-form" class="feature-form">
+          <input type="hidden" id="ep-id" value="${p.id}" />
+          <div class="form-row"><label>商品名</label><input type="text" id="ep-name" value="${p.name}" /></div>
+          <div class="form-row"><label>分類</label><input type="text" id="ep-category" value="${p.category || ""}" /></div>
+          <div class="form-row"><label>度数(%)</label><input type="number" step="0.1" id="ep-alcohol" value="${p.alcoholDegree ?? ""}" /></div>
+          <div class="form-row"><label>容量(ml)</label><input type="number" id="ep-volume" value="${p.volumeMl ?? ""}" /></div>
+          <div class="form-row"><label>容器</label><input type="text" id="ep-bottle" value="${p.bottleType || ""}" /></div>
+          <div class="form-row"><label>仕入単価</label><input type="number" id="ep-purchase" value="${p.purchasePrice || ""}" /></div>
+          <div class="form-row"><label>売価</label><input type="number" id="ep-sale" value="${p.salePrice || ""}" /></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button type="button" class="button secondary" data-action="close-modal">キャンセル</button>
+            <button type="submit" class="button primary">保存</button>
+          </div>
+          <span id="edit-result" class="fr-result"></span>
+        </form>
+      </div>
+    </div>
+  `;
+}
+
 export interface MasterFilterState {
   query: string;
   businessType: string;
@@ -137,16 +188,12 @@ function renderCustomerRows(customers: MasterCustomer[]): string {
       (customer) => `
         <tr>
           <td class="mono">${customer.code}</td>
-          <td>${customer.kanaName || ""}</td>
           <td>${customer.name}</td>
           <td>${customer.phone || ""}</td>
-          <td class="mono">${customer.postalCode || ""}</td>
           <td title="${customer.address1 || ""}">${truncate(customer.address1 || "", 20)}</td>
-          <td>${customer.areaCode || ""}</td>
-          <td>${customer.staffCode || ""}</td>
-          <td class="mono">${customer.priceGroup || ""}</td>
           <td class="numeric">${customer.closingDay ? customer.closingDay + "日" : ""}</td>
           <td><span class="status-pill ${customer.isActive ? "success" : "neutral"}">${customer.isActive ? "有効" : "停止"}</span></td>
+          <td><button class="button secondary small" data-edit-customer="${customer.id}">編集</button></td>
         </tr>
       `
     )
@@ -159,14 +206,13 @@ function renderProductRows(products: MasterProduct[]): string {
       (product) => `
         <tr>
           <td class="mono">${product.code}</td>
-          <td>${truncate(product.name, 30)}</td>
+          <td>${truncate(product.name, 25)}</td>
           <td>${product.category}</td>
           <td class="numeric">${product.alcoholDegree != null ? `${product.alcoholDegree}%` : "―"}</td>
           <td class="numeric">${product.volumeMl != null ? `${product.volumeMl}ml` : "―"}</td>
-          <td>${product.bottleType || "―"}</td>
-          <td class="numeric">${product.purchasePrice ? product.purchasePrice.toLocaleString("ja-JP") : "―"}</td>
           <td class="numeric">${product.salePrice ? product.salePrice.toLocaleString("ja-JP") : "―"}</td>
           <td><span class="status-pill ${product.isActive ? "success" : "neutral"}">${product.isActive ? "有効" : "停止"}</span></td>
+          <td><button class="button secondary small" data-edit-product="${product.id}">編集</button></td>
         </tr>
       `
     )
@@ -225,16 +271,12 @@ export function renderMasterStats(
             <thead>
               <tr>
                 <th>コード</th>
-                <th>カナ</th>
                 <th>得意先名</th>
                 <th>電話番号</th>
-                <th>〒</th>
                 <th>住所</th>
-                <th>地区</th>
-                <th>担当</th>
-                <th>単価G</th>
                 <th class="numeric">締日</th>
                 <th>状態</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>${renderCustomerRows(paged)}</tbody>
@@ -247,15 +289,14 @@ export function renderMasterStats(
           <table>
             <thead>
               <tr>
-                <th>商品コード</th>
+                <th>コード</th>
                 <th>商品名</th>
                 <th>分類</th>
                 <th class="numeric">度数</th>
                 <th class="numeric">容量</th>
-                <th>容器</th>
-                <th class="numeric">仕入単価</th>
                 <th class="numeric">売価</th>
                 <th>状態</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>${renderProductRows(summary.products)}</tbody>

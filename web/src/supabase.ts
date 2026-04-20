@@ -27,6 +27,30 @@ export async function supabaseInsert<T>(
   }
 }
 
+export async function supabaseUpdate(
+  table: string,
+  id: string,
+  body: Record<string, unknown>
+): Promise<boolean> {
+  if (!SUPABASE_ANON_KEY) return false;
+  try {
+    const url = new URL(`/rest/v1/${table}?id=eq.${id}`, SUPABASE_URL);
+    const response = await fetch(url.toString(), {
+      method: "PATCH",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify(body)
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function supabaseRpc<T>(
   fnName: string,
   params: Record<string, unknown> = {}

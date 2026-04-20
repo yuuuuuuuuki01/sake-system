@@ -1,4 +1,4 @@
-import { supabaseCount, supabaseInsert, supabaseQuery, supabaseRpc } from "./supabase";
+import { supabaseCount, supabaseInsert, supabaseQuery, supabaseRpc, supabaseUpdate } from "./supabase";
 import type { TourInquiry } from "./components/BreweryTour";
 export type { TourInquiry };
 
@@ -1132,6 +1132,16 @@ export async function submitFeatureRequest(title: string, category: string, desc
   } catch {
     return false;
   }
+}
+
+// ─── マスタ編集 ─────────────────────────────────────────────────────────────
+
+export async function updateCustomer(id: string, data: Record<string, unknown>): Promise<boolean> {
+  return supabaseUpdate("customers", id, data);
+}
+
+export async function updateProduct(id: string, data: Record<string, unknown>): Promise<boolean> {
+  return supabaseUpdate("products", id, data);
 }
 
 // ─── 得意先別集計・ABC分析 ──────────────────────────────────────────────────

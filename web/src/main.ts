@@ -30,6 +30,8 @@ import {
   fetchSalesAnalytics,
   fetchSalesReport,
   submitFeatureRequest,
+  updateCustomer,
+  updateProduct,
   fetchSalesSummary,
   fetchStoreOrders,
   fetchStoreSales,
@@ -105,7 +107,7 @@ import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
 import { renderKentei } from "./components/Kentei";
 import { renderLoginScreen } from "./components/LoginScreen";
-import { renderMasterStats, defaultMasterFilter, type MasterFilterState } from "./components/MasterStats";
+import { renderMasterStats, renderEditCustomerModal, renderEditProductModal, defaultMasterFilter, type MasterFilterState } from "./components/MasterStats";
 import { renderMaterials } from "./components/Materials";
 import { renderPaymentStatus } from "./components/PaymentStatus";
 import { renderProductPicker } from "./components/ProductPicker";
@@ -2038,6 +2040,66 @@ function bindEvents(root: HTMLElement): void {
       state.salesPeriod = "custom";
       renderApp();
     }
+  });
+
+  // マスタ編集ボタン
+  root.querySelectorAll<HTMLButtonElement>("[data-edit-customer]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.editCustomer ?? "";
+      const cust = state.masterStats?.customers.find((c) => c.id === id);
+      if (!cust) return;
+      const modal = document.createElement("div");
+      modal.innerHTML = renderEditCustomerModal(cust);
+      document.body.appendChild(modal.firstElementChild!);
+      document.querySelector("[data-action='close-modal']")?.addEventListener("click", () => {
+        document.getElementById("edit-modal")?.remove();
+      });
+      document.getElementById("edit-customer-form")?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const r = document.getElementById("edit-result") as HTMLSpanElement;
+        const ok = await updateCustomer(id, {
+          name: (document.getElementById("ec-name") as HTMLInputElement).value,
+          kana_name: (document.getElementById("ec-kana") as HTMLInputElement).value,
+          phone: (document.getElementById("ec-phone") as HTMLInputElement).value,
+          fax: (document.getElementById("ec-fax") as HTMLInputElement).value,
+          postal_code: (document.getElementById("ec-postal") as HTMLInputElement).value,
+          address1: (document.getElementById("ec-address") as HTMLInputElement).value,
+          closing_day: parseInt((document.getElementById("ec-closing") as HTMLInputElement).value) || null,
+          payment_day: parseInt((document.getElementById("ec-payment") as HTMLInputElement).value) || null,
+        });
+        if (r) { r.textContent = ok ? "保存しました" : "保存に失敗"; r.className = `fr-result ${ok ? "success" : "error"}`; }
+        if (ok) { document.getElementById("edit-modal")?.remove(); void loadData(); }
+      });
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-edit-product]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.editProduct ?? "";
+      const prod = state.masterStats?.products.find((p) => p.id === id);
+      if (!prod) return;
+      const modal = document.createElement("div");
+      modal.innerHTML = renderEditProductModal(prod);
+      document.body.appendChild(modal.firstElementChild!);
+      document.querySelector("[data-action='close-modal']")?.addEventListener("click", () => {
+        document.getElementById("edit-modal")?.remove();
+      });
+      document.getElementById("edit-product-form")?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const r = document.getElementById("edit-result") as HTMLSpanElement;
+        const ok = await updateProduct(id, {
+          name: (document.getElementById("ep-name") as HTMLInputElement).value,
+          category_code: (document.getElementById("ep-category") as HTMLInputElement).value,
+          alcohol_degree: parseFloat((document.getElementById("ep-alcohol") as HTMLInputElement).value) || null,
+          volume_ml: parseInt((document.getElementById("ep-volume") as HTMLInputElement).value) || null,
+          bottle_type: (document.getElementById("ep-bottle") as HTMLInputElement).value,
+          purchase_price: parseInt((document.getElementById("ep-purchase") as HTMLInputElement).value) || null,
+          default_sale_price: parseInt((document.getElementById("ep-sale") as HTMLInputElement).value) || null,
+        });
+        if (r) { r.textContent = ok ? "保存しました" : "保存に失敗"; r.className = `fr-result ${ok ? "success" : "error"}`; }
+        if (ok) { document.getElementById("edit-modal")?.remove(); void loadData(); }
+      });
+    });
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='dashboard-refresh']")?.addEventListener("click", async (e) => {
