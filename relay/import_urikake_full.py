@@ -91,10 +91,10 @@ def parse_csv(csv_path: Path, logger: logging.Logger) -> tuple[list[dict[str, An
                 continue
 
             try:
-                qty = int(row[13].strip()) if row[13].strip() else 0
-                unit_price = int(row[14].strip()) if row[14].strip() else 0
-                amount = int(row[15].strip()) if row[15].strip() else 0
-            except ValueError:
+                qty = int(float(row[13].strip())) if row[13].strip() else 0
+                unit_price = int(float(row[14].strip())) if row[14].strip() else 0
+                amount = int(float(row[15].strip())) if row[15].strip() else 0
+            except (ValueError, OverflowError):
                 continue
 
             # ヘッダー集約
@@ -116,9 +116,10 @@ def parse_csv(csv_path: Path, logger: logging.Logger) -> tuple[list[dict[str, An
             # 明細
             line_counts[doc_no] = line_counts.get(doc_no, 0) + 1
             line_no = line_counts[doc_no]
+            csv_row_id = len(lines)  # 絶対行番号
 
             lines.append({
-                "id": str(uuid.uuid5(SAKE_UUID_NS, f"csv_line:{doc_no}:{line_no}")),
+                "id": str(uuid.uuid5(SAKE_UUID_NS, f"csv_row:{csv_row_id}")),
                 "legacy_document_no": doc_no,
                 "document_no": doc_no,
                 "line_no": line_no,
