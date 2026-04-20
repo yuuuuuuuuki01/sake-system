@@ -61,7 +61,7 @@ export interface SalesDayPoint {
   amount: number;
 }
 
-export type SalesPeriod = "today" | "month" | "90days" | "year" | "all";
+export type SalesPeriod = "today" | "month" | "90days" | "year" | "all" | "custom";
 
 export interface SalesRecord {
   id: string;

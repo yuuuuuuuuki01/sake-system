@@ -481,6 +481,7 @@ interface AppState {
   invoiceFilter: InvoiceFilter;
   ledgerCustomerCode: string;
   salesPeriod: SalesPeriod;
+  customRange: { start: string; end: string };
   masterTab: MasterTab;
   masterFilter: MasterFilterState;
   analyticsTab: AnalyticsTab;
@@ -701,6 +702,7 @@ const state: AppState = {
   invoiceFilter: { documentNo: "", startDate: "", endDate: "", customerCode: "" },
   ledgerCustomerCode: defaultLedgerCustomerCode,
   salesPeriod: "month",
+  customRange: { start: "", end: "" },
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
@@ -1609,7 +1611,7 @@ function renderView(): string {
           suppliers: state.syncDashboard?.tables.find((t) => t.tableName === "suppliers")?.rowCount ?? 0,
           specialPrices: state.syncDashboard?.tables.find((t) => t.tableName === "customer_product_prices")?.rowCount ?? 0
         } : undefined
-      }, state.salesPeriod);
+      }, state.salesPeriod, state.customRange);
   }
 }
 
@@ -2026,6 +2028,16 @@ function bindEvents(root: HTMLElement): void {
       state.salesPeriod = btn.dataset.period as SalesPeriod;
       renderApp();
     });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='apply-range']")?.addEventListener("click", () => {
+    const start = root.querySelector<HTMLInputElement>("#range-start")?.value ?? "";
+    const end = root.querySelector<HTMLInputElement>("#range-end")?.value ?? "";
+    if (start && end) {
+      state.customRange = { start, end };
+      state.salesPeriod = "custom";
+      renderApp();
+    }
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='dashboard-refresh']")?.addEventListener("click", async (e) => {

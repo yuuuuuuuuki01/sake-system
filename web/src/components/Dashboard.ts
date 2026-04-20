@@ -6,10 +6,17 @@ const PERIOD_LABELS: Record<SalesPeriod, string> = {
   month: "当月",
   "90days": "90日",
   year: "1年",
-  all: "全期間"
+  all: "全期間",
+  custom: "指定期間"
 };
 
-function filterByPeriod(allDays: SalesDayPoint[], period: SalesPeriod): SalesDayPoint[] {
+function shiftYear(isoDate: string, years: number): string {
+  const d = new Date(isoDate);
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString();
+}
+
+function filterByPeriod(allDays: SalesDayPoint[], period: SalesPeriod, customRange?: { start: string; end: string }): SalesDayPoint[] {
   if (period === "all") return allDays;
   const now = new Date();
   const todayKey = now.toISOString().slice(0, 10);
@@ -26,6 +33,12 @@ function filterByPeriod(allDays: SalesDayPoint[], period: SalesPeriod): SalesDay
     case "year":
       cutoff.setFullYear(cutoff.getFullYear() - 1);
       return allDays.filter((d) => d.date >= cutoff.toISOString());
+    case "custom":
+      if (!customRange?.start || !customRange?.end) return allDays;
+      return allDays.filter((d) => {
+        const dateKey = d.date.slice(0, 10);
+        return dateKey >= customRange.start && dateKey <= customRange.end;
+      });
   }
 }
 
@@ -179,7 +192,8 @@ export function renderDashboard(
   pipeline: PipelineMeta,
   analytics: SalesAnalytics | null,
   extras?: DashboardExtras,
-  activePeriod: SalesPeriod = "month"
+  activePeriod: SalesPeriod = "month",
+  customRange?: { start: string; end: string }
 ): string {
   const statusLabelMap = {
     success: "正常",
@@ -188,9 +202,23 @@ export function renderDashboard(
     running: "実行中"
   };
 
-  const filteredDays = filterByPeriod(summary.allDailySales, activePeriod);
+  const filteredDays = filterByPeriod(summary.allDailySales, activePeriod, customRange);
   const periodTotal = filteredDays.reduce((s, d) => s + d.amount, 0);
   const periodDays = filteredDays.length;
+
+  // 昨対比較: 同じ期間の前年データを抽出
+  const lastYearDays = filteredDays.length > 0
+    ? summary.allDailySales.filter((d) => {
+        const currentStart = filteredDays[0]?.date ?? "";
+        const currentEnd = filteredDays[filteredDays.length - 1]?.date ?? "";
+        const lyStart = shiftYear(currentStart, -1);
+        const lyEnd = shiftYear(currentEnd, -1);
+        return d.date >= lyStart && d.date <= lyEnd;
+      })
+    : [];
+  const lastYearTotal = lastYearDays.reduce((s, d) => s + d.amount, 0);
+  const yoyDelta = lastYearTotal > 0 ? ((periodTotal - lastYearTotal) / lastYearTotal) * 100 : 0;
+  const yoySign = yoyDelta > 0 ? "+" : "";
 
   const recentSalesRows = summary.salesRecords
     .slice(0, 10)
@@ -225,6 +253,12 @@ export function renderDashboard(
 
     <section class="period-filter">
       <div class="button-group">${periodButtons}</div>
+      <div class="custom-range" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+        <input type="date" id="range-start" class="range-input" />
+        <span>〜</span>
+        <input type="date" id="range-end" class="range-input" />
+        <button class="button secondary small" type="button" data-action="apply-range">適用</button>
+      </div>
     </section>
 
     <section class="kpi-grid">
@@ -237,6 +271,11 @@ export function renderDashboard(
         <p class="panel-title">${PERIOD_LABELS[activePeriod]}売上</p>
         <p class="kpi-value">${formatCurrency(periodTotal)}</p>
         <p class="kpi-sub">${periodDays}日間${periodDays > 0 ? ` / 日平均 ${formatCurrency(Math.round(periodTotal / periodDays))}` : ""}</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">昨対比</p>
+        <p class="kpi-value" style="color:${yoyDelta >= 0 ? "#2f855a" : "#c53d3d"}">${lastYearTotal > 0 ? `${yoySign}${yoyDelta.toFixed(1)}%` : "―"}</p>
+        <p class="kpi-sub">前年同期 ${lastYearTotal > 0 ? formatCurrency(lastYearTotal) : "データなし"}</p>
       </article>
       <article class="panel kpi-card kpi-alert">
         <p class="panel-title">未入金件数</p>

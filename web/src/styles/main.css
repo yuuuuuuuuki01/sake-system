@@ -674,6 +674,15 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
+.range-input {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
 .feature-form {
   display: flex;
   flex-direction: column;
