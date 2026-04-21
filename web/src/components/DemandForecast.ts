@@ -43,9 +43,9 @@ export const defaultDemandForecastState: DemandForecastState = {
 export const SEGMENT_LABELS: Record<ProductionSegment, string> = {
   "monthly": "通年出荷",
   "made-to-order": "受注生産",
-  "november-only": "歳暮（11月精算）",
+  "november-only": "歳暮（11月生産）",
   "annual-batch": "季節集中",
-  "december-settlement": "歳暮（11月精算）",
+  "december-settlement": "歳暮（11月生産）",
   "seasonal-batch": "季節集中"
 };
 
@@ -265,47 +265,30 @@ const MONTHS_SHORT = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8
 function renderForecastTable(forecasts: ProductForecast[], selectedSegment: ProductionSegment | "all"): string {
   const filtered = selectedSegment === "all" ? forecasts : forecasts.filter((f) => f.segment === selectedSegment);
 
-  const segmentCounts = {
-    all: forecasts.length,
-    monthly: forecasts.filter((f) => f.segment === "monthly").length,
-    "made-to-order": forecasts.filter((f) => f.segment === "made-to-order").length,
-    "november-only": forecasts.filter((f) => f.segment === "november-only").length,
-    "annual-batch": forecasts.filter((f) => f.segment === "annual-batch").length
-  };
+  const segmentCounts: Record<string, number> = { all: forecasts.length };
+  forecasts.forEach((f) => {
+    segmentCounts[f.segment] = (segmentCounts[f.segment] ?? 0) + 1;
+  });
 
-  const tabs = (["all", "monthly", "made-to-order", "november-only", "annual-batch"] as const)
+  const segmentKeys = [...new Set(forecasts.map((f) => f.segment))];
+  const tabs = (["all", ...segmentKeys] as const)
     .map((seg) => `
       <button class="button ${selectedSegment === seg ? "primary" : "secondary"} small" type="button" data-action="forecast-segment" data-segment="${seg}">
-        ${seg === "all" ? "全て" : SEGMENT_LABELS[seg]} (${segmentCounts[seg]})
+        ${seg === "all" ? "全て" : (SEGMENT_LABELS[seg as ProductionSegment] ?? seg)} (${segmentCounts[seg] ?? 0})
       </button>
     `).join("");
 
-  const currentMonth = new Date().getMonth();
-
-  const rows = filtered.map((f) => {
-    const maxQty = Math.max(...f.monthlyQuantity, 1);
-    const heatmap = f.monthlyQuantity.map((v, i) => {
-      const intensity = v / maxQty;
-      const bg = i === currentMonth
-        ? `rgba(15,91,141,${0.15 + intensity * 0.55})`
-        : i === 11
-          ? `rgba(200,50,50,${intensity * 0.4})`  // Dec in red tone
-          : `rgba(100,100,100,${intensity * 0.35})`;
-      return `<td class="forecast-heat" style="background:${bg};" title="${MONTHS_SHORT[i]}: ${v.toLocaleString()}本">${v > 0 ? v.toLocaleString() : "—"}</td>`;
-    }).join("");
-
-    return `
+  const rows = filtered.map((f) => `
       <tr>
         <td class="mono">${f.code}</td>
         <td>${f.name}</td>
-        <td><span class="segment-badge" style="background:${SEGMENT_COLORS[f.segment]};">${SEGMENT_LABELS[f.segment]}</span></td>
-        ${heatmap}
-        <td class="numeric" style="font-weight:700;">${f.nextMonthForecast.toLocaleString()}</td>
-        <td class="numeric">${f.adjustedAvg.toLocaleString()}</td>
-        <td class="numeric">${f.safetyStock.toLocaleString()}</td>
+        <td><span class="segment-badge" style="background:${SEGMENT_COLORS[f.segment] ?? "#718096"};">${SEGMENT_LABELS[f.segment] ?? f.segment}</span></td>
+        <td class="numeric">${f.avgMonthly > 0 ? f.avgMonthly.toLocaleString() : "—"}</td>
+        <td class="numeric" style="font-weight:700;">${f.nextMonthForecast > 0 ? f.nextMonthForecast.toLocaleString() : "—"}</td>
+        <td class="numeric">${f.annualForecast > 0 ? f.annualForecast.toLocaleString() : "—"}</td>
+        <td class="numeric">${f.safetyStock > 0 ? f.safetyStock.toLocaleString() : "—"}</td>
       </tr>
-    `;
-  }).join("");
+    `).join("");
 
   if (forecasts.length === 0) {
     return `
@@ -335,7 +318,7 @@ function renderForecastTable(forecasts: ProductForecast[], selectedSegment: Prod
           <strong>セグメント自動分類</strong>
           <ul>
             <li><span class="segment-badge" style="background:${SEGMENT_COLORS["monthly"]};">通年出荷</span> 年7ヶ月以上出荷。12月除外の平均で予測</li>
-            <li><span class="segment-badge" style="background:${SEGMENT_COLORS["december-settlement"]};">歳暮（11月精算）</span> 12月出荷が年間80%以上。前年12月実績で予測</li>
+            <li><span class="segment-badge" style="background:${SEGMENT_COLORS["december-settlement"]};">歳暮（11月生産）</span> 12月出荷が年間80%以上。前年12月実績で予測</li>
             <li><span class="segment-badge" style="background:${SEGMENT_COLORS["seasonal-batch"]};">季節集中</span> 年4〜6ヶ月出荷。前年同月実績で予測</li>
             <li><span class="segment-badge" style="background:${SEGMENT_COLORS["made-to-order"]};">受注生産</span> 年3ヶ月以下の不定期出荷。予測なし</li>
           </ul>
@@ -351,9 +334,9 @@ function renderForecastTable(forecasts: ProductForecast[], selectedSegment: Prod
               <th>コード</th>
               <th>商品名</th>
               <th>区分</th>
-              ${MONTHS_SHORT.map((m, i) => `<th class="forecast-month-th ${i === currentMonth ? "current-month" : ""}">${m}</th>`).join("")}
+              <th class="numeric">月平均</th>
               <th class="numeric">翌月予測</th>
-              <th class="numeric">補正平均</th>
+              <th class="numeric">年間予測</th>
               <th class="numeric">安全在庫</th>
             </tr>
           </thead>
