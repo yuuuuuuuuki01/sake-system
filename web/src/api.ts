@@ -1311,6 +1311,37 @@ export async function fetchProductMonthlyShipments(): Promise<ProductMonthlyShip
     .sort((a, b) => b.totalAmount - a.totalAmount);
 }
 
+// ─── 需要予測（DB計算済み）─────────────────────────────────────────────────────
+
+export interface DemandForecastRow {
+  productCode: string;
+  productName: string;
+  forecastMonth: string;
+  segment: string;
+  avgMonthly: number;
+  forecastQuantity: number;
+  forecastAmount: number;
+  safetyStock: number;
+  calculatedAt: string;
+}
+
+export async function fetchDemandForecasts(): Promise<DemandForecastRow[]> {
+  const rows = await supabaseQuery<LooseRow>("product_demand_forecasts", {
+    order: "forecast_amount.desc"
+  });
+  return rows.map((r) => ({
+    productCode: getString(r, ["product_code"], ""),
+    productName: getString(r, ["product_name"], ""),
+    forecastMonth: getString(r, ["forecast_month"], ""),
+    segment: getString(r, ["segment"], "monthly"),
+    avgMonthly: getNumber(r, ["avg_monthly"], 0),
+    forecastQuantity: getNumber(r, ["forecast_quantity"], 0),
+    forecastAmount: getNumber(r, ["forecast_amount"], 0),
+    safetyStock: getNumber(r, ["safety_stock"], 0),
+    calculatedAt: getDateString(r, ["calculated_at"], "")
+  }));
+}
+
 // ─── 納品カレンダー用: 直近の伝票から納品予定を構築 ─────────────────────────────
 
 export interface DeliveryScheduleEntry {

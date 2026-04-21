@@ -1279,12 +1279,23 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       case "/demand-forecast":
         if (state.demandForecast.forecasts.length === 0) {
-          const { fetchProductShipmentsFromTable: fetchFromTable, fetchProductMonthlyShipments, fetchDeliverySchedule } = await import("./api");
-          // DB集計テーブル優先
-          let dfShipments = await fetchFromTable();
-          if (dfShipments.length === 0) dfShipments = await fetchProductMonthlyShipments();
-          const schedule = await fetchDeliverySchedule();
-          state.demandForecast.forecasts = buildForecastsFromShipments(dfShipments);
+          const { fetchDemandForecasts, fetchDeliverySchedule } = await import("./api");
+          const [dbForecasts, schedule] = await Promise.all([
+            fetchDemandForecasts(),
+            fetchDeliverySchedule()
+          ]);
+          // DB計算済みの予測をそのままstateに変換
+          state.demandForecast.forecasts = dbForecasts.map((f) => ({
+            code: f.productCode,
+            name: f.productName,
+            segment: f.segment as ProductionSegment,
+            monthlyQuantity: new Array(12).fill(0),
+            avgMonthly: Math.round(f.avgMonthly),
+            adjustedAvg: Math.round(f.avgMonthly),
+            nextMonthForecast: Math.round(f.forecastQuantity),
+            annualForecast: Math.round(f.avgMonthly * 12),
+            safetyStock: Math.round(f.safetyStock)
+          }));
           state.demandForecast.deliveries = buildDeliveriesFromSchedule(schedule);
         }
         break;

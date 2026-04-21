@@ -2,7 +2,7 @@ import type { ProductMonthlyShipment, DeliveryScheduleEntry } from "../api";
 
 // ── Types ───────────────────────────────────────────────
 
-export type ProductionSegment = "monthly" | "made-to-order" | "november-only" | "annual-batch";
+export type ProductionSegment = "monthly" | "made-to-order" | "november-only" | "annual-batch" | "december-settlement" | "seasonal-batch";
 
 export interface ProductForecast {
   code: string;
@@ -41,17 +41,21 @@ export const defaultDemandForecastState: DemandForecastState = {
 // ── Segment labels ──────────────────────────────────────
 
 export const SEGMENT_LABELS: Record<ProductionSegment, string> = {
-  "monthly": "月次生産",
+  "monthly": "通年出荷",
   "made-to-order": "受注生産",
-  "november-only": "11月限定",
-  "annual-batch": "年間一括"
+  "november-only": "歳暮（11月精算）",
+  "annual-batch": "季節集中",
+  "december-settlement": "歳暮（11月精算）",
+  "seasonal-batch": "季節集中"
 };
 
 const SEGMENT_COLORS: Record<ProductionSegment, string> = {
   "monthly": "#0F5B8D",
   "made-to-order": "#6b46c1",
   "november-only": "#c05621",
-  "annual-batch": "#2f855a"
+  "annual-batch": "#2f855a",
+  "december-settlement": "#c05621",
+  "seasonal-batch": "#2f855a"
 };
 
 // ── Forecast computation from real data ─────────────────
@@ -117,7 +121,7 @@ function computeNextMonthForecast(monthlyQty: number[], segment: ProductionSegme
 }
 
 export function buildForecastsFromShipments(shipments: ProductMonthlyShipment[]): ProductForecast[] {
-  return shipments.slice(0, 50).map((product) => {
+  return shipments.map((product) => {
     const monthlyQty = product.monthlyQuantity;
     const segment = inferSegment(monthlyQty);
     const avgMonthly = Math.round(product.totalQuantity / 12);
@@ -330,10 +334,10 @@ function renderForecastTable(forecasts: ProductForecast[], selectedSegment: Prod
         <div class="forecast-info-card">
           <strong>セグメント自動分類</strong>
           <ul>
-            <li><span class="segment-badge" style="background:${SEGMENT_COLORS["monthly"]};">月次生産</span> 通年出荷品。12月を除いたトリム平均で予測</li>
-            <li><span class="segment-badge" style="background:${SEGMENT_COLORS["made-to-order"]};">受注生産</span> 年3回以下の不定期出荷品。予測不可</li>
-            <li><span class="segment-badge" style="background:${SEGMENT_COLORS["november-only"]};">11月限定</span> 歳暮等の年末商戦品（11月出荷50%超）</li>
-            <li><span class="segment-badge" style="background:${SEGMENT_COLORS["annual-batch"]};">年間一括</span> 年1〜4回の集中出荷品</li>
+            <li><span class="segment-badge" style="background:${SEGMENT_COLORS["monthly"]};">通年出荷</span> 年7ヶ月以上出荷。12月除外の平均で予測</li>
+            <li><span class="segment-badge" style="background:${SEGMENT_COLORS["december-settlement"]};">歳暮（11月精算）</span> 12月出荷が年間80%以上。前年12月実績で予測</li>
+            <li><span class="segment-badge" style="background:${SEGMENT_COLORS["seasonal-batch"]};">季節集中</span> 年4〜6ヶ月出荷。前年同月実績で予測</li>
+            <li><span class="segment-badge" style="background:${SEGMENT_COLORS["made-to-order"]};">受注生産</span> 年3ヶ月以下の不定期出荷。予測なし</li>
           </ul>
         </div>
       </div>
