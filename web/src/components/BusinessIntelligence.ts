@@ -1,4 +1,5 @@
 import type { ProductPower, CustomerEfficiency, ProductDailyRow } from "../api";
+import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 }).format(amount);
@@ -124,7 +125,8 @@ export function renderProductPower(
   daily: ProductDailyRow[] = [],
   period: ProductPeriod = "year",
   customStart?: string,
-  customEnd?: string
+  customEnd?: string,
+  sortState: SortState = []
 ): string {
   const dates = calcDates(period, customStart, customEnd);
   const products = daily.length > 0
@@ -219,16 +221,18 @@ export function renderProductPower(
         <table>
           <thead>
             <tr>
-              <th>ABC</th>
-              <th>商品名</th>
-              <th class="numeric">売上</th>
-              <th class="numeric">構成比</th>
-              <th class="numeric">本数</th>
-              <th class="numeric">前年同期比</th>
+              ${makeSortableHeader("rank", "ABC", sortState)}
+              ${makeSortableHeader("name", "商品名", sortState)}
+              ${makeSortableHeader("amount", "売上", sortState, "numeric")}
+              ${makeSortableHeader("sharePct", "構成比", sortState, "numeric")}
+              ${makeSortableHeader("qty", "本数", sortState, "numeric")}
+              ${makeSortableHeader("growthRate", "前年同期比", sortState, "numeric")}
             </tr>
           </thead>
           <tbody>
-            ${filtered.slice(0, 100).map((p) => `
+            ${applySortToRows(filtered, sortState, {
+              rank: "rank", name: "name", amount: "amount", sharePct: "sharePct", qty: "qty", growthRate: "growthRate"
+            }).slice(0, 100).map((p) => `
               <tr>
                 <td>${rankBadge(p.rank)}</td>
                 <td>${p.name ? p.name.slice(0, 25) : p.code}${p.volumeMl ? ` <small>${p.volumeMl}ml</small>` : ""}</td>
@@ -246,7 +250,7 @@ export function renderProductPower(
   `;
 }
 
-export function renderCustomerEfficiency(customers: CustomerEfficiency[]): string {
+export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortState: SortState = []): string {
   const aCount = customers.filter((c) => c.currentRank === "A").length;
   const upgraded = customers.filter((c) => c.prevRank && c.currentRank < c.prevRank).length;
   const downgraded = customers.filter((c) => c.prevRank && c.currentRank > c.prevRank).length;
@@ -280,17 +284,19 @@ export function renderCustomerEfficiency(customers: CustomerEfficiency[]): strin
         <table>
           <thead>
             <tr>
-              <th>ABC</th>
-              <th>得意先名</th>
-              <th class="numeric">年間売上</th>
-              <th class="numeric">構成比</th>
-              <th class="numeric">受注日数</th>
-              <th class="numeric">前年比</th>
+              ${makeSortableHeader("currentRank", "ABC", sortState)}
+              ${makeSortableHeader("name", "得意先名", sortState)}
+              ${makeSortableHeader("yearAmount", "年間売上", sortState, "numeric")}
+              ${makeSortableHeader("sharePct", "構成比", sortState, "numeric")}
+              ${makeSortableHeader("orderDays", "受注日数", sortState, "numeric")}
+              ${makeSortableHeader("growthRate", "前年比", sortState, "numeric")}
               <th>変動</th>
             </tr>
           </thead>
           <tbody>
-            ${customers.slice(0, 50).map((c) => `
+            ${applySortToRows(customers, sortState, {
+              currentRank: "currentRank", name: "name", yearAmount: "yearAmount", sharePct: "sharePct", orderDays: "orderDays", growthRate: "growthRate"
+            }).slice(0, 50).map((c) => `
               <tr>
                 <td>${rankBadge(c.currentRank)}</td>
                 <td>${c.name || c.code}</td>

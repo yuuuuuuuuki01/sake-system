@@ -114,6 +114,7 @@ import { renderGlobalSearch } from "./components/GlobalSearch";
 import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
 import { renderQuoteBuilder, defaultQuoteState, generateQuotePdf, type QuoteState } from "./components/QuoteBuilder";
+import { toggleSort, type SortState } from "./utils/tableSort";
 import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter, type ProductPeriod } from "./components/BusinessIntelligence";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
@@ -799,6 +800,8 @@ const state: AppState = {
   productDaily: [] as ProductDailyRow[],
   productCustomStart: "",
   productCustomEnd: "",
+  productSortState: [] as SortState,
+  customerSortState: [] as SortState,
   customerEfficiency: [],
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
@@ -1660,9 +1663,9 @@ function renderView(): string {
         ? renderSalesReport(state.salesReport)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/product-power":
-      return renderProductPower(state.productPower, state.productFilter as ProductViewFilter, state.productDaily, state.productPeriod as ProductPeriod, state.productCustomStart, state.productCustomEnd);
+      return renderProductPower(state.productPower, state.productFilter as ProductViewFilter, state.productDaily, state.productPeriod as ProductPeriod, state.productCustomStart, state.productCustomEnd, state.productSortState);
     case "/customer-efficiency":
-      return renderCustomerEfficiency(state.customerEfficiency);
+      return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState);
     case "/customer-analysis":
       return state.customerAnalysis
         ? renderCustomerAnalysis(state.customerAnalysis)
@@ -2676,6 +2679,19 @@ function bindEvents(root: HTMLElement): void {
   });
   root.querySelector<HTMLInputElement>("#visit-filter-score")?.addEventListener("change", (e) => {
     if (state.visitPlanner) { state.visitPlanner.filterMinScore = parseInt((e.target as HTMLInputElement).value) || 0; renderApp(); }
+  });
+
+  root.querySelectorAll<HTMLElement>("[data-sort-col]").forEach((th) => {
+    th.addEventListener("click", (e) => {
+      const col = th.dataset.sortCol ?? "";
+      const multi = (e as MouseEvent).shiftKey;
+      if (state.route === "/product-power") {
+        state.productSortState = toggleSort(state.productSortState, col, multi);
+      } else if (state.route === "/customer-efficiency") {
+        state.customerSortState = toggleSort(state.customerSortState, col, multi);
+      }
+      renderApp();
+    });
   });
 
   root.querySelectorAll<HTMLButtonElement>("[data-product-period]").forEach((btn) => {

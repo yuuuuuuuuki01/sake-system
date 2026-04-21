@@ -4658,3 +4658,35 @@ svg[role="img"] {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== テーブルソート ===== */
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+th.sortable:hover {
+  background: var(--primary-soft);
+}
+
+.sort-icon {
+  font-size: 11px;
+  color: var(--text-disabled);
+  margin-left: 2px;
+}
+
+.sort-icon.active {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.sort-badge {
+  font-size: 9px;
+  background: var(--primary);
+  color: white;
+  border-radius: 50%;
+  padding: 0 3px;
+  margin-left: 1px;
+  vertical-align: super;
+}
