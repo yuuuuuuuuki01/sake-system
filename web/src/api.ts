@@ -1396,6 +1396,122 @@ export async function fetchAnnouncements(): Promise<SystemAnnouncement[]> {
   }));
 }
 
+// ─── 事前計算テーブルから読み取る営業分析API ────────────────────────────────────
+
+export interface ChurnAlertRow {
+  customer_code: string;
+  customer_name: string;
+  business_type: string;
+  area_code: string;
+  phone: string;
+  last_order_date: string;
+  days_since_order: number;
+  amount_12m: number;
+  is_dormant: boolean;
+  is_at_risk: boolean;
+}
+
+export async function fetchChurnAlerts(): Promise<ChurnAlertRow[]> {
+  const rows = await supabaseQueryAll<LooseRow>("customer_sales_summary", {
+    select: "customer_code,customer_name,business_type,area_code,phone,last_order_date,days_since_order,amount_12m,is_dormant,is_at_risk",
+    or: "(is_dormant.eq.true,is_at_risk.eq.true)"
+  });
+  if (rows.length > 0) {
+    return rows.map((r) => ({
+      customer_code: getString(r, ["customer_code"], ""),
+      customer_name: getString(r, ["customer_name"], ""),
+      business_type: getString(r, ["business_type"], ""),
+      area_code: getString(r, ["area_code"], ""),
+      phone: getString(r, ["phone"], ""),
+      last_order_date: getString(r, ["last_order_date"], ""),
+      days_since_order: getNumber(r, ["days_since_order"], 0),
+      amount_12m: getNumber(r, ["amount_12m"], 0),
+      is_dormant: getBoolean(r, ["is_dormant"], false),
+      is_at_risk: getBoolean(r, ["is_at_risk"], false)
+    }));
+  }
+  return [];
+}
+
+export interface VisitPriorityRow {
+  customer_code: string;
+  customer_name: string;
+  phone: string;
+  address: string;
+  area_code: string;
+  business_type: string;
+  priority_score: number;
+  reasons: string[];
+  last_order_date: string;
+  days_since_order: number;
+  annual_revenue: number;
+  recommended_action: string;
+}
+
+export async function fetchVisitPriorities(): Promise<VisitPriorityRow[]> {
+  const rows = await supabaseQueryAll<LooseRow>("visit_priority", {
+    select: "customer_code,customer_name,phone,address,area_code,business_type,priority_score,reasons,last_order_date,days_since_order,annual_revenue,recommended_action",
+    order: "priority_score.desc"
+  });
+  return rows.map((r) => ({
+    customer_code: getString(r, ["customer_code"], ""),
+    customer_name: getString(r, ["customer_name"], ""),
+    phone: getString(r, ["phone"], ""),
+    address: getString(r, ["address"], ""),
+    area_code: getString(r, ["area_code"], ""),
+    business_type: getString(r, ["business_type"], ""),
+    priority_score: getNumber(r, ["priority_score"], 0),
+    reasons: Array.isArray(r["reasons"]) ? (r["reasons"] as string[]) : [],
+    last_order_date: getString(r, ["last_order_date"], ""),
+    days_since_order: getNumber(r, ["days_since_order"], 0),
+    annual_revenue: getNumber(r, ["annual_revenue"], 0),
+    recommended_action: getString(r, ["recommended_action"], "")
+  }));
+}
+
+export interface SeasonalProfileRow {
+  product_code: string;
+  product_name: string;
+  season_type: string;
+  peak_months: number[];
+  proposal_month: number | null;
+  avg_monthly_qty: number;
+}
+
+export async function fetchSeasonalProfiles(): Promise<SeasonalProfileRow[]> {
+  const rows = await supabaseQueryAll<LooseRow>("product_seasonal_profile", {
+    select: "product_code,product_name,season_type,peak_months,proposal_month,avg_monthly_qty"
+  });
+  return rows.map((r) => ({
+    product_code: getString(r, ["product_code"], ""),
+    product_name: getString(r, ["product_name"], ""),
+    season_type: getString(r, ["season_type"], "year-round"),
+    peak_months: Array.isArray(r["peak_months"]) ? (r["peak_months"] as number[]) : [],
+    proposal_month: r["proposal_month"] != null ? Number(r["proposal_month"]) : null,
+    avg_monthly_qty: getNumber(r, ["avg_monthly_qty"], 0)
+  }));
+}
+
+export async function fetchProductShipmentsFromTable(): Promise<ProductMonthlyShipment[]> {
+  const rows = await supabaseQueryAll<LooseRow>("product_monthly_shipments", {
+    select: "product_code,product_name,category,m01,m02,m03,m04,m05,m06,m07,m08,m09,m10,m11,m12,total_quantity,total_amount",
+    order: "total_amount.desc"
+  });
+  return rows.map((r) => ({
+    code: getString(r, ["product_code"], ""),
+    name: getString(r, ["product_name"], ""),
+    monthlyQuantity: [
+      getNumber(r, ["m01"], 0), getNumber(r, ["m02"], 0), getNumber(r, ["m03"], 0),
+      getNumber(r, ["m04"], 0), getNumber(r, ["m05"], 0), getNumber(r, ["m06"], 0),
+      getNumber(r, ["m07"], 0), getNumber(r, ["m08"], 0), getNumber(r, ["m09"], 0),
+      getNumber(r, ["m10"], 0), getNumber(r, ["m11"], 0), getNumber(r, ["m12"], 0)
+    ],
+    monthlyAmount: [0,0,0,0,0,0,0,0,0,0,0,0],
+    totalQuantity: getNumber(r, ["total_quantity"], 0),
+    totalAmount: getNumber(r, ["total_amount"], 0)
+  })).filter((p) => p.totalQuantity > 0);
+}
+
 // ─── 機能要望 ────────────────────────────────────────────────────────────────
 
 export async function submitFeatureRequest(title: string, category: string, description: string): Promise<boolean> {

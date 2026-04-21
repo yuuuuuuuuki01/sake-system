@@ -1279,75 +1279,123 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       case "/demand-forecast":
         if (state.demandForecast.forecasts.length === 0) {
-          const { fetchProductMonthlyShipments, fetchDeliverySchedule } = await import("./api");
-          const [shipments, schedule] = await Promise.all([
-            fetchProductMonthlyShipments(),
-            fetchDeliverySchedule()
-          ]);
-          state.demandForecast.forecasts = buildForecastsFromShipments(shipments);
+          const { fetchProductShipmentsFromTable: fetchFromTable, fetchProductMonthlyShipments, fetchDeliverySchedule } = await import("./api");
+          // DB集計テーブル優先
+          let dfShipments = await fetchFromTable();
+          if (dfShipments.length === 0) dfShipments = await fetchProductMonthlyShipments();
+          const schedule = await fetchDeliverySchedule();
+          state.demandForecast.forecasts = buildForecastsFromShipments(dfShipments);
           state.demandForecast.deliveries = buildDeliveriesFromSchedule(schedule);
         }
         break;
       case "/churn-alert":
         if (!state.churnAlert) {
-          const { supabaseQueryAll } = await import("./supabase");
-          const [headers, customers] = await Promise.all([
-            supabaseQueryAll<{sales_date: string; legacy_customer_code: string; customer_name: string; total_amount: number | string}>("sales_document_headers", {
-              select: "sales_date,legacy_customer_code,customer_name,total_amount"
-            }),
-            state.masterStats ? Promise.resolve(state.masterStats.customers) : fetchMasterStats().then(m => m.customers)
-          ]);
-          state.churnAlert = buildChurnAlertData(
-            headers.map(h => ({ sales_date: h.sales_date || "", legacy_customer_code: h.legacy_customer_code || "", customer_name: h.customer_name || "", total_amount: Number(h.total_amount) || 0 })),
-            (state.masterStats?.customers ?? customers).map(c => ({ code: c.code, name: c.name, businessType: c.businessType, areaCode: c.areaCode, phone: c.phone }))
-          );
+          // DB集計テーブルから読み取り → なければフォールバック
+          const { fetchChurnAlerts } = await import("./api");
+          const dbAlerts = await fetchChurnAlerts();
+          if (dbAlerts.length > 0) {
+            const dormant = dbAlerts.filter(a => a.is_dormant).map(a => ({
+              code: a.customer_code, name: a.customer_name, businessType: a.business_type,
+              areaCode: a.area_code, phone: a.phone, lastOrderDate: a.last_order_date,
+              daysSinceLastOrder: a.days_since_order, totalAmountLast12m: a.amount_12m, status: "dormant" as const
+            }));
+            const atRisk = dbAlerts.filter(a => a.is_at_risk).map(a => ({
+              code: a.customer_code, name: a.customer_name, businessType: a.business_type,
+              areaCode: a.area_code, phone: a.phone, lastOrderDate: a.last_order_date,
+              daysSinceLastOrder: a.days_since_order, totalAmountLast12m: a.amount_12m, status: "at-risk" as const
+            }));
+            state.churnAlert = { dormantCustomers: dormant, atRiskCustomers: atRisk };
+          } else {
+            // フォールバック: クライアント計算
+            const { supabaseQueryAll } = await import("./supabase");
+            const [headers, customers] = await Promise.all([
+              supabaseQueryAll<{sales_date: string; legacy_customer_code: string; customer_name: string; total_amount: number | string}>("sales_document_headers", {
+                select: "sales_date,legacy_customer_code,customer_name,total_amount"
+              }),
+              state.masterStats ? Promise.resolve(state.masterStats.customers) : fetchMasterStats().then(m => m.customers)
+            ]);
+            state.churnAlert = buildChurnAlertData(
+              headers.map(h => ({ sales_date: h.sales_date || "", legacy_customer_code: h.legacy_customer_code || "", customer_name: h.customer_name || "", total_amount: Number(h.total_amount) || 0 })),
+              (state.masterStats?.customers ?? customers).map(c => ({ code: c.code, name: c.name, businessType: c.businessType, areaCode: c.areaCode, phone: c.phone }))
+            );
+          }
         }
         break;
       case "/seasonal-calendar":
         if (!state.seasonalCalendar) {
-          const { fetchProductMonthlyShipments: fetchShipments } = await import("./api");
-          const shipmentData = await fetchShipments();
-          state.seasonalCalendar = buildSeasonalData(
-            shipmentData.map(s => ({ code: s.code, name: s.name, category: "", monthlyQuantity: s.monthlyQuantity }))
-          );
+          // DB集計テーブルから読み取り → なければフォールバック
+          const { fetchProductShipmentsFromTable } = await import("./api");
+          const dbShipments = await fetchProductShipmentsFromTable();
+          if (dbShipments.length > 0) {
+            state.seasonalCalendar = buildSeasonalData(
+              dbShipments.map(s => ({ code: s.code, name: s.name, category: "", monthlyQuantity: s.monthlyQuantity }))
+            );
+          } else {
+            const { fetchProductMonthlyShipments: fetchShipments } = await import("./api");
+            const shipmentData = await fetchShipments();
+            state.seasonalCalendar = buildSeasonalData(
+              shipmentData.map(s => ({ code: s.code, name: s.name, category: "", monthlyQuantity: s.monthlyQuantity }))
+            );
+          }
         }
         break;
       case "/visit-planner":
         if (!state.visitPlanner) {
-          const { supabaseQueryAll: queryAll } = await import("./supabase");
-          const [hdrs, custs] = await Promise.all([
-            queryAll<{sales_date: string; legacy_customer_code: string; total_amount: number | string}>("sales_document_headers", {
-              select: "sales_date,legacy_customer_code,total_amount"
-            }),
-            state.masterStats ? Promise.resolve(state.masterStats.customers) : fetchMasterStats().then(m => m.customers)
-          ]);
-          const customerList = state.masterStats?.customers ?? custs;
-          // Compute last order date and annual revenue per customer
-          const revenueMap = new Map<string, { lastDate: string; total: number }>();
-          hdrs.forEach(h => {
-            const code = (h as Record<string, unknown>).legacy_customer_code as string || "";
-            const date = (h as Record<string, unknown>).sales_date as string || "";
-            const amt = Number((h as Record<string, unknown>).total_amount) || 0;
-            const existing = revenueMap.get(code);
-            if (!existing || date > existing.lastDate) {
-              revenueMap.set(code, { lastDate: date, total: (existing?.total ?? 0) + amt });
-            } else {
-              existing.total += amt;
-            }
-          });
-          state.visitPlanner = buildVisitPlan(
-            customerList.filter(c => c.isActive).map(c => ({
-              code: c.code,
-              name: c.name,
-              phone: c.phone,
-              address1: c.address1,
-              areaCode: c.areaCode,
-              businessType: c.businessType,
-              annualRevenue: revenueMap.get(c.code)?.total ?? 0,
-              lastOrderDate: revenueMap.get(c.code)?.lastDate ?? "",
-              hasSeasonalProposal: false
-            }))
-          );
+          // DB集計テーブルから読み取り → なければフォールバック
+          const { fetchVisitPriorities } = await import("./api");
+          const dbVisits = await fetchVisitPriorities();
+          if (dbVisits.length > 0) {
+            state.visitPlanner = {
+              candidates: dbVisits.map(v => ({
+                code: v.customer_code, name: v.customer_name, phone: v.phone,
+                address: v.address, areaCode: v.area_code, businessType: v.business_type,
+                priorityScore: v.priority_score, reasons: v.reasons,
+                lastOrderDate: v.last_order_date, daysSinceOrder: v.days_since_order,
+                annualRevenue: v.annual_revenue, recommendedAction: v.recommended_action
+              })),
+              weekPlan: [], filterArea: "", filterMinScore: 0
+            };
+            // 週間プランはクライアントで生成 (地区別グルーピング)
+            state.visitPlanner = buildVisitPlan(
+              dbVisits.map(v => ({
+                code: v.customer_code, name: v.customer_name, phone: v.phone,
+                address1: v.address, areaCode: v.area_code, businessType: v.business_type,
+                annualRevenue: v.annual_revenue, lastOrderDate: v.last_order_date,
+                hasSeasonalProposal: v.reasons.some(r => r.includes("季節"))
+              }))
+            );
+          } else {
+            // フォールバック
+            const { supabaseQueryAll: queryAll } = await import("./supabase");
+            const [hdrs, custs] = await Promise.all([
+              queryAll<{sales_date: string; legacy_customer_code: string; total_amount: number | string}>("sales_document_headers", {
+                select: "sales_date,legacy_customer_code,total_amount"
+              }),
+              state.masterStats ? Promise.resolve(state.masterStats.customers) : fetchMasterStats().then(m => m.customers)
+            ]);
+            const customerList = state.masterStats?.customers ?? custs;
+            const revenueMap = new Map<string, { lastDate: string; total: number }>();
+            hdrs.forEach(h => {
+              const code = (h as Record<string, unknown>).legacy_customer_code as string || "";
+              const date = (h as Record<string, unknown>).sales_date as string || "";
+              const amt = Number((h as Record<string, unknown>).total_amount) || 0;
+              const existing = revenueMap.get(code);
+              if (!existing || date > existing.lastDate) {
+                revenueMap.set(code, { lastDate: date, total: (existing?.total ?? 0) + amt });
+              } else {
+                existing.total += amt;
+              }
+            });
+            state.visitPlanner = buildVisitPlan(
+              customerList.filter(c => c.isActive).map(c => ({
+                code: c.code, name: c.name, phone: c.phone, address1: c.address1,
+                areaCode: c.areaCode, businessType: c.businessType,
+                annualRevenue: revenueMap.get(c.code)?.total ?? 0,
+                lastOrderDate: revenueMap.get(c.code)?.lastDate ?? "",
+                hasSeasonalProposal: false
+              }))
+            );
+          }
         }
         break;
       case "/jikomi":
