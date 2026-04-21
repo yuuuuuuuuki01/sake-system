@@ -802,6 +802,8 @@ const state: AppState = {
   productCustomEnd: "",
   productSortState: [] as SortState,
   customerSortState: [] as SortState,
+  dashboardSortState: [] as SortState,
+  masterSortState: [] as SortState,
   customerEfficiency: [],
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
@@ -1857,7 +1859,7 @@ function renderView(): string {
         )
       );
     case "/master":
-      return renderMasterStats(state.masterStats, state.masterTab, state.masterFilter);
+      return renderMasterStats(state.masterStats, state.masterTab, state.masterFilter, state.masterSortState);
     case "/invoice":
       return renderInvoiceSearch(state.invoiceRecords, state.invoiceFilter);
     case "/ledger":
@@ -1884,7 +1886,7 @@ function renderView(): string {
           suppliers: state.syncDashboard?.tables.find((t) => t.tableName === "suppliers")?.rowCount ?? 0,
           specialPrices: state.syncDashboard?.tables.find((t) => t.tableName === "customer_product_prices")?.rowCount ?? 0
         } : undefined
-      }, state.salesPeriod, state.customRange);
+      }, state.salesPeriod, state.customRange, state.dashboardSortState);
   }
 }
 
@@ -2689,6 +2691,10 @@ function bindEvents(root: HTMLElement): void {
         state.productSortState = toggleSort(state.productSortState, col, multi);
       } else if (state.route === "/customer-efficiency") {
         state.customerSortState = toggleSort(state.customerSortState, col, multi);
+      } else if (state.route === "/" || state.route === "/sales") {
+        state.dashboardSortState = toggleSort(state.dashboardSortState, col, multi);
+      } else if (state.route === "/master") {
+        state.masterSortState = toggleSort(state.masterSortState, col, multi);
       }
       renderApp();
     });

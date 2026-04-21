@@ -1,4 +1,5 @@
 import type { PipelineMeta, SalesSummary, SalesAnalytics, Prospect, CalendarEvent, TourInquiry, SalesPeriod, SalesDayPoint } from "../api";
+import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 import { PROSPECT_STAGE_COLORS, PROSPECT_STAGE_LABELS } from "../api";
 import { renderDeliveryCalendarWidget, type DeliveryCalendarEntry } from "./DemandForecast";
 
@@ -196,7 +197,8 @@ export function renderDashboard(
   analytics: SalesAnalytics | null,
   extras?: DashboardExtras,
   activePeriod: SalesPeriod = "month",
-  customRange?: { start: string; end: string }
+  customRange?: { start: string; end: string },
+  dailySortState: SortState = []
 ): string {
   const statusLabelMap = {
     success: "正常",
@@ -423,15 +425,19 @@ export function renderDashboard(
         <table>
           <thead>
             <tr>
-              <th>日付</th>
-              <th class="numeric">売上</th>
-              <th class="numeric">本数</th>
-              <th class="numeric">液体量(L)</th>
-              <th class="numeric">本単価</th>
-              <th class="numeric">L単価</th>
+              ${makeSortableHeader("date", "日付", dailySortState)}
+              ${makeSortableHeader("amount", "売上", dailySortState, "numeric")}
+              ${makeSortableHeader("bottles", "本数", dailySortState, "numeric")}
+              ${makeSortableHeader("volumeMl", "液体量(L)", dailySortState, "numeric")}
+              ${makeSortableHeader("pricePerBottle", "本単価", dailySortState, "numeric")}
+              ${makeSortableHeader("pricePerLiter", "L単価", dailySortState, "numeric")}
             </tr>
           </thead>
-          <tbody>${filteredDays.slice().reverse().slice(0, 31).map((d) => `
+          <tbody>${applySortToRows(
+            dailySortState.length > 0 ? filteredDays : filteredDays.slice().reverse(),
+            dailySortState,
+            { date: "date", amount: "amount", bottles: "bottles", volumeMl: "volumeMl", pricePerBottle: "pricePerBottle", pricePerLiter: "pricePerLiter" }
+          ).slice(0, 31).map((d) => `
             <tr>
               <td class="mono">${d.date.slice(0, 10)}</td>
               <td class="numeric">${formatCurrency(d.amount)}</td>

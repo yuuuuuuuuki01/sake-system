@@ -1,4 +1,5 @@
 import type { MasterCustomer, MasterProduct, MasterStatsSummary, MasterTab } from "../api";
+import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 
 export function renderEditCustomerModal(c: MasterCustomer): string {
   return `
@@ -303,7 +304,8 @@ function renderProductRows(products: MasterProduct[]): string {
 export function renderMasterStats(
   summary: MasterStatsSummary,
   activeTab: MasterTab,
-  filter: MasterFilterState = defaultMasterFilter
+  filter: MasterFilterState = defaultMasterFilter,
+  sortState: SortState = []
 ): string {
   const { filtered, paged, totalPages } = filterCustomers(summary.customers, filter);
 
@@ -351,11 +353,11 @@ export function renderMasterStats(
           <table>
             <thead>
               <tr>
-                <th>コード</th>
-                <th>得意先名</th>
-                <th>カナ</th>
+                ${makeSortableHeader("code", "コード", sortState)}
+                ${makeSortableHeader("name", "得意先名", sortState)}
+                ${makeSortableHeader("kanaName", "カナ", sortState)}
                 <th>略称</th>
-                <th>業態</th>
+                ${makeSortableHeader("businessType", "業態", sortState)}
                 <th>販売区分</th>
                 <th>価格区分</th>
                 <th>単価G</th>
@@ -365,9 +367,9 @@ export function renderMasterStats(
                 <th>住所1</th>
                 <th>住所2</th>
                 <th>担当</th>
-                <th>地区</th>
-                <th class="numeric">締日</th>
-                <th class="numeric">支払日</th>
+                ${makeSortableHeader("areaName", "地区", sortState)}
+                ${makeSortableHeader("closingDay", "締日", sortState, "numeric")}
+                ${makeSortableHeader("paymentDay", "支払日", sortState, "numeric")}
                 <th>入金種</th>
                 <th>請求先</th>
                 <th>G1</th>
@@ -376,7 +378,10 @@ export function renderMasterStats(
                 <th></th>
               </tr>
             </thead>
-            <tbody>${renderCustomerRows(paged)}</tbody>
+            <tbody>${renderCustomerRows(applySortToRows(paged, sortState, {
+              code: "code", name: "name", kanaName: "kanaName", businessType: "businessType",
+              areaName: "areaName", closingDay: "closingDay", paymentDay: "paymentDay"
+            }) as MasterCustomer[])}</tbody>
           </table>
         </div>
         ${renderPagination(filtered.length, filter.page, totalPages)}
@@ -386,18 +391,18 @@ export function renderMasterStats(
           <table>
             <thead>
               <tr>
-                <th>コード</th>
-                <th>商品名</th>
+                ${makeSortableHeader("code", "コード", sortState)}
+                ${makeSortableHeader("name", "商品名", sortState)}
                 <th>カナ</th>
-                <th>分類</th>
+                ${makeSortableHeader("category", "分類", sortState)}
                 <th>酒税区分</th>
-                <th class="numeric">度数</th>
-                <th class="numeric">容量ml</th>
+                ${makeSortableHeader("alcoholDegree", "度数", sortState, "numeric")}
+                ${makeSortableHeader("volumeMl", "容量ml", sortState, "numeric")}
                 <th>単位</th>
                 <th>容器</th>
-                <th class="numeric">生産者価格</th>
-                <th class="numeric">卸価格</th>
-                <th class="numeric">定価(小売)</th>
+                ${makeSortableHeader("purchasePrice", "生産者価格", sortState, "numeric")}
+                ${makeSortableHeader("salePrice", "卸価格", sortState, "numeric")}
+                ${makeSortableHeader("listPrice", "定価(小売)", sortState, "numeric")}
                 <th class="numeric">原価</th>
                 <th>原料米</th>
                 <th class="numeric">精米歩合</th>
@@ -407,7 +412,10 @@ export function renderMasterStats(
                 <th></th>
               </tr>
             </thead>
-            <tbody>${renderProductRows(summary.products)}</tbody>
+            <tbody>${renderProductRows(applySortToRows(summary.products, sortState, {
+              code: "code", name: "name", category: "category", alcoholDegree: "alcoholDegree",
+              volumeMl: "volumeMl", purchasePrice: "purchasePrice", salePrice: "salePrice", listPrice: "listPrice"
+            }) as MasterProduct[])}</tbody>
           </table>
         </div>
       `
