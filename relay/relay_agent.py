@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -365,6 +366,32 @@ def run(dry_run: bool = False, only: list[str] | None = None, force: bool = Fals
         return 1
 
 
+def refresh_analytics(config: dict[str, Any], logger: logging.Logger) -> None:
+    """同期後にマテリアライズドビューと需要予測をリフレッシュ"""
+    try:
+        url = config["supabase_url"] + "/rest/v1/rpc/refresh_all_analytics"
+        headers = {
+            "apikey": config["supabase_anon_key"],
+            "Authorization": f"Bearer {config['supabase_anon_key']}",
+            "Content-Type": "application/json",
+        }
+        resp = requests.post(url, json={}, headers=headers, timeout=120)
+        if resp.ok:
+            logger.info("Analytics materialized views refreshed")
+        else:
+            logger.warning(f"Analytics refresh failed: HTTP {resp.status_code}")
+
+        # 需要予測も更新
+        url2 = config["supabase_url"] + "/rest/v1/rpc/calculate_demand_forecasts"
+        resp2 = requests.post(url2, json={}, headers=headers, timeout=120)
+        if resp2.ok:
+            logger.info("Demand forecasts recalculated")
+        else:
+            logger.warning(f"Demand forecast calculation failed: HTTP {resp2.status_code}")
+    except Exception as exc:
+        logger.warning(f"Post-sync analytics refresh error: {exc}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="酒仙i → Supabase リレーエージェント")
     parser.add_argument(
@@ -390,9 +417,40 @@ def main() -> int:
         metavar="N",
         help="UPSERTバッチサイズ (既定: config値 or 500)",
     )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="定期実行モード。interval_minutes間隔でループ",
+    )
     args = parser.parse_args()
-    return run(dry_run=args.dry_run, only=args.only, force=args.force, batch_size_override=args.batch_size or None)
+
+    if args.daemon:
+        config = _load_config()
+        logger = logging.getLogger("relay")
+        interval = int(config.get("interval_minutes", 5)) * 60
+        logger.info(f"Daemon mode: interval={interval}s")
+        while True:
+            try:
+                result = run(dry_run=args.dry_run, only=args.only, force=False, batch_size_override=args.batch_size or None)
+                if result == 0:
+                    refresh_analytics(config, logger)
+            except Exception as exc:
+                logger.error(f"Sync cycle error: {exc}")
+            time.sleep(interval)
+    else:
+        return run(dry_run=args.dry_run, only=args.only, force=args.force, batch_size_override=args.batch_size or None)
+
+
+def _load_config() -> dict[str, Any]:
+    config_dir = Path(__file__).resolve().parent
+    config: dict[str, Any] = {}
+    for name in ("relay_config.json", "relay_config.local.json"):
+        path = config_dir / name
+        if path.exists():
+            with open(path) as f:
+                config.update(json.load(f))
+    return config
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main() or 0)
