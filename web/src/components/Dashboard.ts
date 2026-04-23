@@ -255,7 +255,8 @@ export function renderDashboard(
       </div>
       <div class="meta-stack">
         <span class="status-pill ${pipeline.status}">${statusLabelMap[pipeline.status]}</span>
-        <span class="meta-note">最終同期 ${formatDateTime(pipeline.lastSyncAt)}</span>
+        <span class="meta-note">データ最新日 ${pipeline.lastDataAt ? pipeline.lastDataAt.slice(0, 10) : "―"}</span>
+        <span class="meta-note" style="font-size:11px;opacity:0.7;">同期エージェント ${formatDateTime(pipeline.lastSyncAt)}</span>
         <button class="button secondary small" data-action="dashboard-refresh" title="データを再取得">↻ 更新</button>
       </div>
     </section>
@@ -354,16 +355,16 @@ export function renderDashboard(
           </div>
           <dl class="meta-list">
             <div>
-              <dt>ジョブ</dt>
-              <dd>${pipeline.jobName}</dd>
+              <dt>データ最新日</dt>
+              <dd style="font-weight:700;color:var(--accent)">${pipeline.lastDataAt ? pipeline.lastDataAt.slice(0, 10) : "―"}</dd>
             </div>
             <div>
-              <dt>最終同期</dt>
+              <dt>同期エージェント</dt>
               <dd>${formatDateTime(pipeline.lastSyncAt)}</dd>
             </div>
             <div>
-              <dt>更新時刻</dt>
-              <dd>${formatDateTime(pipeline.generatedAt)}</dd>
+              <dt>ジョブ</dt>
+              <dd>${pipeline.jobName}</dd>
             </div>
           </dl>
         </div>

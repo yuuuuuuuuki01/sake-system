@@ -204,6 +204,7 @@ export interface MasterStatsSummary {
 export interface PipelineMeta {
   generatedAt: string;
   lastSyncAt: string;
+  lastDataAt: string;   // daily_sales_fact の最新データ日
   status: PipelineStatus;
   jobName: string;
   message: string;
@@ -335,6 +336,7 @@ const mockMasterStats: MasterStatsSummary = {
 const mockPipelineMeta: PipelineMeta = {
   generatedAt: new Date().toISOString(),
   lastSyncAt: new Date().toISOString(),
+  lastDataAt: new Date().toISOString(),
   status: "success",
   jobName: "sake-relay",
   message: "データ未取得"
@@ -755,10 +757,21 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
 }
 
 export async function fetchPipelineMeta(): Promise<PipelineMeta> {
-  const rows = await supabaseQuery<LooseRow>("relay_sync_log", {
-    order: "sync_ended_at.desc.nullslast",
-    limit: "1"
-  });
+  const [rows, factRows] = await Promise.all([
+    supabaseQuery<LooseRow>("relay_sync_log", {
+      order: "sync_ended_at.desc.nullslast",
+      limit: "1"
+    }),
+    supabaseQuery<LooseRow>("daily_sales_fact", {
+      select: "sales_date",
+      order: "sales_date.desc",
+      limit: "1"
+    })
+  ]);
+  const lastDataAt = factRows.length > 0
+    ? getDateString(factRows[0] as LooseRow, ["sales_date"], new Date().toISOString())
+    : new Date().toISOString();
+
   if (rows.length > 0) {
     const row = rows[0];
     const status = getString(row, ["status"], "success");
@@ -767,12 +780,13 @@ export async function fetchPipelineMeta(): Promise<PipelineMeta> {
     return {
       generatedAt: new Date().toISOString(),
       lastSyncAt: getDateString(row, ["sync_ended_at", "sync_started_at"], new Date().toISOString()),
+      lastDataAt,
       status: (hasErrors ? "warning" : status === "error" ? "error" : "success") as PipelineStatus,
       jobName: getString(row, ["agent_hostname"], "sake-relay"),
       message: `${getNumber(row, ["rows_upserted"], 0)}行同期 / ${getNumber(row, ["files_updated"], 0)}ファイル更新`
     };
   }
-  return mockPipelineMeta;
+  return { ...mockPipelineMeta, lastDataAt };
 }
 
 // ── 同期ダッシュボード ──────────────────────────────────
