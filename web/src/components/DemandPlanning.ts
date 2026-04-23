@@ -70,8 +70,12 @@ function buildDemandChart(analysis: DemandAnalysis): string {
       yBase -= barH;
       return `<rect x="${x}" y="${yBase}" width="${barW}" height="${barH}" fill="${COLORS[pi % COLORS.length]}" opacity="0.85" rx="${pi === products.length - 1 ? 3 : 0}" />`;
     }).join("");
-    const label = fmtMonth(m);
-    return `<g>${segments}<text x="${x + barW / 2}" y="${height - 10}" class="chart-axis centered-axis">${label}</text></g>`;
+    // 1月は "25年" と年を表示、それ以外は3ヶ月おきに "4月" 形式
+    const [y, mo] = m.split("-");
+    const monthNum = parseInt(mo);
+    const showLabel = monthNum === 1 || mi % 3 === 0;
+    const label = monthNum === 1 ? `${y.slice(2)}年` : `${monthNum}月`;
+    return `<g>${segments}${showLabel ? `<text x="${x + barW / 2}" y="${height - 10}" class="chart-axis centered-axis">${label}</text>` : ""}</g>`;
   }).join("");
 
   // 凡例
@@ -101,9 +105,12 @@ function buildDemandMatrix(analysis: DemandAnalysis): string {
     .sort((a, b) => (analysis.productTotals[b.code] ?? 0) - (analysis.productTotals[a.code] ?? 0))
     .slice(0, 50);
 
-  const headerCols = months.map((m) =>
-    `<th class="numeric" style="min-width:56px;white-space:nowrap;">${fmtMonth(m)}</th>`
-  ).join("");
+  const headerCols = months.map((m) => {
+    const [y, mo] = m.split("-");
+    const monthNum = parseInt(mo);
+    const label = monthNum === 1 ? `${y.slice(2)}年1月` : `${monthNum}月`;
+    return `<th class="numeric" style="min-width:52px;white-space:nowrap;">${label}</th>`;
+  }).join("");
 
   const rows = topProducts.map((p) => {
     const cells = months.map((m) => {
