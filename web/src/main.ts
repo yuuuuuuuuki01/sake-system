@@ -10,6 +10,7 @@ import {
   fetchBillList,
   fetchCustomerLedger,
   fetchDeliveryNote,
+  fetchDemandAnalysis,
   fetchInvoices,
   fetchJikomiList,
   fetchKenteiList,
@@ -18,8 +19,11 @@ import {
   fetchPayableList,
   fetchPaymentStatus,
   fetchPipelineMeta,
+  fetchProductionPlan,
+  fetchRelaySyncLogs,
   fetchPurchaseList,
   fetchRawMaterialStock,
+  fetchSafetyStockParams,
   fetchSalesAnalytics,
   fetchSalesReport,
   fetchSalesSummary,
@@ -28,10 +32,15 @@ import {
   fetchTankList,
   fetchTaxDeclaration,
   saveEmailCampaign,
+  saveProductionPlan,
+  saveSafetyStockParams,
   sendEmailCampaign,
   saveInvoice,
   SEASONAL_TEMPLATES,
   type AnalyticsTab,
+  type DemandAnalysis,
+  type ProductionPlanRow,
+  type SafetyStockParams,
   type BillingSummary,
   type BillRecord,
   type CustomerLedger,
@@ -48,6 +57,7 @@ import {
   type PayableRecord,
   type PaymentStatusSummary,
   type PipelineMeta,
+  type RelaySyncLog,
   type PurchaseRecord,
   type RawMaterialStock,
   type SalesAnalytics,
@@ -149,6 +159,7 @@ import {
 } from "./utils/import";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
+import { renderDemandPlanning, type DemandTab } from "./components/DemandPlanning";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase";
 import "./styles/main.css";
 import { downloadCSV, type CSVColumn } from "./utils/csv";
@@ -197,7 +208,8 @@ type RoutePath =
   | "/prospects"
   | "/slack"
   | "/calls"
-  | "/list-builder";
+  | "/list-builder"
+  | "/demand";
 
 type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
 
@@ -259,7 +271,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/prospects",
   "/slack",
   "/calls",
-  "/list-builder"
+  "/list-builder",
+  "/demand"
 ];
 
 const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
@@ -357,6 +370,7 @@ interface AppState {
   paymentStatus: PaymentStatusSummary | null;
   masterStats: MasterStatsSummary | null;
   pipelineMeta: PipelineMeta | null;
+  syncLogs: RelaySyncLog[];
   invoiceRecords: InvoiceRecord[];
   customerLedger: CustomerLedger | null;
   salesAnalytics: SalesAnalytics | null;
@@ -448,6 +462,11 @@ interface AppState {
   ledgerCustomerCode: string;
   masterTab: MasterTab;
   analyticsTab: AnalyticsTab;
+  demandAnalysis: DemandAnalysis | null;
+  safetyStockParams: SafetyStockParams[];
+  productionPlan: ProductionPlanRow[];
+  demandTab: DemandTab;
+  demandPlanYearMonth: string;
   emailAudienceMode: EmailAudienceMode;
   emailRegion: string;
   emailHistorySegment: string;
@@ -493,6 +512,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/tanks":
     case "/kentei":
     case "/materials":
+    case "/demand":
       return "brewery";
     case "/cat/purchase":
     case "/purchase":
@@ -519,6 +539,7 @@ const state: AppState = {
   paymentStatus: null,
   masterStats: null,
   pipelineMeta: null,
+  syncLogs: [],
   invoiceRecords: [],
   customerLedger: null,
   salesAnalytics: null,
@@ -654,6 +675,11 @@ const state: AppState = {
   ledgerCustomerCode: defaultLedgerCustomerCode,
   masterTab: "customers",
   analyticsTab: "products",
+  demandAnalysis: null,
+  safetyStockParams: [],
+  productionPlan: [],
+  demandTab: "demand",
+  demandPlanYearMonth: new Date().toISOString().slice(0, 7),
   emailAudienceMode: defaultEmailState.mode,
   emailRegion: defaultEmailState.region,
   emailHistorySegment: defaultEmailState.historySegment,
@@ -1257,6 +1283,18 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
         }
         break;
+      case "/demand":
+        {
+          const [analysis, ssParams, plan] = await Promise.all([
+            fetchDemandAnalysis(),
+            fetchSafetyStockParams(),
+            fetchProductionPlan(state.demandPlanYearMonth)
+          ]);
+          state.demandAnalysis = analysis;
+          state.safetyStockParams = ssParams;
+          state.productionPlan = plan;
+        }
+        break;
       case "/":
         {
           // ダッシュボード追加データ取得
@@ -1343,6 +1381,14 @@ function renderView(): string {
       return renderKentei(state.kenteiList);
     case "/materials":
       return renderMaterials(state.materialList) + renderMaterialEditModal(state.materialEditing, state.materialEditingIsNew);
+    case "/demand":
+      return renderDemandPlanning(
+        state.demandAnalysis,
+        state.safetyStockParams,
+        state.productionPlan,
+        state.demandTab,
+        state.demandPlanYearMonth
+      );
     case "/purchase":
       return renderPurchase(state.purchaseList, state.payableList);
     case "/raw-material":
@@ -1513,7 +1559,8 @@ function renderView(): string {
           shipped: state.workflowOrders.filter((o) => o.stage === "shipped").length,
           total: state.workflowOrders.length
         },
-        lowStockCount: state.materialList.filter((m) => m.currentStock < m.minimumStock * 1.5).length
+        lowStockCount: state.materialList.filter((m) => m.currentStock < m.minimumStock * 1.5).length,
+        syncLogs: state.syncLogs,
       });
   }
 }
@@ -1562,7 +1609,8 @@ function renderShell(): string {
           { path: "/jikomi", label: "仕込管理", kicker: "Jikomi" },
           { path: "/tanks", label: "タンク管理", kicker: "Tank" },
           { path: "/kentei", label: "検定管理", kicker: "Kentei" },
-          { path: "/materials", label: "資材管理", kicker: "Material" }
+          { path: "/materials", label: "資材管理", kicker: "Material" },
+          { path: "/demand", label: "需要・生産計画", kicker: "Demand" }
         ]
       }
     ],
@@ -1941,6 +1989,70 @@ function bindEvents(root: HTMLElement): void {
       state.analyticsTab = button.dataset.analyticsTab as AnalyticsTab;
       renderApp();
     });
+  });
+
+  // 需要計画 — タブ切り替え
+  root.querySelectorAll<HTMLButtonElement>("[data-demand-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.demandTab = button.dataset.demandTab as DemandTab;
+      renderApp();
+    });
+  });
+
+  // 需要計画 — 対象年月変更
+  root.querySelector<HTMLSelectElement>("[data-action='plan-year-month']")?.addEventListener("change", async (event) => {
+    const ym = (event.target as HTMLSelectElement).value;
+    state.demandPlanYearMonth = ym;
+    state.productionPlan = await fetchProductionPlan(ym);
+    renderApp();
+  });
+
+  // 需要計画 — 安全在庫保存
+  root.querySelector<HTMLButtonElement>("[data-action='ss-save-all']")?.addEventListener("click", async () => {
+    const ok = await saveSafetyStockParams(state.safetyStockParams);
+    if (ok) alert("安全在庫パラメータを保存しました。");
+  });
+
+  // 需要計画 — 計画数入力
+  root.querySelectorAll<HTMLInputElement>("[data-action='plan-qty']").forEach((input) => {
+    input.addEventListener("change", () => {
+      const code = input.dataset.code ?? "";
+      const qty = parseFloat(input.value) || 0;
+      const row = state.productionPlan.find((r) => r.productCode === code);
+      if (row) row.plannedQty = qty;
+    });
+  });
+
+  // 需要計画 — リードタイム変更
+  root.querySelectorAll<HTMLInputElement>("[data-action='ss-lead-time']").forEach((input) => {
+    input.addEventListener("change", () => {
+      const code = input.dataset.code ?? "";
+      const days = parseInt(input.value, 10) || 30;
+      const p = state.safetyStockParams.find((s) => s.productCode === code);
+      if (p) { p.leadTimeDays = days; renderApp(); }
+    });
+  });
+
+  // 需要計画 — サービス率変更
+  root.querySelectorAll<HTMLSelectElement>("[data-action='ss-service-level']").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const code = sel.dataset.code ?? "";
+      const level = parseFloat(sel.value) || 0.95;
+      const p = state.safetyStockParams.find((s) => s.productCode === code);
+      if (p) { p.serviceLevel = level; renderApp(); }
+    });
+  });
+
+  // 需要計画 — 計画保存
+  root.querySelector<HTMLButtonElement>("[data-action='plan-save']")?.addEventListener("click", async () => {
+    const ok = await saveProductionPlan(state.productionPlan);
+    if (ok) alert("生産計画を保存しました。");
+  });
+
+  // 需要計画 — 需要予測再計算
+  root.querySelector<HTMLButtonElement>("[data-action='plan-recalc']")?.addEventListener("click", async () => {
+    state.productionPlan = await fetchProductionPlan(state.demandPlanYearMonth);
+    renderApp();
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='add-line']")?.addEventListener("click", () => {
@@ -3773,6 +3885,7 @@ async function loadData(): Promise<void> {
       paymentStatus,
       masterStats,
       pipelineMeta,
+      syncLogs,
       invoiceRecords,
       customerLedger,
       salesAnalytics
@@ -3781,6 +3894,7 @@ async function loadData(): Promise<void> {
       fetchPaymentStatus(),
       fetchMasterStats(),
       fetchPipelineMeta(),
+      fetchRelaySyncLogs(20),
       fetchInvoices(state.invoiceFilter),
       fetchCustomerLedger(state.ledgerCustomerCode),
       fetchSalesAnalytics()
@@ -3790,6 +3904,7 @@ async function loadData(): Promise<void> {
     state.paymentStatus = paymentStatus;
     state.masterStats = masterStats;
     state.pipelineMeta = pipelineMeta;
+    state.syncLogs = syncLogs;
     state.invoiceRecords = invoiceRecords;
     state.customerLedger = customerLedger;
     state.salesAnalytics = salesAnalytics;

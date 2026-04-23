@@ -2,7 +2,20 @@ import { supabaseInsert, supabaseQuery } from "./supabase";
 import type { TourInquiry } from "./components/BreweryTour";
 export type { TourInquiry };
 
-export type PipelineStatus = "success" | "warning" | "error" | "running";
+export type PipelineStatus = "success" | "warning" | "error" | "running" | "no_change";
+
+export interface RelaySyncLog {
+  id: string;
+  sync_started_at: string;
+  sync_ended_at: string;
+  status: "success" | "warning" | "error" | "no_change";
+  files_scanned: number;
+  files_updated: number;
+  rows_upserted: number;
+  errors: { file: string; error: string }[];
+  log_text: string;
+  agent_hostname: string;
+}
 export type PaymentState = "unpaid" | "partial" | "paid";
 export type MasterTab = "customers" | "products";
 export type AnalyticsTab = "products" | "customers";
@@ -870,8 +883,37 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
   return fetchJson("data/api/latest/master-stats.json", mockMasterStats);
 }
 
-export function fetchPipelineMeta(): Promise<PipelineMeta> {
-  return fetchJson("data/api/latest/pipeline-meta.json", mockPipelineMeta);
+export async function fetchPipelineMeta(): Promise<PipelineMeta> {
+  const rows = await supabaseQuery<RelaySyncLog>("relay_sync_log", {
+    select: "id,sync_started_at,sync_ended_at,status,files_scanned,files_updated,rows_upserted,errors,log_text,agent_hostname",
+    order: "sync_ended_at.desc",
+    limit: "1",
+  });
+  if (rows.length > 0) {
+    const latest = rows[0];
+    const statusMap: Record<string, PipelineStatus> = {
+      success: "success",
+      warning: "warning",
+      error: "error",
+      no_change: "success",
+    };
+    return {
+      generatedAt: latest.sync_ended_at,
+      lastSyncAt: latest.sync_ended_at,
+      status: statusMap[latest.status] ?? "success",
+      jobName: "SakeRelay",
+      message: latest.log_text,
+    };
+  }
+  return mockPipelineMeta;
+}
+
+export async function fetchRelaySyncLogs(limit = 20): Promise<RelaySyncLog[]> {
+  return supabaseQuery<RelaySyncLog>("relay_sync_log", {
+    select: "id,sync_started_at,sync_ended_at,status,files_scanned,files_updated,rows_upserted,errors,log_text,agent_hostname",
+    order: "sync_ended_at.desc",
+    limit: String(limit),
+  });
 }
 
 export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecord[]> {
@@ -3294,4 +3336,346 @@ export async function saveTourInquiry(t: TourInquiry): Promise<TourInquiry | nul
     confirmed_time: t.confirmedTime || null
   });
   return r ? t : null;
+}
+
+// ─── 需要分析・安全在庫・生産計画 ────────────────────────────────────────────
+
+export interface DemandMonthlyRow {
+  yearMonth: string;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  amount: number;
+  documentCount: number;
+}
+
+export interface DemandAnalysis {
+  months: string[];
+  products: { code: string; name: string }[];
+  matrix: Record<string, Record<string, number>>;  // [productCode][yearMonth] = qty
+  totals: {
+    code: string;
+    name: string;
+    total: number;
+    avg: number;
+    stdDev: number;
+  }[];
+}
+
+export interface SafetyStockParams {
+  productCode: string;
+  productName: string;
+  unit: string;
+  avgMonthlyDemand: number;
+  demandStdDev: number;
+  leadTimeDays: number;
+  serviceLevel: number;
+  safetyStockQty: number;
+  reorderPoint: number;
+  lastCalcAt: string | null;
+  memo: string;
+}
+
+export interface ProductionPlanRow {
+  id: string;
+  yearMonth: string;
+  productCode: string;
+  productName: string;
+  demandForecast: number;
+  safetyStockTarget: number;
+  openingStock: number;
+  requiredProduction: number;
+  plannedQty: number;
+  actualQty: number;
+  status: "draft" | "confirmed" | "actual";
+  notes: string;
+}
+
+// ─── 需要分析モック ───────────────────────────────────────────────────────────
+
+const MOCK_PRODUCTS = [
+  { code: "P00001", name: "純米吟醸 720ml" },
+  { code: "P00002", name: "本醸造 1.8L" },
+  { code: "P00003", name: "特別純米 300ml" },
+  { code: "P00004", name: "梅酒 500ml" }
+];
+
+// 月別季節係数（1月=インデックス0）
+const SAKE_SEASONAL: Record<string, number[]> = {
+  P00001: [1.8, 0.8, 1.2, 1.1, 0.9, 0.6, 0.5, 0.5, 0.7, 0.9, 1.2, 1.9],
+  P00002: [1.7, 0.8, 1.1, 1.0, 0.9, 0.6, 0.5, 0.5, 0.7, 0.9, 1.1, 1.8],
+  P00003: [1.7, 0.9, 1.2, 1.1, 1.0, 0.7, 0.5, 0.5, 0.8, 1.0, 1.2, 1.8],
+  P00004: [0.7, 0.6, 0.8, 1.0, 1.3, 1.5, 1.6, 1.3, 0.8, 0.7, 0.8, 1.1]
+};
+
+const MOCK_BASES: Record<string, number> = {
+  P00001: 800, P00002: 500, P00003: 1100, P00004: 450
+};
+
+function buildMockDemandAnalysis(): DemandAnalysis {
+  const now = new Date(2026, 3, 1); // 2026-04
+  const months: string[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+
+  const matrix: Record<string, Record<string, number>> = {};
+  const totals = MOCK_PRODUCTS.map((p) => {
+    matrix[p.code] = {};
+    const seasonal = SAKE_SEASONAL[p.code] ?? Array(12).fill(1);
+    const base = MOCK_BASES[p.code] ?? 500;
+    let total = 0;
+    const values: number[] = [];
+    months.forEach((ym) => {
+      const mIdx = parseInt(ym.slice(5, 7), 10) - 1;
+      const qty = Math.round(base * seasonal[mIdx] * (0.9 + Math.random() * 0.2));
+      matrix[p.code][ym] = qty;
+      total += qty;
+      values.push(qty);
+    });
+    const avg = total / months.length;
+    const variance = values.reduce((s, v) => s + (v - avg) ** 2, 0) / values.length;
+    const stdDev = Math.sqrt(variance);
+    return { code: p.code, name: p.name, total, avg, stdDev };
+  });
+
+  return { months, products: MOCK_PRODUCTS, matrix, totals };
+}
+
+function buildMockSafetyStock(analysis: DemandAnalysis): SafetyStockParams[] {
+  const leadTimes: Record<string, number> = {
+    P00001: 30, P00002: 30, P00003: 30, P00004: 45
+  };
+  return analysis.totals.map((t) => {
+    const lt = leadTimes[t.code] ?? 30;
+    const z = 1.65; // 95%
+    const ss = Math.ceil(z * t.stdDev * Math.sqrt(lt / 30));
+    const rop = Math.ceil(t.avg * (lt / 30) + ss);
+    return {
+      productCode: t.code,
+      productName: t.name,
+      unit: "本",
+      avgMonthlyDemand: t.avg,
+      demandStdDev: t.stdDev,
+      leadTimeDays: lt,
+      serviceLevel: 0.95,
+      safetyStockQty: ss,
+      reorderPoint: rop,
+      lastCalcAt: new Date().toISOString(),
+      memo: ""
+    };
+  });
+}
+
+function buildMockProductionPlan(
+  analysis: DemandAnalysis,
+  safetyParams: SafetyStockParams[],
+  yearMonth: string
+): ProductionPlanRow[] {
+  const mIdx = parseInt(yearMonth.slice(5, 7), 10) - 1;
+  return MOCK_PRODUCTS.map((p) => {
+    const seasonal = SAKE_SEASONAL[p.code] ?? Array(12).fill(1);
+    const base = MOCK_BASES[p.code] ?? 500;
+    const sp = safetyParams.find((s) => s.productCode === p.code);
+    const forecast = Math.round(base * seasonal[mIdx]);
+    const ss = sp?.safetyStockQty ?? 0;
+    const opening = Math.round(forecast * 0.3); // 仮：期首在庫 = 予測の 30%
+    const required = Math.max(0, forecast + ss - opening);
+    return {
+      id: `plan-${yearMonth}-${p.code}`,
+      yearMonth,
+      productCode: p.code,
+      productName: p.name,
+      demandForecast: forecast,
+      safetyStockTarget: ss,
+      openingStock: opening,
+      requiredProduction: required,
+      plannedQty: required,
+      actualQty: 0,
+      status: "draft" as const,
+      notes: ""
+    };
+  });
+}
+
+// ─── 需要分析 fetch ────────────────────────────────────────────────────────────
+
+export async function fetchDemandAnalysis(): Promise<DemandAnalysis> {
+  interface PmsRow {
+    year_month: string;
+    product_code: string;
+    product_name: string | null;
+    quantity: number | string | null;
+  }
+  const rows = await supabaseQuery<PmsRow>("product_monthly_sales", {
+    select: "year_month,product_code,product_name,quantity",
+    order: "year_month.asc",
+    limit: "300"
+  });
+
+  if (rows.length > 0) {
+    const productMap = new Map<string, string>();
+    const matrix: Record<string, Record<string, number>> = {};
+    const monthSet = new Set<string>();
+
+    rows.forEach((r) => {
+      const code = r.product_code;
+      const ym = r.year_month.slice(0, 7);
+      const qty = toNumber(r.quantity);
+      productMap.set(code, r.product_name ?? code);
+      if (!matrix[code]) matrix[code] = {};
+      matrix[code][ym] = (matrix[code][ym] ?? 0) + qty;
+      monthSet.add(ym);
+    });
+
+    const months = Array.from(monthSet).sort().slice(-12);
+    const products = Array.from(productMap.entries()).map(([code, name]) => ({ code, name }));
+    const totals = products.map((p) => {
+      const values = months.map((m) => matrix[p.code]?.[m] ?? 0);
+      const total = values.reduce((s, v) => s + v, 0);
+      const avg = total / months.length;
+      const variance = values.reduce((s, v) => s + (v - avg) ** 2, 0) / values.length;
+      return { code: p.code, name: p.name, total, avg, stdDev: Math.sqrt(variance) };
+    });
+
+    return { months, products, matrix, totals };
+  }
+
+  return buildMockDemandAnalysis();
+}
+
+export async function fetchSafetyStockParams(): Promise<SafetyStockParams[]> {
+  interface SspRow {
+    product_code: string;
+    product_name: string | null;
+    unit: string | null;
+    avg_monthly_demand: number | string | null;
+    demand_std_dev: number | string | null;
+    lead_time_days: number | null;
+    service_level: number | string | null;
+    safety_stock_qty: number | string | null;
+    reorder_point: number | string | null;
+    last_calc_at: string | null;
+    memo: string | null;
+  }
+  const rows = await supabaseQuery<SspRow>("product_safety_stock_params", {
+    order: "product_code.asc"
+  });
+
+  if (rows.length > 0) {
+    return rows.map((r) => ({
+      productCode: r.product_code,
+      productName: r.product_name ?? r.product_code,
+      unit: r.unit ?? "本",
+      avgMonthlyDemand: toNumber(r.avg_monthly_demand),
+      demandStdDev: toNumber(r.demand_std_dev),
+      leadTimeDays: r.lead_time_days ?? 30,
+      serviceLevel: toNumber(r.service_level) || 0.95,
+      safetyStockQty: toNumber(r.safety_stock_qty),
+      reorderPoint: toNumber(r.reorder_point),
+      lastCalcAt: r.last_calc_at,
+      memo: r.memo ?? ""
+    }));
+  }
+
+  // Supabase にデータがなければ需要実績から算出してモック返却
+  const analysis = await fetchDemandAnalysis();
+  return buildMockSafetyStock(analysis);
+}
+
+export async function fetchProductionPlan(yearMonth: string): Promise<ProductionPlanRow[]> {
+  interface PpRow {
+    id: string;
+    year_month: string;
+    product_code: string;
+    product_name: string | null;
+    demand_forecast: number | string | null;
+    safety_stock_target: number | string | null;
+    opening_stock: number | string | null;
+    required_production: number | string | null;
+    planned_qty: number | string | null;
+    actual_qty: number | string | null;
+    status: string | null;
+    notes: string | null;
+  }
+  const rows = await supabaseQuery<PpRow>("production_plan", {
+    select: "*",
+    "year_month": `eq.${yearMonth}`,
+    order: "product_code.asc"
+  });
+
+  if (rows.length > 0) {
+    return rows.map((r) => ({
+      id: r.id,
+      yearMonth: r.year_month,
+      productCode: r.product_code,
+      productName: r.product_name ?? r.product_code,
+      demandForecast: toNumber(r.demand_forecast),
+      safetyStockTarget: toNumber(r.safety_stock_target),
+      openingStock: toNumber(r.opening_stock),
+      requiredProduction: toNumber(r.required_production),
+      plannedQty: toNumber(r.planned_qty),
+      actualQty: toNumber(r.actual_qty),
+      status: (r.status ?? "draft") as ProductionPlanRow["status"],
+      notes: r.notes ?? ""
+    }));
+  }
+
+  const [analysis, ssParams] = await Promise.all([
+    fetchDemandAnalysis(),
+    fetchSafetyStockParams()
+  ]);
+  return buildMockProductionPlan(analysis, ssParams, yearMonth);
+}
+
+export async function saveSafetyStockParams(params: SafetyStockParams[]): Promise<boolean> {
+  const { supabaseUpsert } = await import("./supabase");
+  try {
+    for (const p of params) {
+      await supabaseUpsert("product_safety_stock_params", {
+        product_code: p.productCode,
+        product_name: p.productName,
+        unit: p.unit,
+        avg_monthly_demand: p.avgMonthlyDemand,
+        demand_std_dev: p.demandStdDev,
+        lead_time_days: p.leadTimeDays,
+        service_level: p.serviceLevel,
+        safety_stock_qty: p.safetyStockQty,
+        reorder_point: p.reorderPoint,
+        last_calc_at: new Date().toISOString(),
+        memo: p.memo,
+        updated_at: new Date().toISOString()
+      });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function saveProductionPlan(rows: ProductionPlanRow[]): Promise<boolean> {
+  const { supabaseUpsert } = await import("./supabase");
+  try {
+    for (const r of rows) {
+      const required = Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
+      await supabaseUpsert("production_plan", {
+        year_month: r.yearMonth,
+        product_code: r.productCode,
+        product_name: r.productName,
+        demand_forecast: r.demandForecast,
+        safety_stock_target: r.safetyStockTarget,
+        opening_stock: r.openingStock,
+        required_production: required,
+        planned_qty: r.plannedQty,
+        actual_qty: r.actualQty,
+        status: r.status,
+        notes: r.notes,
+        updated_at: new Date().toISOString()
+      });
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -27,6 +27,32 @@ export async function supabaseInsert<T>(
   }
 }
 
+export async function supabaseUpsert<T>(
+  table: string,
+  body: Record<string, unknown>
+): Promise<T | null> {
+  if (!SUPABASE_ANON_KEY) return null;
+  try {
+    const url = new URL(`/rest/v1/${table}`, SUPABASE_URL);
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=representation,resolution=merge-duplicates"
+      },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const rows = (await response.json()) as T[];
+    return rows[0] ?? null;
+  } catch (error) {
+    console.warn(`Failed to upsert into Supabase table ${table}`, error);
+    return null;
+  }
+}
+
 export async function supabaseQuery<T>(
   table: string,
   params: Record<string, string> = {}

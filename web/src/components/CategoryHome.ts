@@ -19,7 +19,8 @@ const CATEGORY_CARDS: Record<CategoryKey, CategoryCard[]> = {
     { title: "仕込管理", description: "仕込番号ごとの進捗と原料投入状況を時系列で把握します。", path: "/jikomi" },
     { title: "タンク管理", description: "タンクごとの使用状況と充填率を一覧で確認できます。", path: "/tanks" },
     { title: "検定管理", description: "検定予定と実績をまとめて確認し、出荷判定に備えます。", path: "/kentei" },
-    { title: "資材管理", description: "瓶・ラベル・箱などの在庫と発注状況を一画面で確認します。", path: "/materials" }
+    { title: "資材管理", description: "瓶・ラベル・箱などの在庫と発注状況を一画面で確認します。", path: "/materials" },
+    { title: "需要・生産計画", description: "月次需要実績から安全在庫を算出し、商品別の生産必要数を計画します。", path: "/demand" }
   ],
   purchase: [
     { title: "仕入・買掛", description: "仕入伝票と買掛残高を照合し、支払予定を見通せます。", path: "/purchase" },
