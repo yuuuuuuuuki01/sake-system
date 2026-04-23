@@ -12,27 +12,45 @@
 --   8. pg_cron で毎日5:00 JSTに自動実行
 -- =============================================================================
 
--- ── 1. 日次売上サマリー (ビュー) ───────────────────────────────────────────
+-- ── 0. パフォーマンス用インデックス ────────────────────────────────────────
+-- sales_document_lines(700K件)の JOIN を高速化するため必須
+create index if not exists idx_sdl_header_id  on sales_document_lines(sales_document_header_id);
+create index if not exists idx_sdl_product_code on sales_document_lines(legacy_product_code);
+create index if not exists idx_sdh_sales_date  on sales_document_headers(sales_date);
 
-create or replace view daily_sales_detail as
+-- ── 1. 日次売上サマリー (マテリアライズドビュー + ビュー) ────────────────────
+-- 直接 JOIN すると REST API のタイムアウト(8-10秒)に引っかかるため、
+-- マテリアライズドビュー daily_sales_agg に事前集計する。
+-- refresh_daily_sales_fact() が呼ばれるたびに CONCURRENTLY リフレッシュされる。
+
+create materialized view if not exists daily_sales_agg as
 select
   h.sales_date,
-  count(distinct h.id)          as document_count,
-  coalesce(sum(h.total_amount), 0) as amount,
-  coalesce(sum(l.quantity), 0)  as bottles,
-  coalesce(sum(l.quantity * coalesce(p.volume_ml, 0)), 0) as volume_ml,
+  count(distinct h.id)                                                          as document_count,
+  coalesce(sum(h.total_amount), 0)                                              as amount,
+  coalesce(sum(l.quantity), 0)                                                  as bottles,
+  coalesce(sum(l.quantity * coalesce(p.volume_ml, 0)), 0)                       as volume_ml,
   case when coalesce(sum(l.quantity), 0) > 0
        then round(sum(h.total_amount)::numeric / sum(l.quantity), 0)
-       else 0 end               as price_per_bottle,
+       else 0 end                                                                as price_per_bottle,
   case when coalesce(sum(l.quantity * coalesce(p.volume_ml, 0)), 0) > 0
        then round(sum(h.total_amount)::numeric / (sum(l.quantity * coalesce(p.volume_ml, 0))::numeric / 1000), 0)
-       else 0 end               as price_per_liter
+       else 0 end                                                                as price_per_liter
 from sales_document_headers h
 left join sales_document_lines l on l.sales_document_header_id = h.id
 left join products p on p.legacy_product_code = l.legacy_product_code
 where h.sales_date is not null
 group by h.sales_date
-order by h.sales_date;
+order by h.sales_date
+with data;
+
+-- REFRESH CONCURRENTLY に必要なユニークインデックス
+create unique index if not exists idx_daily_sales_agg_date on daily_sales_agg(sales_date);
+grant select on daily_sales_agg to anon, authenticated;
+
+-- ダッシュボードはこのビュー経由でアクセス (互換性維持)
+create or replace view daily_sales_detail as
+select * from daily_sales_agg order by sales_date;
 
 -- ── 2. 得意先別売上集計テーブル ─────────────────────────────────────────────
 
