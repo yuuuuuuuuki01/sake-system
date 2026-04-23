@@ -165,10 +165,34 @@ def parse_csv(logger: logging.Logger) -> tuple[list[dict[str, Any]], list[dict[s
                 "unit_price": unit_price,
                 "line_amount": sales_amount or 0,
                 "amount": sales_amount or 0,
-                "note": f"cust:{cust_code} type:{trade_code}({trade_name}) remarks:{remarks or ''}",
+                "note": f"date:{sale_date} cust:{cust_code} type:{trade_code}({trade_name}) src:csv",
             })
 
     return list(headers.values()), lines
+
+
+def fetch_existing_header_ids(session: requests.Session, url: str) -> dict[str, str]:
+    """既存の sales_document_headers の (legacy_document_no → id) を取得。
+    id の上書きによる FK 違反を防ぐため、既存行には元の id を使う。
+    """
+    mapping: dict[str, str] = {}
+    limit = 1000
+    offset = 0
+    while True:
+        resp = session.get(
+            f"{url}/rest/v1/sales_document_headers",
+            params={"select": "legacy_document_no,id", "limit": limit, "offset": offset},
+            timeout=60,
+        )
+        if not resp.ok:
+            break
+        rows = resp.json()
+        for row in rows:
+            mapping[row["legacy_document_no"]] = row["id"]
+        if len(rows) < limit:
+            break
+        offset += limit
+    return mapping
 
 
 def upsert_batch(session: requests.Session, url: str, table: str, conflict: str,
@@ -233,7 +257,15 @@ def main() -> int:
         "Prefer": "resolution=merge-duplicates,missing=default",
     })
 
-    h_count = upsert_batch(session, url, "sales_document_headers", "legacy_document_no", headers, logger)
+    # 既存レコードのIDを取得し、id変更によるFK違反を防ぐ
+    logger.info("既存ヘッダID取得中...")
+    existing_ids = fetch_existing_header_ids(session, url)
+    logger.info("既存ヘッダ: %d件", len(existing_ids))
+    for h in headers:
+        if h["legacy_document_no"] in existing_ids:
+            h["id"] = existing_ids[h["legacy_document_no"]]
+
+    h_count = upsert_batch(session, url, "sales_document_headers", "id", headers, logger)
     logger.info("ヘッダ upserted: %d/%d", h_count, len(headers))
 
     l_count = upsert_batch(session, url, "sales_document_lines", "id", lines, logger)

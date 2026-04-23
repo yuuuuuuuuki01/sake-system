@@ -316,6 +316,23 @@ def main() -> int:
         pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
     logger.info("Snapshot updated")
 
+    # 明細 → ヘッダー FK 自動補完
+    if not args.dry_run:
+        for rpc in ("link_lines_to_headers", "backfill_header_amounts"):
+            try:
+                url_rpc = config["supabase_url"].rstrip("/") + f"/rest/v1/rpc/{rpc}"
+                resp = requests.post(url_rpc, json={}, headers={
+                    "apikey": config["supabase_anon_key"],
+                    "Authorization": f"Bearer {config['supabase_anon_key']}",
+                    "Content-Type": "application/json",
+                }, timeout=60)
+                if resp.ok:
+                    logger.info("%s: OK", rpc)
+                else:
+                    logger.warning("%s failed: %d", rpc, resp.status_code)
+            except Exception as exc:
+                logger.warning("%s error: %s", rpc, exc)
+
     return 0
 
 
