@@ -113,6 +113,7 @@ function renderPeriodRows(rows: PeriodBreakdownRow[]): string {
 type StaffDrilldown = {
   code: string;
   name: string;
+  breakdownTab: "customers" | "products";
   customerRows: StaffBreakdownRow[];
   productRows: StaffBreakdownRow[];
 } | null;
@@ -161,7 +162,11 @@ export function renderSalesAnalytics(
   periodOptions: string[] = [],
   staffFilter: string = "",
   tagFilter: string = "",
-  staffDrilldown: StaffDrilldown = null
+  staffDrilldown: StaffDrilldown = null,
+  staffPeriod: AnalyticsPeriod = "all",
+  staffPeriodFilter: string = "",
+  staffPeriodOptions: string[] = [],
+  staffPeriodTotals: AnalyticsBreakdownRow[] = []
 ): string {
   const tableTitle = activeTab === "products" ? "商品別集計" : activeTab === "customers" ? "得意先別集計" : "担当別集計";
   const rows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
@@ -177,17 +182,37 @@ export function renderSalesAnalytics(
       </select>`
     : "";
 
-  // Staff tab content
+  // ── 担当タブ ─────────────────────────────────────────────────────────────────
   let staffTableHtml = "";
   let drilldownHtml = "";
   if (activeTab === "staff") {
-    const filteredStaff = summary.staffTotals.filter((r) =>
+    // 期間ボタン（担当専用）
+    const staffPeriodButtons = (["all", "yearly", "monthly", "weekly", "daily"] as AnalyticsPeriod[])
+      .map((p) => `<button class="button ${p === staffPeriod ? "primary" : "secondary"} small" type="button" data-staff-period="${p}">${PERIOD_LABELS[p]}</button>`)
+      .join("");
+
+    const staffPeriodSelect = staffPeriod !== "all" && staffPeriodOptions.length > 0
+      ? `<select id="staff-period-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+          ${staffPeriodOptions.map((o) => `<option value="${o}" ${o === staffPeriodFilter ? "selected" : ""}>${o}</option>`).join("")}
+        </select>`
+      : "";
+
+    // 表示する行: 期間フィルタ中はRPC結果、全期間はキャッシュ済みのstaffTotals
+    const displayRows = staffPeriodTotals.length > 0 ? staffPeriodTotals : summary.staffTotals;
+    const filteredStaff = displayRows.filter((r) =>
       !staffFilter || r.name.includes(staffFilter) || r.code.includes(staffFilter)
     );
 
+    const periodLabel = staffPeriod !== "all" && staffPeriodFilter ? ` (${staffPeriodFilter})` : "";
+
     staffTableHtml = `
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+        <div class="button-group">${staffPeriodButtons}</div>
+        ${staffPeriodSelect}
+      </div>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
         <input type="text" id="staff-filter-input" placeholder="担当名で絞込" value="${staffFilter}" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;flex:1;min-width:120px;" />
+        ${periodLabel ? `<span style="font-size:12px;color:var(--text-secondary);">${periodLabel}</span>` : ""}
       </div>
       <div class="table-wrap">
         <table>
@@ -220,22 +245,33 @@ export function renderSalesAnalytics(
     `;
 
     if (staffDrilldown) {
+      const activeBreakdownTab = staffDrilldown.breakdownTab;
+      const periodRangeNote = staffPeriod !== "all" && staffPeriodFilter
+        ? `<span style="font-size:12px;color:var(--text-secondary);margin-left:8px;">${staffPeriodFilter}</span>`
+        : "";
+
       drilldownHtml = `
         <article class="panel" style="margin-top:16px;">
           <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;">
             <div>
-              <h2>${staffDrilldown.name} の得意先・商品内訳</h2>
+              <h2>${staffDrilldown.name} の内訳${periodRangeNote}</h2>
               <p class="panel-caption">担当別ドリルダウン</p>
             </div>
             <button class="button secondary small" data-action="close-staff-drilldown">閉じる</button>
           </div>
-          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+            <div class="tab-group">
+              <button class="tab-button ${activeBreakdownTab === "customers" ? "active" : ""}" data-staff-breakdown-tab="customers">得意先別</button>
+              <button class="tab-button ${activeBreakdownTab === "products" ? "active" : ""}" data-staff-breakdown-tab="products">商品別</button>
+            </div>
             <input type="text" data-analytics-tag-filter placeholder="名称・タグで絞込" value="${tagFilter}" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;flex:1;min-width:120px;" />
           </div>
-          <h3 style="margin:12px 0 4px;font-size:14px;color:var(--text-secondary);">得意先別</h3>
-          ${renderDrilldownTable(staffDrilldown.customerRows, tagFilter, "得意先名")}
-          <h3 style="margin:16px 0 4px;font-size:14px;color:var(--text-secondary);">商品別</h3>
-          ${renderDrilldownTable(staffDrilldown.productRows, tagFilter, "商品名")}
+
+          ${activeBreakdownTab === "customers"
+            ? renderDrilldownTable(staffDrilldown.customerRows, tagFilter, "得意先名")
+            : renderDrilldownTable(staffDrilldown.productRows, tagFilter, "商品名")
+          }
         </article>
       `;
     }

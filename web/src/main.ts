@@ -540,7 +540,11 @@ interface AppState {
   analyticsPeriodOptions: string[];
   analyticsStaffFilter: string;
   analyticsTagFilter: string;
-  analyticsStaffDrilldown: { code: string; name: string; customerRows: import("./api").StaffBreakdownRow[]; productRows: import("./api").StaffBreakdownRow[] } | null;
+  analyticsStaffPeriod: import("./api").AnalyticsPeriod;
+  analyticsStaffPeriodFilter: string;
+  analyticsStaffPeriodOptions: string[];
+  analyticsStaffTotals: import("./api").AnalyticsBreakdownRow[];
+  analyticsStaffDrilldown: { code: string; name: string; breakdownTab: "customers" | "products"; customerRows: import("./api").StaffBreakdownRow[]; productRows: import("./api").StaffBreakdownRow[] } | null;
   emailAudienceMode: EmailAudienceMode;
   emailRegion: string;
   emailHistorySegment: string;
@@ -817,7 +821,11 @@ const state: AppState = {
   analyticsPeriodOptions: [] as string[],
   analyticsStaffFilter: "",
   analyticsTagFilter: "",
-  analyticsStaffDrilldown: null as { code: string; name: string; customerRows: import("./api").StaffBreakdownRow[]; productRows: import("./api").StaffBreakdownRow[] } | null,
+  analyticsStaffPeriod: "all" as import("./api").AnalyticsPeriod,
+  analyticsStaffPeriodFilter: "",
+  analyticsStaffPeriodOptions: [] as string[],
+  analyticsStaffTotals: [] as import("./api").AnalyticsBreakdownRow[],
+  analyticsStaffDrilldown: null as { code: string; name: string; breakdownTab: "customers" | "products"; customerRows: import("./api").StaffBreakdownRow[]; productRows: import("./api").StaffBreakdownRow[] } | null,
   emailAudienceMode: defaultEmailState.mode,
   emailRegion: defaultEmailState.region,
   emailHistorySegment: defaultEmailState.historySegment,
@@ -1871,7 +1879,7 @@ function renderView(): string {
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals);
     case "/":
     default:
       return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
@@ -2837,8 +2845,9 @@ function bindEvents(root: HTMLElement): void {
     button.addEventListener("click", async () => {
       state.analyticsTab = button.dataset.analyticsTab as AnalyticsTab;
       state.analyticsStaffDrilldown = null;
-      // 期間が全期間以外なら再取得
-      if (state.analyticsPeriod !== "all" && state.analyticsTab !== "staff") {
+      if (state.analyticsTab === "staff") {
+        // staffタブは独自期間状態を維持、products/customers期間は触らない
+      } else if (state.analyticsPeriod !== "all") {
         const { fetchAnalyticsByPeriod, fetchAvailablePeriods } = await import("./api");
         state.analyticsPeriodOptions = await fetchAvailablePeriods(state.analyticsTab, state.analyticsPeriod);
         state.analyticsPeriodFilter = state.analyticsPeriodOptions[0] ?? "";
@@ -2884,12 +2893,23 @@ function bindEvents(root: HTMLElement): void {
     button.addEventListener("click", async () => {
       const staffCode = button.dataset.staffDrilldown ?? "";
       const staffName = button.dataset.staffName ?? "";
-      const { fetchStaffCustomerBreakdown, fetchStaffProductBreakdown } = await import("./api");
+      const { fetchStaffCustomerBreakdown, fetchStaffProductBreakdown, periodToDateRange } = await import("./api");
+      const range = periodToDateRange(state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter);
+      const prevTab = state.analyticsStaffDrilldown?.breakdownTab ?? "customers";
       const [customerRows, productRows] = await Promise.all([
-        fetchStaffCustomerBreakdown(staffCode),
-        fetchStaffProductBreakdown(staffCode)
+        fetchStaffCustomerBreakdown(staffCode, range?.from, range?.to),
+        fetchStaffProductBreakdown(staffCode, range?.from, range?.to)
       ]);
-      state.analyticsStaffDrilldown = { code: staffCode, name: staffName, customerRows, productRows };
+      state.analyticsStaffDrilldown = { code: staffCode, name: staffName, breakdownTab: prevTab, customerRows, productRows };
+      renderApp();
+    });
+  });
+
+  // 担当ドリルダウン 得意先/商品サブタブ切替
+  root.querySelectorAll<HTMLButtonElement>("[data-staff-breakdown-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!state.analyticsStaffDrilldown) return;
+      state.analyticsStaffDrilldown = { ...state.analyticsStaffDrilldown, breakdownTab: button.dataset.staffBreakdownTab as "customers" | "products" };
       renderApp();
     });
   });
@@ -2903,6 +2923,37 @@ function bindEvents(root: HTMLElement): void {
   // 担当ドリルダウン タグ/名称フィルター
   root.querySelector<HTMLInputElement>("[data-analytics-tag-filter]")?.addEventListener("input", (e) => {
     state.analyticsTagFilter = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+
+  // 担当タブ 期間ボタン
+  root.querySelectorAll<HTMLButtonElement>("[data-staff-period]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const { fetchAvailablePeriods, fetchStaffTotalsByPeriod, periodToDateRange } = await import("./api");
+      const period = button.dataset.staffPeriod as import("./api").AnalyticsPeriod;
+      state.analyticsStaffPeriod = period;
+      state.analyticsStaffDrilldown = null;
+      if (period === "all") {
+        state.analyticsStaffPeriodFilter = "";
+        state.analyticsStaffPeriodOptions = [];
+        state.analyticsStaffTotals = [];
+      } else {
+        state.analyticsStaffPeriodOptions = await fetchAvailablePeriods("staff", period);
+        state.analyticsStaffPeriodFilter = state.analyticsStaffPeriodOptions[0] ?? "";
+        const range = periodToDateRange(period, state.analyticsStaffPeriodFilter);
+        state.analyticsStaffTotals = await fetchStaffTotalsByPeriod(range?.from, range?.to);
+      }
+      renderApp();
+    });
+  });
+
+  // 担当タブ 期間セレクト
+  root.querySelector<HTMLSelectElement>("#staff-period-select")?.addEventListener("change", async (e) => {
+    const { fetchStaffTotalsByPeriod, periodToDateRange } = await import("./api");
+    state.analyticsStaffPeriodFilter = (e.target as HTMLSelectElement).value;
+    const range = periodToDateRange(state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter);
+    state.analyticsStaffTotals = await fetchStaffTotalsByPeriod(range?.from, range?.to);
+    state.analyticsStaffDrilldown = null;
     renderApp();
   });
 

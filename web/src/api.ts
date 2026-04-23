@@ -1034,7 +1034,9 @@ export async function fetchAvailablePeriods(
   period: AnalyticsPeriod
 ): Promise<string[]> {
   if (period === "all") return [];
-  const view = PERIOD_VIEW_MAP[period][tab];
+  // staffタブは専用期間ビューがないのでcustomersビューで代用
+  const effectiveTab: AnalyticsTab = tab === "staff" ? "customers" : tab;
+  const view = PERIOD_VIEW_MAP[period][effectiveTab];
   // RPC経由でDISTINCT periodを取得（マテビューは大量行あるため）
   const result = await supabaseRpc<{ period: string }[]>("get_distinct_periods", {
     view_name: view
@@ -1052,6 +1054,43 @@ export async function fetchAvailablePeriods(
   return unique.sort().reverse();
 }
 
+/** 期間文字列 → 日付範囲に変換 */
+export function periodToDateRange(
+  period: AnalyticsPeriod,
+  periodFilter: string
+): { from: string; to: string } | null {
+  if (period === "all" || !periodFilter) return null;
+  if (period === "daily") {
+    return { from: periodFilter, to: periodFilter };
+  }
+  if (period === "monthly") {
+    const [year, month] = periodFilter.split("-").map(Number);
+    const from = `${year}-${String(month).padStart(2, "0")}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const to = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    return { from, to };
+  }
+  if (period === "yearly") {
+    return { from: `${periodFilter}-01-01`, to: `${periodFilter}-12-31` };
+  }
+  if (period === "weekly") {
+    const match = periodFilter.match(/^(\d{4})-W(\d{2})$/);
+    if (!match) return null;
+    const year = parseInt(match[1]);
+    const week = parseInt(match[2]);
+    const jan4 = new Date(year, 0, 4);
+    const dow = jan4.getDay() || 7;
+    const week1Mon = new Date(jan4);
+    week1Mon.setDate(jan4.getDate() - dow + 1);
+    const start = new Date(week1Mon);
+    start.setDate(week1Mon.getDate() + (week - 1) * 7);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
+  }
+  return null;
+}
+
 export interface StaffBreakdownRow {
   staffCode: string;
   staffName: string;
@@ -1063,12 +1102,7 @@ export interface StaffBreakdownRow {
   documents: number;
 }
 
-export async function fetchStaffCustomerBreakdown(staffCode: string): Promise<StaffBreakdownRow[]> {
-  const rows = await supabaseQuery<LooseRow>("mv_staff_customer_breakdown", {
-    staff_code: `eq.${staffCode}`,
-    order: "amount.desc",
-    limit: "100"
-  });
+function mapStaffRows(rows: LooseRow[]): StaffBreakdownRow[] {
   return rows.map((r) => ({
     staffCode: getString(r, ["staff_code"], ""),
     staffName: getString(r, ["staff_name"], ""),
@@ -1081,22 +1115,50 @@ export async function fetchStaffCustomerBreakdown(staffCode: string): Promise<St
   }));
 }
 
-export async function fetchStaffProductBreakdown(staffCode: string): Promise<StaffBreakdownRow[]> {
-  const rows = await supabaseQuery<LooseRow>("mv_staff_product_breakdown", {
-    staff_code: `eq.${staffCode}`,
-    order: "amount.desc",
-    limit: "100"
+export async function fetchStaffTotalsByPeriod(
+  dateFrom?: string,
+  dateTo?: string
+): Promise<AnalyticsBreakdownRow[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_staff_totals_by_period", {
+    p_date_from: dateFrom ?? null,
+    p_date_to: dateTo ?? null
   });
-  return rows.map((r) => ({
-    staffCode: getString(r, ["staff_code"], ""),
-    staffName: getString(r, ["staff_name"], ""),
+  if (!result) return [];
+  return result.map((r) => ({
     code: getString(r, ["code"], ""),
     name: getString(r, ["name"], ""),
-    tag: getString(r, ["tag"], ""),
     amount: getNumber(r, ["amount"], 0),
     quantity: getNumber(r, ["quantity"], 0),
     documents: getNumber(r, ["documents"], 0)
   }));
+}
+
+export async function fetchStaffCustomerBreakdown(
+  staffCode: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<StaffBreakdownRow[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_staff_customer_breakdown", {
+    p_staff_code: staffCode,
+    p_date_from: dateFrom ?? null,
+    p_date_to: dateTo ?? null
+  });
+  if (!result) return [];
+  return mapStaffRows(result);
+}
+
+export async function fetchStaffProductBreakdown(
+  staffCode: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<StaffBreakdownRow[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_staff_product_breakdown", {
+    p_staff_code: staffCode,
+    p_date_from: dateFrom ?? null,
+    p_date_to: dateTo ?? null
+  });
+  if (!result) return [];
+  return mapStaffRows(result);
 }
 
 // ─── 伝票入力 ────────────────────────────────────────────────────────────────
