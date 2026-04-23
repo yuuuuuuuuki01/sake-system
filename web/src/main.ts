@@ -2817,7 +2817,7 @@ function bindEvents(root: HTMLElement): void {
           plannedQty: required,
           actualQty: 0,
           status: "draft" as const,
-          productionType: "monthly" as const,
+          productionType: (p as any).productionType ?? "monthly",
           notes: ""
         };
       });

@@ -345,8 +345,15 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
       `<option value="${v}" ${v === current ? "selected" : ""}>${l}</option>`
     ).join("");
 
+  // ラベル貼り工数定数: 表+裏の手貼り 80本/時 × 8時間 = 640本/人日
+  const LABEL_BOTTLES_PER_PERSON_DAY = 640;
+
   const rows = plan.map((row) => {
     const required = Math.max(0, row.demandForecast + row.safetyStockTarget - row.openingStock);
+    const qtyForLabel = row.plannedQty > 0 ? row.plannedQty : Math.round(required);
+    const labelDays = qtyForLabel > 0
+      ? Math.ceil((qtyForLabel / LABEL_BOTTLES_PER_PERSON_DAY) * 10) / 10
+      : 0;
     const variance = row.plannedQty > 0
       ? ((row.actualQty - row.plannedQty) / row.plannedQty) * 100
       : null;
@@ -373,6 +380,9 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
         <td class="numeric ${varClass}">
           ${variance !== null ? `${variance >= 0 ? "+" : ""}${variance.toFixed(1)}%` : "—"}
         </td>
+        <td class="numeric" style="white-space:nowrap;">
+          ${labelDays > 0 ? `${labelDays.toFixed(1)}<span style="font-size:11px;color:var(--text-secondary);margin-left:2px;">人日</span>` : "—"}
+        </td>
         <td>
           <span class="status-pill ${statusClass[row.status] ?? "neutral"}">${statusLabel[row.status] ?? row.status}</span>
         </td>
@@ -387,6 +397,11 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
   );
   const totalPlanned  = plan.reduce((s, r) => s + r.plannedQty, 0);
   const totalActual   = plan.reduce((s, r) => s + r.actualQty, 0);
+  const totalLabelQty = plan.reduce((s, r) => {
+    const req = Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
+    return s + (r.plannedQty > 0 ? r.plannedQty : Math.round(req));
+  }, 0);
+  const totalLabelDays = Math.ceil((totalLabelQty / LABEL_BOTTLES_PER_PERSON_DAY) * 10) / 10;
 
   // 年月セレクタ（前後12ヶ月）
   const now = new Date();
@@ -429,14 +444,16 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
               <th class="numeric">計画数</th>
               <th class="numeric">実績数</th>
               <th class="numeric">達成率</th>
+              <th class="numeric" title="表+裏の手貼り 80本/時×8h=640本/人日">ラベル工数</th>
               <th>状態</th>
             </tr>
           </thead>
           <tbody>
-            ${rows || `<tr><td colspan="10" class="empty-row">データなし</td></tr>`}
+            ${rows || `<tr><td colspan="11" class="empty-row">データなし</td></tr>`}
             ${plan.length > 0 ? `
               <tr style="background:var(--surface-alt);font-weight:700;">
                 <td>合計</td>
+                <td>—</td>
                 <td class="numeric">${fmtQty(Math.round(totalForecast))}</td>
                 <td class="numeric">—</td>
                 <td class="numeric">—</td>
@@ -444,6 +461,7 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
                 <td class="numeric">${fmtQty(totalPlanned)}</td>
                 <td class="numeric">${totalActual > 0 ? fmtQty(totalActual) : "—"}</td>
                 <td class="numeric">—</td>
+                <td class="numeric">${totalLabelDays.toFixed(1)}<span style="font-size:11px;color:var(--text-secondary);margin-left:2px;">人日</span></td>
                 <td>—</td>
               </tr>` : ""}
           </tbody>

@@ -4267,6 +4267,8 @@ export interface DemandAnalysis {
   productStdDev: Record<string, number>;
 }
 
+export type ProductionType = "monthly" | "annual" | "make_to_order" | "november";
+
 export interface SafetyStockParams {
   productCode: string;
   productName: string;
@@ -4278,9 +4280,8 @@ export interface SafetyStockParams {
   safetyStockQty: number;
   reorderPoint: number;
   memo: string;
+  productionType: ProductionType;
 }
-
-export type ProductionType = "monthly" | "annual" | "make_to_order" | "november";
 
 export interface ProductionPlanRow {
   id: string;
@@ -4411,7 +4412,8 @@ export async function fetchSafetyStockParams(): Promise<SafetyStockParams[]> {
     serviceLevel: getNumber(r, ["service_level"], 0.95),
     safetyStockQty: getNumber(r, ["safety_stock_qty"], 0),
     reorderPoint: getNumber(r, ["reorder_point"], 0),
-    memo: getString(r, ["memo"], "")
+    memo: getString(r, ["memo"], ""),
+    productionType: getString(r, ["production_type"], "monthly") as ProductionType
   }));
 }
 
