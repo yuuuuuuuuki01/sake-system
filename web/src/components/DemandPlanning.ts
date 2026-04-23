@@ -24,10 +24,16 @@ function zScore(serviceLevel: number): number {
 // ─── 需要実績タブ ─────────────────────────────────────────────────────────────
 
 function buildDemandChart(analysis: DemandAnalysis): string {
-  const { months, products, matrix } = analysis;
-  if (months.length === 0 || products.length === 0) {
+  const { months, matrix } = analysis;
+  if (months.length === 0 || analysis.products.length === 0) {
     return `<div class="chart-empty">データなし</div>`;
   }
+
+  // チャートは上位6商品のみ表示（積み上げ棒グラフの視認性を確保）
+  const products = analysis.products
+    .slice()
+    .sort((a, b) => (analysis.productTotals[b.code] ?? 0) - (analysis.productTotals[a.code] ?? 0))
+    .slice(0, 6);
 
   const COLORS = ["#0F5B8D", "#2F855A", "#B7791F", "#C53D3D", "#6B46C1", "#2B6CB0"];
   const width = 820;
@@ -87,14 +93,19 @@ function buildDemandChart(analysis: DemandAnalysis): string {
 }
 
 function buildDemandMatrix(analysis: DemandAnalysis): string {
-  const { months, products, totals } = analysis;
+  const { months, products } = analysis;
+
+  // 商品が多すぎる場合は上位50件に絞る（レンダリング負荷対策）
+  const topProducts = products
+    .slice()
+    .sort((a, b) => (analysis.productTotals[b.code] ?? 0) - (analysis.productTotals[a.code] ?? 0))
+    .slice(0, 50);
 
   const headerCols = months.map((m) =>
     `<th class="numeric" style="min-width:56px;white-space:nowrap;">${fmtMonth(m)}</th>`
   ).join("");
 
-  const rows = products.map((p) => {
-    const row = totals.find((t) => t.code === p.code);
+  const rows = topProducts.map((p) => {
     const cells = months.map((m) => {
       const qty = analysis.matrix[p.code]?.[m] ?? 0;
       return `<td class="numeric">${qty > 0 ? fmtQty(qty) : "—"}</td>`;
@@ -104,9 +115,9 @@ function buildDemandMatrix(analysis: DemandAnalysis): string {
         <td class="mono">${p.code}</td>
         <td style="white-space:nowrap;">${p.name}</td>
         ${cells}
-        <td class="numeric"><strong>${fmtQty(row?.total ?? 0)}</strong></td>
-        <td class="numeric">${fmtQty(Math.round(row?.avg ?? 0))}</td>
-        <td class="numeric">${fmtQty(Math.round(row?.stdDev ?? 0))}</td>
+        <td class="numeric"><strong>${fmtQty(analysis.productTotals[p.code] ?? 0)}</strong></td>
+        <td class="numeric">${fmtQty(Math.round(analysis.productAvg[p.code] ?? 0))}</td>
+        <td class="numeric">${fmtQty(Math.round(analysis.productStdDev[p.code] ?? 0))}</td>
       </tr>
     `;
   }).join("");
