@@ -4280,6 +4280,8 @@ export interface SafetyStockParams {
   memo: string;
 }
 
+export type ProductionType = "monthly" | "annual" | "make_to_order" | "november";
+
 export interface ProductionPlanRow {
   id: string;
   yearMonth: string;
@@ -4292,6 +4294,7 @@ export interface ProductionPlanRow {
   plannedQty: number;
   actualQty: number;
   status: "draft" | "confirmed" | "actual";
+  productionType: ProductionType;
   notes: string;
 }
 
@@ -4349,9 +4352,15 @@ function _buildMockDemandAnalysis(): DemandAnalysis {
 
 // ─── API 関数 ─────────────────────────────────────────────────────────────────
 
-export async function fetchDemandAnalysis(): Promise<DemandAnalysis> {
+export async function fetchDemandAnalysis(monthsBack = 36): Promise<DemandAnalysis> {
+  const cutoff = (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - monthsBack);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  })();
   const rows = await supabaseQueryAll<LooseRow>("product_monthly_sales", {
     select: "year_month,product_code,product_name,quantity",
+    year_month: `gte.${cutoff}`,
     order: "year_month.asc"
   });
   if (rows.length === 0) return _buildMockDemandAnalysis();
@@ -4423,6 +4432,7 @@ export async function fetchProductionPlan(yearMonth: string): Promise<Production
     plannedQty: getNumber(r, ["planned_qty"], 0),
     actualQty: getNumber(r, ["actual_qty"], 0),
     status: getString(r, ["status"], "draft") as ProductionPlanRow["status"],
+    productionType: getString(r, ["production_type"], "monthly") as ProductionPlanRow["productionType"],
     notes: getString(r, ["notes"], "")
   }));
 }
@@ -4460,6 +4470,7 @@ export async function saveProductionPlan(row: ProductionPlanRow): Promise<boolea
     planned_qty: row.plannedQty,
     actual_qty: row.actualQty,
     status: row.status,
+    production_type: row.productionType,
     notes: row.notes,
     updated_at: new Date().toISOString()
   });

@@ -565,6 +565,7 @@ interface AppState {
   productionPlan: import("./api").ProductionPlanRow[];
   demandTab: DemandTab;
   demandPlanYearMonth: string;
+  demandYearsBack: number;
   globalSearchOpen: boolean;
   globalQuery: string;
   authSkipped: boolean;
@@ -851,6 +852,7 @@ const state: AppState = {
   productionPlan: [],
   demandTab: "demand",
   demandPlanYearMonth: new Date().toISOString().slice(0, 7),
+  demandYearsBack: 3,
   globalSearchOpen: false,
   globalQuery: "",
   authSkipped: false,
@@ -1445,7 +1447,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         const { fetchDemandAnalysis, fetchSafetyStockParams, fetchProductionPlan } = await import("./api");
         if (!state.demandAnalysis) {
           const [analysis, ssParams] = await Promise.all([
-            fetchDemandAnalysis(),
+            fetchDemandAnalysis(state.demandYearsBack * 12),
             fetchSafetyStockParams()
           ]);
           state.demandAnalysis = analysis;
@@ -1473,7 +1475,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
                   demandForecast: forecast, safetyStockTarget: ss, openingStock: 0,
                   requiredProduction: Math.max(0, forecast + ss),
                   plannedQty: Math.max(0, forecast + ss), actualQty: 0,
-                  status: "draft" as const, notes: ""
+                  status: "draft" as const, productionType: "monthly" as const, notes: ""
                 };
               });
           }
@@ -1751,7 +1753,8 @@ function renderView(): string {
         state.safetyStockParams,
         state.productionPlan,
         state.demandTab,
-        state.demandPlanYearMonth
+        state.demandPlanYearMonth,
+        state.demandYearsBack
       );
     case "/churn-alert":
       return state.churnAlert
@@ -2779,10 +2782,46 @@ function bindEvents(root: HTMLElement): void {
           plannedQty: required,
           actualQty: 0,
           status: "draft" as const,
+          productionType: "monthly" as const,
           notes: ""
         };
       });
   }
+
+  // Demand planning: 対象期間（年数）変更 → 分析データを再取得
+  root.querySelector<HTMLSelectElement>("[data-action='demand-years-back']")?.addEventListener("change", async (e) => {
+    const years = parseInt((e.target as HTMLSelectElement).value) || 3;
+    state.demandYearsBack = years;
+    state.demandAnalysis = null;  // 再取得トリガー
+    const { fetchDemandAnalysis } = await import("./api");
+    state.demandAnalysis = await fetchDemandAnalysis(years * 12);
+    renderApp();
+  });
+
+  // Demand planning: 安全在庫 一括適用
+  root.querySelector<HTMLButtonElement>("[data-action='bulk-apply-safety']")?.addEventListener("click", () => {
+    const sl = parseFloat((document.getElementById("bulk-service-level") as HTMLSelectElement)?.value ?? "0.95");
+    const lt = parseInt((document.getElementById("bulk-lead-time") as HTMLInputElement)?.value ?? "30");
+    state.safetyStockParams = state.safetyStockParams.map((p) => {
+      const z = sl >= 0.99 ? 2.33 : sl >= 0.97 ? 1.88 : sl >= 0.95 ? 1.65 : sl >= 0.90 ? 1.28 : 1.04;
+      const ltMonths = lt / 30;
+      const ss = Math.ceil(z * p.demandStdDev * Math.sqrt(ltMonths));
+      const rop = Math.ceil(p.avgMonthlyDemand * ltMonths + ss);
+      return { ...p, serviceLevel: sl, leadTimeDays: lt, safetyStockQty: ss, reorderPoint: rop };
+    });
+    renderApp();
+  });
+
+  // Demand planning: 生産区分変更（即座にstate反映）
+  root.querySelectorAll<HTMLSelectElement>("[data-action='plan-prod-type']").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const code = sel.dataset.code ?? "";
+      const pt = sel.value as import("./api").ProductionType;
+      state.productionPlan = state.productionPlan.map((r) =>
+        r.productCode === code ? { ...r, productionType: pt } : r
+      );
+    });
+  });
 
   // Demand planning: 年月切り替え → DBから取得し、空なら自動生成
   root.querySelector<HTMLSelectElement>("[data-action='plan-year-month']")?.addEventListener("change", async (e) => {

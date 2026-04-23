@@ -148,7 +148,7 @@ function buildDemandMatrix(analysis: DemandAnalysis): string {
   `;
 }
 
-function renderDemandTab(analysis: DemandAnalysis): string {
+function renderDemandTab(analysis: DemandAnalysis, yearsBack: number): string {
   const latestMonth = analysis.months[analysis.months.length - 1] ?? "";
   const prevMonth   = analysis.months[analysis.months.length - 2] ?? "";
   const yearAgoIdx  = analysis.months.length - 13;
@@ -167,6 +167,10 @@ function renderDemandTab(analysis: DemandAnalysis): string {
   const momRate = prevTotal > 0 ? ((currentTotal - prevTotal) / prevTotal) * 100 : 0;
   const yoyRate = yoyTotal > 0 ? ((currentTotal - yoyTotal) / yoyTotal) * 100 : 0;
   const sign = (n: number) => n >= 0 ? "+" : "";
+
+  const yearOptions = [1, 2, 3, 5].map((y) =>
+    `<option value="${y}" ${y === yearsBack ? "selected" : ""}>${y}年</option>`
+  ).join("");
 
   return `
     <section class="kpi-grid compact">
@@ -194,8 +198,14 @@ function renderDemandTab(analysis: DemandAnalysis): string {
 
     <section class="panel">
       <div class="panel-header">
-        <div><h2>月次出荷数量（商品別積み上げ）</h2><p class="panel-caption">直近12ヶ月</p></div>
-        <button class="button secondary" type="button" data-action="demand-csv-export">CSV出力</button>
+        <div><h2>月次出荷数量（商品別積み上げ）</h2><p class="panel-caption">上位6商品</p></div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+            対象期間
+            <select data-action="demand-years-back" style="width:80px;">${yearOptions}</select>
+          </label>
+          <button class="button secondary" type="button" data-action="demand-csv-export">CSV出力</button>
+        </div>
       </div>
       ${buildDemandChart(analysis)}
     </section>
@@ -203,6 +213,7 @@ function renderDemandTab(analysis: DemandAnalysis): string {
     <section class="panel">
       <div class="panel-header">
         <h2>商品×月 出荷数量マトリクス</h2>
+        <p class="panel-caption" style="margin:0;">上位50商品 · ${analysis.months.length}ヶ月</p>
       </div>
       ${buildDemandMatrix(analysis)}
     </section>
@@ -249,6 +260,10 @@ function renderSafetyTab(params: SafetyStockParams[]): string {
     `;
   }).join("");
 
+  const bulkSlOptions = [0.90, 0.95, 0.99].map((v) =>
+    `<option value="${v}" ${v === 0.95 ? "selected" : ""}>${(v * 100).toFixed(0)}%</option>`
+  ).join("");
+
   return `
     <section class="panel" style="margin-bottom:16px;">
       <div class="panel-header"><h2>計算式</h2></div>
@@ -261,9 +276,26 @@ function renderSafetyTab(params: SafetyStockParams[]): string {
       </div>
     </section>
 
+    <section class="panel" style="margin-bottom:16px;">
+      <div class="panel-header"><h2>一括変更</h2></div>
+      <div style="display:flex;align-items:flex-end;gap:16px;padding:4px 0 8px;">
+        <label class="field" style="margin:0;">
+          <span>サービス率（全商品）</span>
+          <select id="bulk-service-level" style="width:90px;">${bulkSlOptions}</select>
+        </label>
+        <label class="field" style="margin:0;">
+          <span>リードタイム・日（全商品）</span>
+          <input id="bulk-lead-time" type="number" min="1" max="180" value="30"
+            style="width:72px;text-align:right;" />
+        </label>
+        <button class="button secondary" type="button" data-action="bulk-apply-safety"
+          style="margin-bottom:2px;">全商品に適用して再計算</button>
+      </div>
+    </section>
+
     <section class="panel">
       <div class="panel-header">
-        <div><h2>商品別 安全在庫パラメータ</h2><p class="panel-caption">リードタイムとサービス率を変更すると安全在庫が再計算されます</p></div>
+        <div><h2>商品別 安全在庫パラメータ</h2><p class="panel-caption">個別に調整するか、一括変更を使用してください</p></div>
         <button class="button primary" type="button" data-action="ss-save-all">安全在庫を保存</button>
       </div>
       <div class="table-wrap">
@@ -289,6 +321,13 @@ function renderSafetyTab(params: SafetyStockParams[]): string {
 
 // ─── 生産計画タブ ─────────────────────────────────────────────────────────────
 
+const PRODUCTION_TYPE_LABELS: Record<string, string> = {
+  monthly:       "月次",
+  annual:        "年次",
+  make_to_order: "受注生産",
+  november:      "11月生産"
+};
+
 function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
   const statusLabel: Record<string, string> = {
     draft: "下書き",
@@ -301,6 +340,11 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
     actual: "success"
   };
 
+  const ptOptions = (current: string) =>
+    Object.entries(PRODUCTION_TYPE_LABELS).map(([v, l]) =>
+      `<option value="${v}" ${v === current ? "selected" : ""}>${l}</option>`
+    ).join("");
+
   const rows = plan.map((row) => {
     const required = Math.max(0, row.demandForecast + row.safetyStockTarget - row.openingStock);
     const variance = row.plannedQty > 0
@@ -311,6 +355,10 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
     return `
       <tr>
         <td style="white-space:nowrap;">${row.productName}</td>
+        <td>
+          <select class="input-sm" data-action="plan-prod-type" data-code="${row.productCode}"
+            style="width:92px;">${ptOptions(row.productionType)}</select>
+        </td>
         <td class="numeric">${fmtQty(Math.round(row.demandForecast))}</td>
         <td class="numeric">${fmtQty(Math.round(row.safetyStockTarget))}</td>
         <td class="numeric">${fmtQty(Math.round(row.openingStock))}</td>
@@ -373,6 +421,7 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
           <thead>
             <tr>
               <th>商品名</th>
+              <th>生産区分</th>
               <th class="numeric">需要予測</th>
               <th class="numeric">安全在庫目標</th>
               <th class="numeric">期首在庫</th>
@@ -384,7 +433,7 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
             </tr>
           </thead>
           <tbody>
-            ${rows || `<tr><td colspan="9" class="empty-row">データなし</td></tr>`}
+            ${rows || `<tr><td colspan="10" class="empty-row">データなし</td></tr>`}
             ${plan.length > 0 ? `
               <tr style="background:var(--surface-alt);font-weight:700;">
                 <td>合計</td>
@@ -411,7 +460,8 @@ export function renderDemandPlanning(
   safetyStockParams: SafetyStockParams[],
   productionPlan: ProductionPlanRow[],
   tab: DemandTab,
-  planYearMonth: string
+  planYearMonth: string,
+  yearsBack: number
 ): string {
   const tabDefs: Array<{ key: DemandTab; label: string }> = [
     { key: "demand", label: "需要実績" },
@@ -427,7 +477,7 @@ export function renderDemandPlanning(
   let body = "";
   if (tab === "demand") {
     body = analysis
-      ? renderDemandTab(analysis)
+      ? renderDemandTab(analysis, yearsBack)
       : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
   } else if (tab === "safety") {
     body = renderSafetyTab(safetyStockParams);
