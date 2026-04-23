@@ -39,16 +39,16 @@ DEFAULT_SYNC_TARGETS: list[str] = [
     # 6. 特定単価
     "sh/mst/SHTAN.MST",
     "h5/mst/H5TAN.MST",
-    # 7. 売上伝票
-    "sh/dat/SHDEN.DAT",
-    "h5/dat/H5DEN.DAT",
-    # 8. 売上明細
-    "sh/dat/SHTOR.DAT",
-    "h5/dat/H5TOR.DAT",
-    # 9. 移動簿 (400割水 もこの中に含まれる)
+    # 7. 売上伝票・明細は decoder_sales_diff.py が差分処理するため除外
+    #    (全件生バイナリ同期は ~900MB になりタイムアウト・クラッシュの原因)
+    # "sh/dat/SHDEN.DAT",
+    # "h5/dat/H5DEN.DAT",
+    # "sh/dat/SHTOR.DAT",
+    # "h5/dat/H5TOR.DAT",
+    # 8. 移動簿 (400割水 もこの中に含まれる)
     "sk/dat/SKIDO.DAT",
     "k5/dat/K5IDO.DAT",
-    # 10. 現在酒
+    # 9. 現在酒
     "sh/dat/sHZAI.DAT",
     "h5/dat/H5ZAI.DAT",
     "sk/dat/SKZAI.DAT",
