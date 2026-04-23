@@ -45,6 +45,7 @@ jobs:
         env:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_RESEND_API_KEY: ${{ secrets.VITE_RESEND_API_KEY }}
+          VITE_BASE_PATH: /sake-system/
         run: npm run build
 
       - name: Deploy
