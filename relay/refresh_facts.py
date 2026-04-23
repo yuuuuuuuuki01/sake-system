@@ -49,21 +49,28 @@ def main() -> int:
         "Content-Type": "application/json",
     }
 
-    logger.info("Refreshing daily_sales_fact via RPC...")
+    rpcs = [
+        ("refresh_daily_sales_fact",     "daily_sales_fact"),
+        ("refresh_product_monthly_sales","product_monthly_sales"),
+        ("refresh_safety_stock_params",  "product_safety_stock_params"),
+    ]
 
-    resp = requests.post(
-        f"{url}/rest/v1/rpc/refresh_daily_sales_fact",
-        json={},
-        headers=headers,
-        timeout=120,
-    )
+    exit_code = 0
+    for rpc_name, label in rpcs:
+        logger.info("Calling %s ...", rpc_name)
+        resp = requests.post(
+            f"{url}/rest/v1/rpc/{rpc_name}",
+            json={},
+            headers=headers,
+            timeout=120,
+        )
+        if not resp.ok:
+            logger.error("%s failed: %s %s", rpc_name, resp.status_code, resp.text[:300])
+            exit_code = 1
+        else:
+            logger.info("%s refreshed successfully", label)
 
-    if not resp.ok:
-        logger.error("Failed: %s %s", resp.status_code, resp.text[:300])
-        return 1
-
-    logger.info("daily_sales_fact refreshed successfully")
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
