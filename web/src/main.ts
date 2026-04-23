@@ -181,6 +181,7 @@ import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromS
 import { renderDemandPlanning, type DemandTab } from "./components/DemandPlanning";
 import { renderChurnAlert, buildChurnAlertData, type ChurnAlertData } from "./components/ChurnAlert";
 import { renderSeasonalCalendar, buildSeasonalData, type SeasonalCalendarState } from "./components/SeasonalCalendar";
+import { renderShipmentCalendar } from "./components/ShipmentCalendar";
 import { renderVisitPlanner, buildVisitPlan, type VisitPlannerState } from "./components/VisitPlanner";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
@@ -244,7 +245,8 @@ type RoutePath =
   | "/churn-alert"
   | "/seasonal-calendar"
   | "/visit-planner"
-  | "/demand";
+  | "/demand"
+  | "/shipment-calendar";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
 
@@ -313,7 +315,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/churn-alert",
   "/seasonal-calendar",
   "/visit-planner",
-  "/demand"
+  "/demand",
+  "/shipment-calendar"
 ];
 
 let EMAIL_RECIPIENTS: EmailRecipientRecord[] = [];
@@ -379,7 +382,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/churn-alert", title: "離反アラート・休眠顧客" },
   { path: "/seasonal-calendar", title: "季節提案カレンダー" },
   { path: "/visit-planner", title: "訪問計画・ルート最適化" },
-  { path: "/demand", title: "需要分析・安全在庫・生産計画" }
+  { path: "/demand", title: "需要分析・安全在庫・生産計画" },
+  { path: "/shipment-calendar", title: "出荷カレンダー" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -446,6 +450,9 @@ interface AppState {
   invoiceErrors: Record<string, string>;
   deliveryNote: DeliveryNote | null;
   deliverySearchDocNo: string;
+  shipmentCalendarData: import("./api").ShipmentCalendarData | null;
+  shipmentCalendarYearMonth: string;
+  shipmentCalendarSelectedDate: string | null;
   billingSummary: BillingSummary | null;
   billingYearMonth: string;
   salesReport: SalesReport | null;
@@ -596,6 +603,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/billing":
     case "/invoice":
     case "/ledger":
+    case "/shipment-calendar":
       return "sales";
     case "/analytics":
     case "/customer-analysis":
@@ -844,6 +852,9 @@ const state: AppState = {
   emailSaveMessage: defaultEmailState.saveMessage,
   emailSending: false,
   demandForecast: { ...defaultDemandForecastState },
+  shipmentCalendarData: null,
+  shipmentCalendarYearMonth: new Date().toISOString().slice(0, 7),
+  shipmentCalendarSelectedDate: null,
   churnAlert: null,
   seasonalCalendar: null,
   visitPlanner: null,
@@ -1286,6 +1297,11 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           state.deliveryNote = await fetchDeliveryNote(state.deliverySearchDocNo || "D240122");
         }
         break;
+      case "/shipment-calendar": {
+        const { fetchShipmentCalendar } = await import("./api");
+        state.shipmentCalendarData = await fetchShipmentCalendar(state.shipmentCalendarYearMonth);
+        break;
+      }
       case "/billing":
         if (!state.billingSummary) {
           state.billingSummary = await fetchBillingSummary(state.billingYearMonth);
@@ -1724,6 +1740,12 @@ function renderView(): string {
       return state.deliveryNote
         ? renderDeliveryNote(state.deliveryNote, state.deliverySearchDocNo)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
+    case "/shipment-calendar":
+      return renderShipmentCalendar(
+        state.shipmentCalendarData,
+        state.shipmentCalendarYearMonth,
+        state.shipmentCalendarSelectedDate
+      );
     case "/billing":
       return state.billingSummary
         ? renderBilling(state.billingSummary, state.billingYearMonth)
@@ -2027,6 +2049,7 @@ function renderShell(): string {
           { path: "/invoice-entry", label: "伝票入力", kicker: "Entry" },
           { path: "/quote", label: "見積作成", kicker: "Quote" },
           { path: "/delivery", label: "納品書", kicker: "Delivery" },
+          { path: "/shipment-calendar", label: "出荷カレンダー", kicker: "ShipCal" },
           { path: "/billing", label: "月次請求", kicker: "Billing" },
           { path: "/invoice", label: "伝票照会", kicker: "Invoice" },
           { path: "/ledger", label: "得意先台帳", kicker: "Ledger" }
@@ -4654,6 +4677,29 @@ function bindEvents(root: HTMLElement): void {
         state.mailSenders = await fetchMailSenders();
         renderApp();
       } else showToast("削除失敗", "error");
+    });
+  });
+
+  // ── 出荷カレンダー ────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-sc-ym]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const ym = btn.dataset.scYm;
+      if (!ym) return;
+      state.shipmentCalendarYearMonth = ym;
+      state.shipmentCalendarData = null;
+      state.shipmentCalendarSelectedDate = null;
+      renderApp();
+      const { fetchShipmentCalendar } = await import("./api");
+      state.shipmentCalendarData = await fetchShipmentCalendar(ym);
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLElement>("[data-sc-date]").forEach((cell) => {
+    cell.addEventListener("click", () => {
+      const date = cell.dataset.scDate;
+      if (!date) return;
+      state.shipmentCalendarSelectedDate = state.shipmentCalendarSelectedDate === date ? null : date;
+      renderApp();
     });
   });
 

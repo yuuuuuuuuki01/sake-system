@@ -4476,3 +4476,100 @@ export async function saveProductionPlan(row: ProductionPlanRow): Promise<boolea
   });
   return result !== null;
 }
+
+// ─── 出荷カレンダー ──────────────────────────────────────────────────────────
+
+export interface ShipmentEntry {
+  customerCode: string;
+  customerName: string;
+  city: string;
+  amount: number;
+}
+
+export interface ShipmentDay {
+  date: string;
+  entries: ShipmentEntry[];
+  cityGroups: { city: string; count: number }[];
+  totalAmount: number;
+  count: number;
+}
+
+export type ShipmentCalendarData = Record<string, ShipmentDay>;
+
+/** 住所文字列から市区町村を抽出する */
+function extractCity(address: string): string {
+  if (!address) return "不明";
+  // 都道府県を除去
+  const noPref = address.replace(/^.+?[都道府県]/, "");
+  // 郡XX町/村、または 市/区/町/村 で終わる最短マッチ
+  const m = noPref.match(/^(.+?郡.+?[町村]|.+?[市区町村])/);
+  return m ? m[1] : noPref.substring(0, 6);
+}
+
+export async function fetchShipmentCalendar(yearMonth: string): Promise<ShipmentCalendarData> {
+  const [y, mo] = yearMonth.split("-").map(Number);
+  const startDate = `${yearMonth}-01`;
+  // 月末日を計算
+  const lastDay = new Date(y, mo, 0).getDate();
+  const endDate = `${yearMonth}-${String(lastDay).padStart(2, "0")}`;
+
+  // 月内の伝票ヘッダを取得
+  const headers = await supabaseQueryAll<{
+    sales_date: string;
+    customer_name: string;
+    legacy_customer_code: string;
+    total_amount: number | string;
+  }>("sales_document_headers", {
+    select: "sales_date,customer_name,legacy_customer_code,total_amount",
+    and: `(sales_date.gte.${startDate},sales_date.lte.${endDate})`,
+    order: "sales_date.asc"
+  });
+
+  // 得意先住所マップを取得
+  const customers = await supabaseQueryAll<{
+    id: string;
+    address1: string | null;
+  }>("customers", {
+    select: "id,address1",
+    address1: "not.is.null"
+  });
+
+  const cityMap: Record<string, string> = {};
+  for (const c of customers) {
+    if (c.address1) cityMap[c.id] = extractCity(c.address1);
+  }
+
+  // 日付ごとに集計
+  const result: ShipmentCalendarData = {};
+  for (const h of headers) {
+    const date = h.sales_date;
+    if (!date) continue;
+    const city = cityMap[h.legacy_customer_code] || "住所未登録";
+    const amount = Number(h.total_amount) || 0;
+
+    if (!result[date]) {
+      result[date] = { date, entries: [], cityGroups: [], totalAmount: 0, count: 0 };
+    }
+    result[date].entries.push({
+      customerCode: h.legacy_customer_code || "",
+      customerName: h.customer_name || "",
+      city,
+      amount
+    });
+    result[date].totalAmount += amount;
+    result[date].count++;
+  }
+
+  // 市区町村グループを集計
+  for (const day of Object.values(result)) {
+    const cityCount: Record<string, number> = {};
+    for (const e of day.entries) {
+      cityCount[e.city] = (cityCount[e.city] || 0) + 1;
+    }
+    day.cityGroups = Object.entries(cityCount)
+      .sort((a, b) => b[1] - a[1])
+      .map(([city, count]) => ({ city, count }));
+  }
+
+  return result;
+}
