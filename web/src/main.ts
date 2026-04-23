@@ -1441,19 +1441,45 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           }
         }
         break;
-      case "/demand":
+      case "/demand": {
+        const { fetchDemandAnalysis, fetchSafetyStockParams, fetchProductionPlan } = await import("./api");
         if (!state.demandAnalysis) {
-          const { fetchDemandAnalysis, fetchSafetyStockParams, fetchProductionPlan } = await import("./api");
-          const [analysis, ssParams, plan] = await Promise.all([
+          const [analysis, ssParams] = await Promise.all([
             fetchDemandAnalysis(),
-            fetchSafetyStockParams(),
-            fetchProductionPlan(state.demandPlanYearMonth)
+            fetchSafetyStockParams()
           ]);
           state.demandAnalysis = analysis;
           state.safetyStockParams = ssParams;
-          state.productionPlan = plan;
+        }
+        // 生産計画: DBにあれば使い、なければ分析データから自動生成
+        if (state.productionPlan.length === 0) {
+          const dbPlan = await fetchProductionPlan(state.demandPlanYearMonth);
+          if (dbPlan.length > 0) {
+            state.productionPlan = dbPlan;
+          } else if (state.demandAnalysis && state.safetyStockParams.length > 0) {
+            const ym = state.demandPlanYearMonth;
+            const recentMonths = state.demandAnalysis.months.filter((m) => m < ym).slice(-3);
+            state.productionPlan = state.safetyStockParams
+              .filter((p) => (state.demandAnalysis!.productAvg[p.productCode] ?? 0) >= 10)
+              .map((p) => {
+                const qtys = recentMonths.map((m) => state.demandAnalysis!.matrix[p.productCode]?.[m] ?? 0);
+                const forecast = qtys.length > 0
+                  ? Math.ceil(qtys.reduce((s, v) => s + v, 0) / qtys.length)
+                  : Math.ceil(p.avgMonthlyDemand);
+                const ss = Math.ceil(p.safetyStockQty);
+                return {
+                  id: "", yearMonth: ym,
+                  productCode: p.productCode, productName: p.productName,
+                  demandForecast: forecast, safetyStockTarget: ss, openingStock: 0,
+                  requiredProduction: Math.max(0, forecast + ss),
+                  plannedQty: Math.max(0, forecast + ss), actualQty: 0,
+                  status: "draft" as const, notes: ""
+                };
+              });
+          }
         }
         break;
+      }
       case "/jikomi":
         if (state.jikomiList.length === 0) {
           state.jikomiList = await fetchJikomiList();
@@ -2723,51 +2749,73 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // Demand planning: plan year/month change
-  root.querySelector<HTMLInputElement>("[data-action='demand-plan-month']")?.addEventListener("change", async (e) => {
-    const ym = (e.target as HTMLInputElement).value;
+  // Demand planning: 需要実績から生産計画を自動生成するヘルパー
+  function buildPlanFromAnalysis(ym: string): import("./api").ProductionPlanRow[] {
+    const analysis = state.demandAnalysis;
+    const ssParams = state.safetyStockParams;
+    if (!analysis || ssParams.length === 0) return [];
+
+    // 対象月より前の直近3ヶ月
+    const recentMonths = analysis.months.filter((m) => m < ym).slice(-3);
+
+    return ssParams
+      .filter((p) => (analysis.productAvg[p.productCode] ?? 0) >= 10)
+      .map((p) => {
+        const recentQtys = recentMonths.map((m) => analysis.matrix[p.productCode]?.[m] ?? 0);
+        const forecast = recentQtys.length > 0
+          ? Math.ceil(recentQtys.reduce((s, v) => s + v, 0) / recentQtys.length)
+          : Math.ceil(p.avgMonthlyDemand);
+        const ss = Math.ceil(p.safetyStockQty);
+        const required = Math.max(0, forecast + ss);
+        return {
+          id: "",
+          yearMonth: ym,
+          productCode: p.productCode,
+          productName: p.productName,
+          demandForecast: forecast,
+          safetyStockTarget: ss,
+          openingStock: 0,
+          requiredProduction: required,
+          plannedQty: required,
+          actualQty: 0,
+          status: "draft" as const,
+          notes: ""
+        };
+      });
+  }
+
+  // Demand planning: 年月切り替え → DBから取得し、空なら自動生成
+  root.querySelector<HTMLSelectElement>("[data-action='plan-year-month']")?.addEventListener("change", async (e) => {
+    const ym = (e.target as HTMLSelectElement).value;
     if (!ym) return;
     state.demandPlanYearMonth = ym;
     const { fetchProductionPlan } = await import("./api");
-    state.productionPlan = await fetchProductionPlan(ym);
+    const rows = await fetchProductionPlan(ym);
+    state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
     renderApp();
   });
 
-  // Demand planning: save safety stock params
-  root.querySelectorAll<HTMLButtonElement>("[data-action='save-safety-stock']").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const code = btn.dataset.productCode ?? "";
-      const row = root.closest("[data-product-row]") ?? btn.closest("[data-product-row]");
-      if (!row) return;
-      const leadTime = parseInt((row.querySelector<HTMLInputElement>("[data-field='lead-time']")?.value) ?? "30");
-      const serviceLevel = parseFloat((row.querySelector<HTMLSelectElement>("[data-field='service-level']")?.value) ?? "0.95");
-      const existing = state.safetyStockParams.find((p) => p.productCode === code);
-      if (!existing) return;
-      const updated = { ...existing, leadTimeDays: leadTime, serviceLevel };
-      const { saveSafetyStockParams } = await import("./api");
-      await saveSafetyStockParams(updated);
-      state.safetyStockParams = state.safetyStockParams.map((p) => p.productCode === code ? updated : p);
-      renderApp();
-    });
+  // Demand planning: 需要予測を再計算ボタン
+  root.querySelector<HTMLButtonElement>("[data-action='plan-recalc']")?.addEventListener("click", () => {
+    state.productionPlan = buildPlanFromAnalysis(state.demandPlanYearMonth);
+    renderApp();
   });
 
-  // Demand planning: save production plan
-  root.querySelectorAll<HTMLButtonElement>("[data-action='save-production-plan']").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const code = btn.dataset.productCode ?? "";
-      const row = btn.closest("[data-product-row]");
-      if (!row) return;
-      const plannedQty = parseFloat((row.querySelector<HTMLInputElement>("[data-field='planned-qty']")?.value) ?? "0");
-      const actualQty = parseFloat((row.querySelector<HTMLInputElement>("[data-field='actual-qty']")?.value) ?? "0");
-      const status = (row.querySelector<HTMLSelectElement>("[data-field='status']")?.value ?? "draft") as "draft" | "confirmed" | "actual";
-      const existing = state.productionPlan.find((p) => p.productCode === code);
-      if (!existing) return;
-      const updated = { ...existing, plannedQty, actualQty, status };
-      const { saveProductionPlan } = await import("./api");
-      await saveProductionPlan(updated);
-      state.productionPlan = state.productionPlan.map((p) => p.productCode === code ? updated : p);
-      renderApp();
+  // Demand planning: 計画を保存ボタン（全行一括）
+  root.querySelector<HTMLButtonElement>("[data-action='plan-save']")?.addEventListener("click", async () => {
+    if (state.productionPlan.length === 0) return;
+    // 画面上の入力値を state に反映してから保存
+    root.querySelectorAll<HTMLInputElement>("[data-action='plan-qty']").forEach((input) => {
+      const code = input.dataset.code ?? "";
+      const row = state.productionPlan.find((r) => r.productCode === code);
+      if (row) row.plannedQty = parseFloat(input.value) || 0;
     });
+    const { saveProductionPlan } = await import("./api");
+    await Promise.all(state.productionPlan.map((r) => saveProductionPlan(r)));
+    // 保存後 state.productionPlan の id を DB から再取得して同期
+    const { fetchProductionPlan } = await import("./api");
+    state.productionPlan = await fetchProductionPlan(state.demandPlanYearMonth);
+    renderApp();
   });
 
   // Seasonal calendar: month selection
