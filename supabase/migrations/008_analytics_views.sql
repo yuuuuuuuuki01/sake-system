@@ -28,8 +28,8 @@ select
        then round(sum(h.total_amount)::numeric / (sum(l.quantity * coalesce(p.volume_ml, 0))::numeric / 1000), 0)
        else 0 end               as price_per_liter
 from sales_document_headers h
-left join sales_document_lines l on l.header_id = h.id
-left join products p on p.legacy_product_code = l.product_code
+left join sales_document_lines l on l.sales_document_header_id = h.id
+left join products p on p.legacy_product_code = l.legacy_product_code
 where h.sales_date is not null
 group by h.sales_date
 order by h.sales_date;
