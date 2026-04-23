@@ -24,25 +24,27 @@ create index if not exists idx_sdh_sales_date  on sales_document_headers(sales_d
 -- refresh_daily_sales_fact() が呼ばれるたびに CONCURRENTLY リフレッシュされる。
 
 create materialized view if not exists daily_sales_agg as
-select
-  h.sales_date,
-  count(distinct h.id)                                                          as document_count,
-  coalesce(sum(h.total_amount), 0)                                              as amount,
-  coalesce(sum(l.quantity), 0)                                                  as bottles,
-  coalesce(sum(l.quantity * coalesce(p.volume_ml, 0)), 0)                       as volume_ml,
-  case when coalesce(sum(l.quantity), 0) > 0
-       then round(sum(h.total_amount)::numeric / sum(l.quantity), 0)
-       else 0 end                                                                as price_per_bottle,
-  case when coalesce(sum(l.quantity * coalesce(p.volume_ml, 0)), 0) > 0
-       then round(sum(h.total_amount)::numeric / (sum(l.quantity * coalesce(p.volume_ml, 0))::numeric / 1000), 0)
-       else 0 end                                                                as price_per_liter
-from sales_document_headers h
-left join sales_document_lines l on l.sales_document_header_id = h.id
-left join products p on p.legacy_product_code = l.legacy_product_code
-where h.sales_date is not null
-group by h.sales_date
-order by h.sales_date
-with data;
+with hdr as (
+  select sales_date, count(*) as document_count, sum(total_amount) as amount
+  from sales_document_headers where sales_date is not null group by sales_date
+),
+lns as (
+  select h.sales_date,
+    sum(l.quantity) as bottles,
+    sum(l.quantity * coalesce(p.volume_ml, 0)) as volume_ml
+  from sales_document_headers h
+  join sales_document_lines l on l.sales_document_header_id = h.id
+  left join products p on p.legacy_product_code = l.legacy_product_code
+  where h.sales_date is not null group by h.sales_date
+)
+select hdr.sales_date, hdr.document_count, hdr.amount,
+  coalesce(lns.bottles, 0) as bottles, coalesce(lns.volume_ml, 0) as volume_ml,
+  case when coalesce(lns.bottles, 0) > 0
+       then round(hdr.amount / coalesce(lns.bottles, 0), 0) else 0 end as price_per_bottle,
+  case when coalesce(lns.volume_ml, 0) > 0
+       then round(hdr.amount / (coalesce(lns.volume_ml, 0) / 1000.0), 0) else 0 end as price_per_liter
+from hdr left join lns on lns.sales_date = hdr.sales_date
+order by hdr.sales_date with data;
 
 -- REFRESH CONCURRENTLY に必要なユニークインデックス
 create unique index if not exists idx_daily_sales_agg_date on daily_sales_agg(sales_date);
