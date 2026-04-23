@@ -2234,6 +2234,18 @@ function renderShell(): string {
   `;
 }
 
+async function reloadSalesSummary(): Promise<void> {
+  state.actionLoading = true;
+  renderApp();
+  try {
+    const { fetchSalesSummary } = await import("./api");
+    state.salesSummary = await fetchSalesSummary();
+  } finally {
+    state.actionLoading = false;
+    renderApp();
+  }
+}
+
 async function reloadInvoices(filter: InvoiceFilter): Promise<void> {
   state.actionLoading = true;
   renderApp();
@@ -2929,7 +2941,7 @@ function bindEvents(root: HTMLElement): void {
     const start = root.querySelector<HTMLInputElement>("#sales-start")?.value ?? "";
     const end = root.querySelector<HTMLInputElement>("#sales-end")?.value ?? "";
     state.salesFilter = { startDate: start, endDate: end };
-    renderApp();
+    void reloadSalesSummary();
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='invoice-filter']")?.addEventListener("click", () => {
@@ -4985,17 +4997,17 @@ function renderApp(): void {
 }
 
 const CACHE_KEY = "sake-cloud-cache";
-const CACHE_TTL = 30 * 60 * 1000; // 30分
+// リレーが5分毎に同期するため、キャッシュはそれに合わせて5分
+// 伝票・売上などのトランザクションデータはキャッシュしない
+const CACHE_TTL = 5 * 60 * 1000; // 5分
 
 function saveCache(): void {
   try {
     const cache = {
       ts: Date.now(),
-      salesSummary: state.salesSummary,
-      paymentStatus: state.paymentStatus,
+      // masterStats のみキャッシュ（マスタは頻繁に変わらない）
       masterStats: state.masterStats,
       pipelineMeta: state.pipelineMeta,
-      salesAnalytics: state.salesAnalytics,
     };
     localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
   } catch { /* quota超えは無視 */ }
@@ -5007,11 +5019,8 @@ function restoreCache(): boolean {
     if (!raw) return false;
     const cache = JSON.parse(raw);
     if (Date.now() - cache.ts > CACHE_TTL) return false;
-    if (cache.salesSummary) state.salesSummary = cache.salesSummary;
-    if (cache.paymentStatus) state.paymentStatus = cache.paymentStatus;
     if (cache.masterStats) state.masterStats = cache.masterStats;
     if (cache.pipelineMeta) state.pipelineMeta = cache.pipelineMeta;
-    if (cache.salesAnalytics) state.salesAnalytics = cache.salesAnalytics;
     return true;
   } catch { return false; }
 }
@@ -5354,17 +5363,17 @@ function initCustomerMap(container: HTMLElement) {
 
 void loadData();
 
-// ダッシュボード自動更新（5分間隔）
+// 全ページ自動更新（5分間隔）— リレー同期と合わせて常に最新を表示
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
 setInterval(() => {
-  if (state.route === "/" && !state.loading && !document.hidden) {
+  if (!state.loading && !document.hidden) {
     void loadData();
   }
 }, AUTO_REFRESH_INTERVAL);
 
-// iOSホーム画面アプリ対応: フォアグラウンド復帰時にデータ再取得
+// フォアグラウンド復帰時にデータ再取得（1分以上経過していれば）
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && Date.now() - lastLoadTime > 3 * 60 * 1000) {
+  if (!document.hidden && Date.now() - lastLoadTime > 60 * 1000) {
     void loadData();
   }
 });

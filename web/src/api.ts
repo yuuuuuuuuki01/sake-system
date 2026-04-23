@@ -571,7 +571,7 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
       supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
         select: "id,document_no,legacy_document_no,sales_date,legacy_customer_code,customer_name,total_amount",
         order: "sales_date.desc",
-        limit: "20"
+        limit: "500"
       })
     ]);
 
