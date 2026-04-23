@@ -1,24 +1,12 @@
-import { supabaseInsert, supabaseQuery } from "./supabase";
+import { supabaseCount, supabaseInsert, supabaseQuery, supabaseQueryAll, supabaseRpc, supabaseUpdate } from "./supabase";
 import type { TourInquiry } from "./components/BreweryTour";
 export type { TourInquiry };
 
-export type PipelineStatus = "success" | "warning" | "error" | "running" | "no_change";
-
-export interface RelaySyncLog {
-  id: string;
-  sync_started_at: string;
-  sync_ended_at: string;
-  status: "success" | "warning" | "error" | "no_change";
-  files_scanned: number;
-  files_updated: number;
-  rows_upserted: number;
-  errors: { file: string; error: string }[];
-  log_text: string;
-  agent_hostname: string;
-}
+export type PipelineStatus = "success" | "warning" | "error" | "running";
 export type PaymentState = "unpaid" | "partial" | "paid";
 export type MasterTab = "customers" | "products";
-export type AnalyticsTab = "products" | "customers";
+export type AnalyticsTab = "products" | "customers" | "staff";
+export type AnalyticsPeriod = "all" | "yearly" | "monthly" | "weekly" | "daily";
 export type EmailCampaignStatus = "draft" | "sent";
 
 export interface EmailTemplate {
@@ -72,7 +60,13 @@ export const SEASONAL_TEMPLATES: Record<EmailTemplate["id"], EmailTemplate> = {
 export interface SalesDayPoint {
   date: string;
   amount: number;
+  bottles: number;
+  volumeMl: number;
+  pricePerBottle: number;
+  pricePerLiter: number;
 }
+
+export type SalesPeriod = "today" | "month" | "90days" | "year" | "all" | "custom";
 
 export interface SalesRecord {
   id: string;
@@ -111,6 +105,7 @@ export interface SalesSummary {
     unpaidAmount: number;
   };
   dailySales: SalesDayPoint[];
+  allDailySales: SalesDayPoint[];
   salesRecords: SalesRecord[];
 }
 
@@ -141,19 +136,32 @@ export interface MasterCustomer {
   address2: string;
   phone: string;
   fax: string;
+  email: string;
   staffCode: string;
   businessType: string;
   areaCode: string;
+  salesCategory: string;
   closingDay: number;
   paymentDay: number;
+  paymentMonth: number;
+  paymentCycle: string;
   billingCycleType: string;
+  billingCode: string;
+  creditLimit: number;
+  taxMode: string;
+  taxRound: string;
+  invoiceIssue: string;
+  invoiceType: string;
   priceGroup: string;
+  priceType: string;
+  customerGroup1: string;
+  customerGroup2: string;
+  bankName: string;
+  bankBranch: string;
+  bankAccount: string;
   isActive: boolean;
   lat?: number;
   lng?: number;
-  address1?: string;
-  businessType?: string;
-  phone?: string;
 }
 
 export interface MasterProduct {
@@ -161,8 +169,24 @@ export interface MasterProduct {
   code: string;
   janCode: string;
   name: string;
+  kanaName: string;
+  shortName: string;
   category: string;
+  taxCategoryCode: string;
   isActive: boolean;
+  listPrice: number;       // 定価（小売価格）
+  purchasePrice: number;   // 仕入単価（生産者価格）
+  salePrice: number;       // 卸価格（デフォルト売価）
+  costPrice: number;       // 原価
+  alcoholDegree: number | null;
+  volumeMl: number | null;
+  unit: string;
+  bottleType: string;
+  containerCode: string;
+  polishRate: number | null;
+  riceType: string;
+  season: string;
+  agingYears: number;
 }
 
 export interface MasterStatsSummary {
@@ -180,6 +204,7 @@ export interface MasterStatsSummary {
 export interface PipelineMeta {
   generatedAt: string;
   lastSyncAt: string;
+  lastDataAt: string;   // daily_sales_fact の最新データ日
   status: PipelineStatus;
   jobName: string;
   message: string;
@@ -227,12 +252,17 @@ export interface SalesAnalytics {
   monthlySales: AnalyticsMonthlyPoint[];
   productTotals: AnalyticsBreakdownRow[];
   customerTotals: AnalyticsBreakdownRow[];
+  staffTotals: AnalyticsBreakdownRow[];
 }
 
 interface DailySalesFactRow {
   sales_date: string;
   sales_amount: number | string | null;
   document_count: number | string | null;
+  bottles: number | string | null;
+  volume_ml: number | string | null;
+  price_per_bottle: number | string | null;
+  price_per_liter: number | string | null;
 }
 
 interface CustomerPaymentStatusRow {
@@ -284,241 +314,44 @@ interface CustomerPaymentRow {
 type LooseRow = Record<string, unknown>;
 
 const mockSalesSummary: SalesSummary = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  kpis: {
-    todaySales: 1248000,
-    todayDelta: 8.2,
-    monthSales: 18245000,
-    monthDelta: 5.6,
-    unpaidCount: 7,
-    unpaidAmount: 2640000
-  },
-  dailySales: Array.from({ length: 30 }, (_, index) => {
-    const day = new Date("2026-03-17T00:00:00+09:00");
-    day.setDate(day.getDate() + index);
-    return {
-      date: day.toISOString(),
-      amount: 420000 + ((index * 73123) % 620000)
-    };
-  }),
-  salesRecords: Array.from({ length: 20 }, (_, index) => {
-    const day = new Date("2026-04-15T00:00:00+09:00");
-    day.setDate(day.getDate() - index);
-    return {
-      id: `sale-${index + 1}`,
-      documentNo: `D${String(240100 + index).padStart(6, "0")}`,
-      date: day.toISOString(),
-      customerCode: `C${String(index + 11).padStart(4, "0")}`,
-      customerName: ["青葉商事", "北斗酒販", "中央フーズ", "東海酒店"][index % 4],
-      amount: 68000 + (index % 6) * 24500
-    };
-  })
+  generatedAt: new Date().toISOString(),
+  kpis: { todaySales: 0, todayDelta: 0, monthSales: 0, monthDelta: 0, unpaidCount: 0, unpaidAmount: 0 },
+  dailySales: [],
+  allDailySales: [],
+  salesRecords: []
 };
 
 const mockPaymentStatus: PaymentStatusSummary = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  records: [
-    {
-      id: "pay-1",
-      customerCode: "C0011",
-      customerName: "青葉商事",
-      billedAmount: 540000,
-      paymentAmount: 0,
-      balanceAmount: 540000,
-      lastPaymentDate: null,
-      status: "unpaid"
-    },
-    {
-      id: "pay-2",
-      customerCode: "C0012",
-      customerName: "北斗酒販",
-      billedAmount: 720000,
-      paymentAmount: 300000,
-      balanceAmount: 420000,
-      lastPaymentDate: "2026-04-11T14:30:00+09:00",
-      status: "partial"
-    },
-    {
-      id: "pay-3",
-      customerCode: "C0013",
-      customerName: "中央フーズ",
-      billedAmount: 680000,
-      paymentAmount: 680000,
-      balanceAmount: 0,
-      lastPaymentDate: "2026-04-14T10:00:00+09:00",
-      status: "paid"
-    },
-    {
-      id: "pay-4",
-      customerCode: "C0014",
-      customerName: "東海酒店",
-      billedAmount: 410000,
-      paymentAmount: 180000,
-      balanceAmount: 230000,
-      lastPaymentDate: "2026-04-10T09:10:00+09:00",
-      status: "partial"
-    }
-  ]
+  generatedAt: new Date().toISOString(),
+  records: []
 };
 
 const mockMasterStats: MasterStatsSummary = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  summary: {
-    customerCount: 164,
-    activeCustomerCount: 152,
-    productCount: 486,
-    activeProductCount: 461
-  },
-  customers: Array.from({ length: 12 }, (_, index) => ({
-    id: `customer-${index + 1}`,
-    code: `C${String(index + 1).padStart(4, "0")}`,
-    name: ["青葉商事", "北斗酒販", "中央フーズ", "東海酒店", "三和物産", "南星リカー"][index % 6],
-    kanaName: "",
-    shortName: "",
-    postalCode: "",
-    address1: "",
-    address2: "",
-    phone: "",
-    fax: "",
-    staffCode: "",
-    businessType: "",
-    areaCode: "",
-    closingDay: [15, 20, 25, 31][index % 4],
-    paymentDay: [5, 10, 15, 20][index % 4],
-    billingCycleType: "",
-    priceGroup: "",
-    isActive: index % 5 !== 0
-  })),
-  products: Array.from({ length: 12 }, (_, index) => ({
-    id: `product-${index + 1}`,
-    code: `P${String(index + 1).padStart(5, "0")}`,
-    janCode: `4901234567${String(index).padStart(3, "0")}`,
-    name: ["純米吟醸 720ml", "本醸造 1.8L", "特別純米 300ml", "梅酒 500ml"][index % 4],
-    category: ["清酒", "焼酎", "リキュール"][index % 3],
-    isActive: index % 6 !== 0
-  }))
+  generatedAt: new Date().toISOString(),
+  summary: { customerCount: 0, activeCustomerCount: 0, productCount: 0, activeProductCount: 0 },
+  customers: [],
+  products: []
 };
 
 const mockPipelineMeta: PipelineMeta = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  lastSyncAt: "2026-04-15T09:12:21+09:00",
+  generatedAt: new Date().toISOString(),
+  lastSyncAt: new Date().toISOString(),
+  lastDataAt: new Date().toISOString(),
   status: "success",
-  jobName: "daily-sync",
-  message: "同期完了。売上・入金・マスタを最新化しました。"
+  jobName: "sake-relay",
+  message: "データ未取得"
 };
 
-const mockInvoiceRecords: InvoiceRecord[] = mockSalesSummary.salesRecords.map((record, index) => ({
-  ...record,
-  itemCount: (index % 4) + 1
-}));
+const mockInvoiceRecords: InvoiceRecord[] = [];
 
-const mockLedgerData: Record<string, CustomerLedger> = {
-  C0011: {
-    customerCode: "C0011",
-    customerName: "青葉商事",
-    balanceAmount: 540000,
-    salesTotal: 1140000,
-    paymentTotal: 600000,
-    salesHistory: [
-      {
-        id: "ledger-sale-1",
-        date: "2026-04-15T00:00:00+09:00",
-        documentNo: "D240100",
-        amount: 420000
-      },
-      {
-        id: "ledger-sale-2",
-        date: "2026-04-08T00:00:00+09:00",
-        documentNo: "D240087",
-        amount: 390000
-      },
-      {
-        id: "ledger-sale-3",
-        date: "2026-03-28T00:00:00+09:00",
-        documentNo: "D240059",
-        amount: 330000
-      }
-    ],
-    paymentHistory: [
-      {
-        id: "ledger-payment-1",
-        date: "2026-04-10T00:00:00+09:00",
-        amount: 300000,
-        method: "振込"
-      },
-      {
-        id: "ledger-payment-2",
-        date: "2026-03-31T00:00:00+09:00",
-        amount: 300000,
-        method: "振込"
-      }
-    ]
-  },
-  C0012: {
-    customerCode: "C0012",
-    customerName: "北斗酒販",
-    balanceAmount: 420000,
-    salesTotal: 1020000,
-    paymentTotal: 600000,
-    salesHistory: [
-      {
-        id: "ledger-sale-4",
-        date: "2026-04-14T00:00:00+09:00",
-        documentNo: "D240101",
-        amount: 360000
-      },
-      {
-        id: "ledger-sale-5",
-        date: "2026-04-05T00:00:00+09:00",
-        documentNo: "D240082",
-        amount: 320000
-      },
-      {
-        id: "ledger-sale-6",
-        date: "2026-03-25T00:00:00+09:00",
-        documentNo: "D240054",
-        amount: 340000
-      }
-    ],
-    paymentHistory: [
-      {
-        id: "ledger-payment-3",
-        date: "2026-04-11T00:00:00+09:00",
-        amount: 300000,
-        method: "振込"
-      },
-      {
-        id: "ledger-payment-4",
-        date: "2026-03-30T00:00:00+09:00",
-        amount: 300000,
-        method: "現金"
-      }
-    ]
-  }
-};
+const mockLedgerData: Record<string, CustomerLedger> = {};
 
 const mockSalesAnalytics: SalesAnalytics = {
-  generatedAt: "2026-04-15T09:15:00+09:00",
-  monthlySales: [
-    { month: "2025-11", amount: 12840000 },
-    { month: "2025-12", amount: 13620000 },
-    { month: "2026-01", amount: 14110000 },
-    { month: "2026-02", amount: 13380000 },
-    { month: "2026-03", amount: 15860000 },
-    { month: "2026-04", amount: 18245000 }
-  ],
-  productTotals: [
-    { code: "P00001", name: "純米吟醸 720ml", amount: 5840000, quantity: 820, documents: 148 },
-    { code: "P00002", name: "本醸造 1.8L", amount: 4980000, quantity: 610, documents: 131 },
-    { code: "P00003", name: "特別純米 300ml", amount: 3560000, quantity: 1240, documents: 112 },
-    { code: "P00004", name: "梅酒 500ml", amount: 2870000, quantity: 540, documents: 89 }
-  ],
-  customerTotals: [
-    { code: "C0011", name: "青葉商事", amount: 4620000, quantity: 320, documents: 54 },
-    { code: "C0012", name: "北斗酒販", amount: 4380000, quantity: 294, documents: 49 },
-    { code: "C0013", name: "中央フーズ", amount: 3910000, quantity: 276, documents: 45 },
-    { code: "C0014", name: "東海酒店", amount: 3240000, quantity: 221, documents: 37 }
-  ]
+  generatedAt: new Date().toISOString(),
+  monthlySales: [],
+  productTotals: [],
+  customerTotals: [],
+  staffTotals: []
 };
 
 function toNumber(value: unknown): number {
@@ -718,55 +551,62 @@ function aggregateMockAnalytics(): SalesAnalytics {
     ),
     customerTotals: Array.from(customerMap.values()).sort(
       (left, right) => right.amount - left.amount
-    )
+    ),
+    staffTotals: []
   };
 }
 
-async function fetchJson<T>(path: string, fallback: T): Promise<T> {
-  try {
-    const response = await fetch(`${import.meta.env.BASE_URL}${path}`, {
-      headers: { Accept: "application/json" }
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    return (await response.json()) as T;
-  } catch (error) {
-    console.warn(`Failed to fetch ${path}, using fallback data`, error);
-    return fallback;
-  }
-}
 
 export async function fetchSalesSummary(): Promise<SalesSummary> {
-  const salesRows = await supabaseQuery<DailySalesFactRow>("daily_sales_fact", {
-    select: "sales_date,sales_amount,document_count",
-    order: "sales_date.desc",
-    limit: "60"
+  const salesRows = await supabaseQueryAll<DailySalesFactRow>("daily_sales_detail", {
+    select: "sales_date,amount,document_count,bottles,volume_ml,price_per_bottle,price_per_liter",
+    order: "sales_date.desc"
   });
 
   if (salesRows.length > 0) {
-    const paymentRows = await supabaseQuery<CustomerPaymentStatusRow>("customer_payment_status", {
-      select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
-    });
+    const [paymentRows, headerRows] = await Promise.all([
+      supabaseQuery<CustomerPaymentStatusRow>("customer_payment_status", {
+        select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
+      }),
+      supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
+        select: "id,document_no,legacy_document_no,sales_date,legacy_customer_code,customer_name,total_amount",
+        order: "sales_date.desc",
+        limit: "20"
+      })
+    ]);
 
     const today = new Date();
     const todayKey = today.toISOString().slice(0, 10);
     const monthKey = todayKey.slice(0, 7);
-    const recentDailySales = [...salesRows]
+    const allDailySales = [...salesRows]
       .sort((left, right) => left.sales_date.localeCompare(right.sales_date))
-      .slice(-30)
       .map((row) => ({
         date: new Date(`${row.sales_date}T00:00:00Z`).toISOString(),
-        amount: toNumber(row.sales_amount)
+        amount: toNumber((row as Record<string, unknown>).amount ?? row.sales_amount),
+        bottles: toNumber(row.bottles),
+        volumeMl: toNumber(row.volume_ml),
+        pricePerBottle: toNumber(row.price_per_bottle),
+        pricePerLiter: toNumber(row.price_per_liter)
       }));
+    const recentDailySales = allDailySales.slice(-30);
 
+    const toAmt = (row: DailySalesFactRow) => toNumber((row as Record<string, unknown>).amount ?? row.sales_amount);
     const todaySales = salesRows.reduce((sum, row) => {
-      return row.sales_date === todayKey ? sum + toNumber(row.sales_amount) : sum;
+      return row.sales_date === todayKey ? sum + toAmt(row) : sum;
     }, 0);
     const monthSales = salesRows.reduce((sum, row) => {
-      return row.sales_date.startsWith(monthKey) ? sum + toNumber(row.sales_amount) : sum;
+      return row.sales_date.startsWith(monthKey) ? sum + toAmt(row) : sum;
     }, 0);
     const unpaidRows = paymentRows.filter((row) => toNumber(row.balance_amount) > 0);
+
+    const salesRecords: SalesRecord[] = headerRows.map((row, index) => ({
+      id: String(row.id ?? `sale-${index + 1}`),
+      documentNo: row.document_no ?? row.legacy_document_no ?? "",
+      date: row.sales_date ?? "",
+      customerCode: row.legacy_customer_code ?? "",
+      customerName: row.customer_name ?? row.legacy_customer_code ?? "",
+      amount: toNumber(row.total_amount)
+    }));
 
     return {
       generatedAt: new Date().toISOString(),
@@ -779,15 +619,16 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
         unpaidAmount: unpaidRows.reduce((sum, row) => sum + toNumber(row.balance_amount), 0)
       },
       dailySales: recentDailySales,
-      salesRecords: mockSalesSummary.salesRecords
+      allDailySales,
+      salesRecords
     };
   }
 
-  return fetchJson("data/api/latest/sales-summary.json", mockSalesSummary);
+  return mockSalesSummary;
 }
 
 export async function fetchPaymentStatus(): Promise<PaymentStatusSummary> {
-  const rows = await supabaseQuery<CustomerPaymentStatusRow>("customer_payment_status", {
+  const rows = await supabaseQueryAll<CustomerPaymentStatusRow>("customer_payment_status", {
     select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
   });
 
@@ -810,13 +651,13 @@ export async function fetchPaymentStatus(): Promise<PaymentStatusSummary> {
     };
   }
 
-  return fetchJson("data/api/latest/payment-status.json", mockPaymentStatus);
+  return mockPaymentStatus;
 }
 
 export async function fetchMasterStats(): Promise<MasterStatsSummary> {
   const [customerRows, productRows] = await Promise.all([
-    supabaseQuery<LooseRow>("customers"),
-    supabaseQuery<LooseRow>("products")
+    supabaseQueryAll<LooseRow>("customers"),
+    supabaseQueryAll<LooseRow>("products")
   ]);
 
   if (customerRows.length > 0 || productRows.length > 0) {
@@ -838,13 +679,29 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
             address2: getString(row, ["address2"], ""),
             phone: getString(row, ["phone"], ""),
             fax: getString(row, ["fax"], ""),
+            email: getString(row, ["email"], ""),
             staffCode: getString(row, ["staff_code"], ""),
             businessType: getString(row, ["business_type"], ""),
             areaCode: getString(row, ["delivery_area_code"], ""),
+            salesCategory: String(memo.sales_category ?? ""),
             closingDay: getNumber(row, ["closing_day", "close_day"], 31),
             paymentDay: getNumber(row, ["payment_day", "due_day"], 15),
+            paymentMonth: Number(memo.payment_month ?? 0),
+            paymentCycle: getString(row, ["payment_cycle"], ""),
             billingCycleType: getString(row, ["billing_cycle_type"], ""),
+            billingCode: String(memo.billing_code ?? ""),
+            creditLimit: getNumber(row, ["credit_limit"], 0),
+            taxMode: getString(row, ["tax_mode"], ""),
+            taxRound: String(memo.tax_round ?? ""),
+            invoiceIssue: String(memo.invoice_issue ?? ""),
+            invoiceType: getString(row, ["invoice_type"], ""),
             priceGroup: String(memo.price_group ?? ""),
+            priceType: String(memo.price_type ?? ""),
+            customerGroup1: String(memo.customer_group1 ?? ""),
+            customerGroup2: String(memo.customer_group2 ?? ""),
+            bankName: getString(row, ["bank_name"], ""),
+            bankBranch: getString(row, ["bank_branch"], ""),
+            bankAccount: getString(row, ["bank_account"], ""),
             isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
             lat: row["lat"] ? Number(row["lat"]) : undefined,
             lng: row["lng"] ? Number(row["lng"]) : undefined
@@ -855,11 +712,27 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
     const products = productRows.length
       ? productRows.map((row, index) => ({
           id: getString(row, ["id", "product_id", "code"], `product-${index + 1}`),
-          code: getString(row, ["code", "product_code"], `P${String(index + 1).padStart(5, "0")}`),
+          code: getString(row, ["code", "product_code", "legacy_product_code"], `P${String(index + 1).padStart(5, "0")}`),
           janCode: getString(row, ["jan_code", "jan", "barcode"], ""),
           name: getString(row, ["name", "product_name", "display_name"], `Product ${index + 1}`),
-          category: getString(row, ["category", "category_name"], "未分類"),
-          isActive: getBoolean(row, ["is_active", "active", "enabled"], true)
+          kanaName: getString(row, ["kana_name"], ""),
+          shortName: getString(row, ["short_name"], ""),
+          category: getString(row, ["category", "category_name", "category_code"], "未分類"),
+          taxCategoryCode: getString(row, ["tax_category_code"], ""),
+          isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
+          listPrice: getNumber(row, ["list_price"], 0),
+          purchasePrice: getNumber(row, ["purchase_price"], 0),
+          salePrice: getNumber(row, ["default_sale_price", "sale_price"], 0),
+          costPrice: getNumber(row, ["default_cost_price"], 0),
+          alcoholDegree: row["alcohol_degree"] != null ? Number(row["alcohol_degree"]) : null,
+          volumeMl: row["volume_ml"] != null ? Number(row["volume_ml"]) : null,
+          unit: getString(row, ["unit"], "本"),
+          bottleType: getString(row, ["bottle_type"], ""),
+          containerCode: getString(row, ["container_code"], ""),
+          polishRate: row["polish_rate"] != null ? Number(row["polish_rate"]) : null,
+          riceType: getString(row, ["rice_type"], ""),
+          season: getString(row, ["season"], ""),
+          agingYears: getNumber(row, ["aging_years"], 0)
         }))
       : mockMasterStats.products;
 
@@ -880,79 +753,132 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
     };
   }
 
-  return fetchJson("data/api/latest/master-stats.json", mockMasterStats);
+  return mockMasterStats;
 }
 
 export async function fetchPipelineMeta(): Promise<PipelineMeta> {
-  const rows = await supabaseQuery<RelaySyncLog>("relay_sync_log", {
-    select: "id,sync_started_at,sync_ended_at,status,files_scanned,files_updated,rows_upserted,errors,log_text,agent_hostname",
-    order: "sync_ended_at.desc",
-    limit: "1",
-  });
+  const [rows, factRows] = await Promise.all([
+    supabaseQuery<LooseRow>("relay_sync_log", {
+      order: "sync_ended_at.desc.nullslast",
+      limit: "1"
+    }),
+    supabaseQuery<LooseRow>("daily_sales_fact", {
+      select: "sales_date",
+      order: "sales_date.desc",
+      limit: "1"
+    })
+  ]);
+  const lastDataAt = factRows.length > 0
+    ? getDateString(factRows[0] as LooseRow, ["sales_date"], new Date().toISOString())
+    : new Date().toISOString();
+
   if (rows.length > 0) {
-    const latest = rows[0];
-    const statusMap: Record<string, PipelineStatus> = {
-      success: "success",
-      warning: "warning",
-      error: "error",
-      no_change: "success",
-    };
+    const row = rows[0];
+    const status = getString(row, ["status"], "success");
+    const errors = row["errors"];
+    const hasErrors = Array.isArray(errors) ? errors.length > 0 : Boolean(errors);
     return {
-      generatedAt: latest.sync_ended_at,
-      lastSyncAt: latest.sync_ended_at,
-      status: statusMap[latest.status] ?? "success",
-      jobName: "SakeRelay",
-      message: latest.log_text,
+      generatedAt: new Date().toISOString(),
+      lastSyncAt: getDateString(row, ["sync_ended_at", "sync_started_at"], new Date().toISOString()),
+      lastDataAt,
+      status: (hasErrors ? "warning" : status === "error" ? "error" : "success") as PipelineStatus,
+      jobName: getString(row, ["agent_hostname"], "sake-relay"),
+      message: `${getNumber(row, ["rows_upserted"], 0)}行同期 / ${getNumber(row, ["files_updated"], 0)}ファイル更新`
     };
   }
-  return mockPipelineMeta;
+  return { ...mockPipelineMeta, lastDataAt };
 }
 
-export async function fetchRelaySyncLogs(limit = 20): Promise<RelaySyncLog[]> {
-  return supabaseQuery<RelaySyncLog>("relay_sync_log", {
-    select: "id,sync_started_at,sync_ended_at,status,files_scanned,files_updated,rows_upserted,errors,log_text,agent_hostname",
-    order: "sync_ended_at.desc",
-    limit: String(limit),
-  });
+// ── 同期ダッシュボード ──────────────────────────────────
+
+export interface SyncTableStatus {
+  tableName: string;
+  displayName: string;
+  rowCount: number;
+  lastSyncAt: string | null;
+  tableType: "raw" | "normalized";
+}
+
+export interface SyncDashboard {
+  tables: SyncTableStatus[];
+  totalRawRecords: number;
+  totalNormalizedRecords: number;
+  lastOverallSync: string | null;
+}
+
+interface SyncSummaryRpc {
+  total_raw_records: number;
+  total_normalized_records: number;
+  tables: Array<{
+    name: string;
+    display_name: string;
+    count: number;
+    last_sync: string | null;
+    type: "raw" | "normalized";
+  }>;
+  overall_freshness: string | null;
+  generated_at: string;
+}
+
+export async function fetchSyncDashboard(): Promise<SyncDashboard> {
+  const rpcResult = await supabaseRpc<SyncSummaryRpc>("get_sync_summary");
+
+  if (rpcResult && rpcResult.tables) {
+    return {
+      tables: rpcResult.tables.map((t) => ({
+        tableName: t.name,
+        displayName: t.display_name,
+        rowCount: t.count,
+        lastSyncAt: t.last_sync,
+        tableType: t.type
+      })),
+      totalRawRecords: rpcResult.total_raw_records,
+      totalNormalizedRecords: rpcResult.total_normalized_records,
+      lastOverallSync: rpcResult.overall_freshness
+    };
+  }
+
+  return {
+    tables: [],
+    totalRawRecords: 0,
+    totalNormalizedRecords: 0,
+    lastOverallSync: null
+  };
 }
 
 export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecord[]> {
-  const [headerRows, lineRows] = await Promise.all([
-    supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
-      select:
-        "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
-      order: "sales_date.desc",
-      limit: "200"
-    }),
-    supabaseQuery<SalesDocumentLineRow>("sales_document_lines", {
-      select: "id,header_id,document_header_id,document_no,amount,line_amount"
-    })
-  ]);
+  const params: Record<string, string> = {
+    select: "id,document_no,legacy_document_no,sales_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount,line_count",
+    order: "sales_date.desc",
+    limit: "500"
+  };
+  if (filter.startDate && filter.endDate) {
+    params["and"] = `(sales_date.gte.${filter.startDate},sales_date.lte.${filter.endDate})`;
+  } else if (filter.startDate) {
+    params["sales_date"] = `gte.${filter.startDate}`;
+  } else if (filter.endDate) {
+    params["sales_date"] = `lte.${filter.endDate}`;
+  }
+  const orClauses: string[] = [];
+  if (filter.customerCode.trim()) orClauses.push(`customer_code.ilike.*${filter.customerCode.trim()}*`, `legacy_customer_code.ilike.*${filter.customerCode.trim()}*`);
+  if (filter.documentNo.trim()) orClauses.push(`document_no.ilike.*${filter.documentNo.trim()}*`, `legacy_document_no.ilike.*${filter.documentNo.trim()}*`);
+  if (orClauses.length > 0) params["or"] = `(${orClauses.join(",")})`;
 
-  if (headerRows.length > 0) {
-    const lineCountByHeader = new Map<string, number>();
-    lineRows.forEach((row) => {
-      const key = String(
-        row.header_id ?? row.document_header_id ?? row.document_no ?? row.id ?? ""
-      );
-      if (!key) {
-        return;
-      }
-      lineCountByHeader.set(key, (lineCountByHeader.get(key) ?? 0) + 1);
-    });
+  const rows = await supabaseQuery<LooseRow>("mv_invoice_with_line_count", params);
 
-    const records = headerRows.map((row, index) => {
-      const invoice = createInvoiceRecordFromHeader(row, index);
-      const lineKey = String(row.id ?? row.document_no ?? row.legacy_document_no ?? "");
-      return {
-        ...invoice,
-        itemCount: lineCountByHeader.get(lineKey) ?? invoice.itemCount
-      };
-    });
-    return applyInvoiceFilter(records, filter);
+  if (rows.length > 0) {
+    return rows.map((row, index) => ({
+      id: getString(row, ["id"], `invoice-${index}`),
+      documentNo: getString(row, ["document_no", "legacy_document_no"], ""),
+      date: getDateString(row, ["sales_date"], ""),
+      customerCode: getString(row, ["legacy_customer_code", "customer_code"], ""),
+      customerName: getString(row, ["customer_name", "legacy_customer_code"], ""),
+      itemCount: getNumber(row, ["line_count"], 0),
+      amount: getNumber(row, ["total_amount", "billed_amount"], 0)
+    }));
   }
 
-  return applyInvoiceFilter(mockInvoiceRecords, filter);
+  return [];
 }
 
 export async function fetchCustomerLedger(code: string): Promise<CustomerLedger> {
@@ -1024,81 +950,215 @@ export async function fetchCustomerLedger(code: string): Promise<CustomerLedger>
 }
 
 export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
-  const [dailyRows, invoiceRows, lineRows] = await Promise.all([
-    supabaseQuery<DailySalesFactRow>("daily_sales_fact", {
-      select: "sales_date,sales_amount",
-      order: "sales_date.asc",
-      limit: "365"
-    }),
-    supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
-      select:
-        "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
-      limit: "500"
-    }),
-    supabaseQuery<SalesDocumentLineRow>("sales_document_lines", {
-      select:
-        "id,header_id,document_header_id,document_no,product_code,legacy_product_code,product_name,quantity,amount,line_amount",
-      limit: "1000"
-    })
+  const [monthlyRows, customerRows, productRows, staffRows] = await Promise.all([
+    supabaseQuery<LooseRow>("mv_monthly_sales", { order: "month.asc" }),
+    supabaseQuery<LooseRow>("mv_customer_sales_totals", { order: "amount.desc", limit: "100" }),
+    supabaseQuery<LooseRow>("mv_product_sales_totals", { order: "amount.desc", limit: "100" }),
+    supabaseQuery<LooseRow>("mv_staff_sales_totals", { order: "amount.desc", limit: "50" })
   ]);
 
-  if (dailyRows.length > 0) {
-    const monthlyMap = new Map<string, number>();
-    dailyRows.forEach((row) => {
-      const month = formatMonthKey(row.sales_date);
-      monthlyMap.set(month, (monthlyMap.get(month) ?? 0) + toNumber(row.sales_amount));
-    });
-
-    const customerMap = new Map<string, AnalyticsBreakdownRow>();
-    invoiceRows.forEach((row, index) => {
-      const invoice = createInvoiceRecordFromHeader(row, index);
-      const entry = customerMap.get(invoice.customerCode) ?? {
-        code: invoice.customerCode,
-        name: invoice.customerName,
-        amount: 0,
-        quantity: 0,
-        documents: 0
-      };
-      entry.amount += invoice.amount;
-      entry.documents += 1;
-      customerMap.set(invoice.customerCode, entry);
-    });
-
-    const productMap = new Map<string, AnalyticsBreakdownRow>();
-    lineRows.forEach((row, index) => {
-      const productCode =
-        row.product_code ?? row.legacy_product_code ?? `P${String(index + 1).padStart(5, "0")}`;
-      const entry = productMap.get(productCode) ?? {
-        code: productCode,
-        name: row.product_name ?? productCode,
-        amount: 0,
-        quantity: 0,
-        documents: 0
-      };
-      entry.amount += toNumber(row.line_amount ?? row.amount);
-      entry.quantity += toNumber(row.quantity);
-      entry.documents += 1;
-      productMap.set(productCode, entry);
-    });
-
+  if (monthlyRows.length > 0) {
     return {
       generatedAt: new Date().toISOString(),
-      monthlySales: Array.from(monthlyMap.entries())
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([month, amount]) => ({ month, amount }))
-        .slice(-12),
-      productTotals:
-        productMap.size > 0
-          ? Array.from(productMap.values()).sort((left, right) => right.amount - left.amount)
-          : mockSalesAnalytics.productTotals,
-      customerTotals:
-        customerMap.size > 0
-          ? Array.from(customerMap.values()).sort((left, right) => right.amount - left.amount)
-          : mockSalesAnalytics.customerTotals
+      monthlySales: monthlyRows.slice(-12).map((r) => ({
+        month: getString(r, ["month"], ""),
+        amount: getNumber(r, ["amount"], 0)
+      })),
+      productTotals: productRows.map((r) => ({
+        code: getString(r, ["code"], ""),
+        name: getString(r, ["name"], ""),
+        amount: getNumber(r, ["amount"], 0),
+        quantity: getNumber(r, ["quantity"], 0),
+        documents: getNumber(r, ["documents"], 0)
+      })),
+      customerTotals: customerRows.map((r) => ({
+        code: getString(r, ["code"], ""),
+        name: getString(r, ["name"], ""),
+        amount: getNumber(r, ["amount"], 0),
+        quantity: getNumber(r, ["quantity"], 0),
+        documents: getNumber(r, ["documents"], 0)
+      })),
+      staffTotals: staffRows.map((r) => ({
+        code: getString(r, ["code"], ""),
+        name: getString(r, ["name"], ""),
+        amount: getNumber(r, ["amount"], 0),
+        quantity: getNumber(r, ["quantity"], 0),
+        documents: getNumber(r, ["documents"], 0)
+      }))
     };
   }
 
-  return aggregateMockAnalytics();
+  return mockSalesAnalytics;
+}
+
+export interface PeriodBreakdownRow {
+  code: string;
+  name: string;
+  period: string;
+  amount: number;
+  quantity: number;
+  documents: number;
+}
+
+const PERIOD_VIEW_MAP: Record<AnalyticsPeriod, { products: string; customers: string; staff: string }> = {
+  all: { products: "mv_product_sales_totals", customers: "mv_customer_sales_totals", staff: "mv_staff_sales_totals" },
+  yearly: { products: "mv_product_sales_yearly", customers: "mv_customer_sales_yearly", staff: "mv_staff_sales_totals" },
+  monthly: { products: "mv_product_sales_monthly", customers: "mv_customer_sales_monthly", staff: "mv_staff_sales_totals" },
+  weekly: { products: "mv_product_sales_weekly", customers: "mv_customer_sales_weekly", staff: "mv_staff_sales_totals" },
+  daily: { products: "mv_product_sales_daily", customers: "mv_customer_sales_daily", staff: "mv_staff_sales_totals" }
+};
+
+export async function fetchAnalyticsByPeriod(
+  tab: AnalyticsTab,
+  period: AnalyticsPeriod,
+  periodFilter?: string
+): Promise<PeriodBreakdownRow[]> {
+  const view = PERIOD_VIEW_MAP[period][tab];
+  const params: Record<string, string> = { order: "amount.desc", limit: "200" };
+  if (periodFilter && period !== "all") {
+    params["period"] = `eq.${periodFilter}`;
+  }
+  const rows = await supabaseQuery<LooseRow>(view, params);
+  return rows.map((r) => ({
+    code: getString(r, ["code"], ""),
+    name: getString(r, ["name"], ""),
+    period: getString(r, ["period"], ""),
+    amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0),
+    documents: getNumber(r, ["documents"], 0)
+  }));
+}
+
+export async function fetchAvailablePeriods(
+  tab: AnalyticsTab,
+  period: AnalyticsPeriod
+): Promise<string[]> {
+  if (period === "all") return [];
+  // staffタブは専用期間ビューがないのでcustomersビューで代用
+  const effectiveTab: AnalyticsTab = tab === "staff" ? "customers" : tab;
+  const view = PERIOD_VIEW_MAP[period][effectiveTab];
+  // RPC経由でDISTINCT periodを取得（マテビューは大量行あるため）
+  const result = await supabaseRpc<{ period: string }[]>("get_distinct_periods", {
+    view_name: view
+  });
+  if (result && result.length > 0) {
+    return result.map((r) => r.period).filter(Boolean).sort().reverse();
+  }
+  // フォールバック: 直接クエリ（上位のみ）
+  const rows = await supabaseQuery<LooseRow>(view, {
+    select: "period",
+    order: "period.desc",
+    limit: "1000"
+  });
+  const unique = [...new Set(rows.map((r) => getString(r, ["period"], "")))].filter(Boolean);
+  return unique.sort().reverse();
+}
+
+/** 期間文字列 → 日付範囲に変換 */
+export function periodToDateRange(
+  period: AnalyticsPeriod,
+  periodFilter: string
+): { from: string; to: string } | null {
+  if (period === "all" || !periodFilter) return null;
+  if (period === "daily") {
+    return { from: periodFilter, to: periodFilter };
+  }
+  if (period === "monthly") {
+    const [year, month] = periodFilter.split("-").map(Number);
+    const from = `${year}-${String(month).padStart(2, "0")}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const to = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    return { from, to };
+  }
+  if (period === "yearly") {
+    return { from: `${periodFilter}-01-01`, to: `${periodFilter}-12-31` };
+  }
+  if (period === "weekly") {
+    const match = periodFilter.match(/^(\d{4})-W(\d{2})$/);
+    if (!match) return null;
+    const year = parseInt(match[1]);
+    const week = parseInt(match[2]);
+    const jan4 = new Date(year, 0, 4);
+    const dow = jan4.getDay() || 7;
+    const week1Mon = new Date(jan4);
+    week1Mon.setDate(jan4.getDate() - dow + 1);
+    const start = new Date(week1Mon);
+    start.setDate(week1Mon.getDate() + (week - 1) * 7);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
+  }
+  return null;
+}
+
+export interface StaffBreakdownRow {
+  staffCode: string;
+  staffName: string;
+  code: string;
+  name: string;
+  tag: string;
+  amount: number;
+  quantity: number;
+  documents: number;
+}
+
+function mapStaffRows(rows: LooseRow[]): StaffBreakdownRow[] {
+  return rows.map((r) => ({
+    staffCode: getString(r, ["staff_code"], ""),
+    staffName: getString(r, ["staff_name"], ""),
+    code: getString(r, ["code"], ""),
+    name: getString(r, ["name"], ""),
+    tag: getString(r, ["tag"], ""),
+    amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0),
+    documents: getNumber(r, ["documents"], 0)
+  }));
+}
+
+export async function fetchStaffTotalsByPeriod(
+  dateFrom?: string,
+  dateTo?: string
+): Promise<AnalyticsBreakdownRow[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_staff_totals_by_period", {
+    p_date_from: dateFrom ?? null,
+    p_date_to: dateTo ?? null
+  });
+  if (!result) return [];
+  return result.map((r) => ({
+    code: getString(r, ["code"], ""),
+    name: getString(r, ["name"], ""),
+    amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0),
+    documents: getNumber(r, ["documents"], 0)
+  }));
+}
+
+export async function fetchStaffCustomerBreakdown(
+  staffCode: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<StaffBreakdownRow[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_staff_customer_breakdown", {
+    p_staff_code: staffCode,
+    p_date_from: dateFrom ?? null,
+    p_date_to: dateTo ?? null
+  });
+  if (!result) return [];
+  return mapStaffRows(result);
+}
+
+export async function fetchStaffProductBreakdown(
+  staffCode: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<StaffBreakdownRow[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_staff_product_breakdown", {
+    p_staff_code: staffCode,
+    p_date_from: dateFrom ?? null,
+    p_date_to: dateTo ?? null
+  });
+  if (!result) return [];
+  return mapStaffRows(result);
 }
 
 // ─── 伝票入力 ────────────────────────────────────────────────────────────────
@@ -1174,19 +1234,8 @@ export interface DeliveryNote {
 }
 
 const mockDeliveryNote: DeliveryNote = {
-  documentNo: "D240122",
-  invoiceDate: "2026-04-14",
-  customerCode: "C0011",
-  customerName: "青葉商事 株式会社",
-  customerAddress: "〒123-4567 東京都千代田区〇〇 1-2-3",
-  lines: [
-    { productCode: "P00012", productName: "純米吟醸 720ml", quantity: 6, unitPrice: 12000, unit: "本", amount: 72000 },
-    { productCode: "P00008", productName: "本醸造 1.8L", quantity: 4, unitPrice: 8500, unit: "本", amount: 34000 },
-    { productCode: "P00021", productName: "梅酒 500ml", quantity: 12, unitPrice: 5800, unit: "本", amount: 69600 }
-  ],
-  totalAmount: 175600,
-  taxAmount: 15960,
-  note: ""
+  documentNo: "", invoiceDate: "", customerCode: "", customerName: "",
+  customerAddress: "", lines: [], totalAmount: 0, taxAmount: 0, note: ""
 };
 
 export async function fetchDeliveryNote(documentNo: string): Promise<DeliveryNote> {
@@ -1234,19 +1283,36 @@ export interface BillingSummary {
 }
 
 const mockBilling: BillingSummary = {
-  targetYearMonth: "2026-04",
-  closingDay: 15,
-  totalBilling: 4820000,
-  customers: [
-    { customerCode: "C0011", customerName: "青葉商事", closingDay: 15, salesAmount: 540000, taxAmount: 54000, prevBalance: 280000, paymentAmount: 280000, billingAmount: 594000, status: "open" },
-    { customerCode: "C0012", customerName: "北斗酒販", closingDay: 15, salesAmount: 720000, taxAmount: 72000, prevBalance: 140000, paymentAmount: 140000, billingAmount: 792000, status: "closed" },
-    { customerCode: "C0013", customerName: "中央フーズ", closingDay: 15, salesAmount: 380000, taxAmount: 38000, prevBalance: 0, paymentAmount: 0, billingAmount: 418000, status: "open" },
-    { customerCode: "C0014", customerName: "東海酒店", closingDay: 15, salesAmount: 610000, taxAmount: 61000, prevBalance: 230000, paymentAmount: 150000, billingAmount: 751000, status: "open" }
-  ]
+  targetYearMonth: "", closingDay: 31, totalBilling: 0, customers: []
 };
 
 export async function fetchBillingSummary(yearMonth: string): Promise<BillingSummary> {
-  return fetchJson(`data/api/latest/billing-${yearMonth}.json`, { ...mockBilling, targetYearMonth: yearMonth });
+  const rows = await supabaseQuery<LooseRow>("mv_billing_summary", {
+    year_month: `eq.${yearMonth}`,
+    order: "sales_amount.desc"
+  });
+
+  if (rows.length > 0) {
+    const customers: BillingCustomer[] = rows.map((r) => {
+      const salesAmount = getNumber(r, ["sales_amount"], 0);
+      const taxAmount = getNumber(r, ["tax_amount"], 0);
+      return {
+        customerCode: getString(r, ["customer_code"], ""),
+        customerName: getString(r, ["customer_name"], ""),
+        closingDay: 31,
+        salesAmount,
+        taxAmount,
+        prevBalance: 0,
+        paymentAmount: 0,
+        billingAmount: salesAmount,
+        status: "open" as const
+      };
+    });
+    const totalBilling = customers.reduce((s, c) => s + c.billingAmount, 0);
+    return { targetYearMonth: yearMonth, closingDay: 31, totalBilling, customers };
+  }
+
+  return { ...mockBilling, targetYearMonth: yearMonth } as BillingSummary;
 }
 
 // ─── 集計帳票・原価シミュレーション ───────────────────────────────────────────
@@ -1272,25 +1338,624 @@ const MONTHS = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","
 
 const mockReport: SalesReport = {
   generatedAt: new Date().toISOString(),
-  months: MONTHS,
-  salesByProduct: [
-    { label: "純米吟醸 720ml", values: [380,410,520,480,390,320,450,480,510,420,380,350].map(v => v * 10000) },
-    { label: "本醸造 1.8L", values: [290,310,380,340,280,250,320,360,390,310,280,260].map(v => v * 10000) },
-    { label: "梅酒 500ml", values: [210,240,310,290,230,180,260,300,320,250,200,190].map(v => v * 10000) }
-  ],
-  salesByCustomer: [
-    { label: "青葉商事", values: [480,510,620,590,480,390,540,580,610,510,460,430].map(v => v * 10000) },
-    { label: "北斗酒販", values: [390,420,520,490,400,330,460,500,530,430,380,360].map(v => v * 10000) }
-  ],
-  costSimulation: [
-    { productCode: "P00012", productName: "純米吟醸 720ml", costPrice: 7200, sellPrice: 12000, margin: 4800, marginRate: 40.0 },
-    { productCode: "P00008", productName: "本醸造 1.8L", costPrice: 4800, sellPrice: 8500, margin: 3700, marginRate: 43.5 },
-    { productCode: "P00021", productName: "梅酒 500ml", costPrice: 3200, sellPrice: 5800, margin: 2600, marginRate: 44.8 }
-  ]
+  months: [],
+  salesByProduct: [],
+  salesByCustomer: [],
+  costSimulation: []
 };
 
 export async function fetchSalesReport(): Promise<SalesReport> {
-  return fetchJson("data/api/latest/sales-report.json", mockReport);
+  const [monthlyRows, productMonthlyRows, customerRows] = await Promise.all([
+    supabaseQuery<LooseRow>("mv_monthly_sales", { order: "month.asc" }),
+    supabaseQuery<LooseRow>("mv_product_monthly_shipments", { order: "code.asc,month.asc" }),
+    supabaseQuery<LooseRow>("mv_customer_sales_totals", { order: "amount.desc", limit: "10" })
+  ]);
+
+  if (monthlyRows.length === 0) return mockReport;
+
+  const months = monthlyRows.slice(-12).map((r) => getString(r, ["month"], ""));
+
+  // 商品別月次データをピボット
+  const productMap = new Map<string, { name: string; monthValues: Map<string, number> }>();
+  productMonthlyRows.forEach((r) => {
+    const code = getString(r, ["code"], "");
+    if (!productMap.has(code)) {
+      productMap.set(code, { name: getString(r, ["name"], code), monthValues: new Map() });
+    }
+    productMap.get(code)!.monthValues.set(getString(r, ["month"], ""), getNumber(r, ["amount"], 0));
+  });
+
+  // 上位10商品のみ
+  const productTotals = Array.from(productMap.entries())
+    .map(([code, data]) => ({
+      code,
+      name: data.name,
+      total: months.reduce((s, m) => s + (data.monthValues.get(m) ?? 0), 0),
+      monthValues: data.monthValues
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 10);
+
+  const salesByProduct = productTotals.map((p) => ({
+    label: p.name,
+    values: months.map((m) => p.monthValues.get(m) ?? 0)
+  }));
+
+  const salesByCustomer = customerRows.map((r) => ({
+    label: getString(r, ["name"], ""),
+    values: months.map(() => Math.round(getNumber(r, ["amount"], 0) / months.length))
+  }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    months,
+    salesByProduct,
+    salesByCustomer,
+    costSimulation: []
+  };
+}
+
+// ─── 需要予測用: 商品×月別出荷量 ──────────────────────────────────────────────
+
+export interface ProductMonthlyShipment {
+  code: string;
+  name: string;
+  monthlyQuantity: number[]; // index 0=Jan ... 11=Dec (数量)
+  monthlyAmount: number[];   // index 0=Jan ... 11=Dec (金額)
+  totalQuantity: number;
+  totalAmount: number;
+}
+
+export async function fetchProductMonthlyShipments(): Promise<ProductMonthlyShipment[]> {
+  const rows = await supabaseQueryAll<LooseRow>("mv_product_monthly_shipments", {
+    order: "code.asc,month.asc"
+  });
+
+  if (rows.length === 0) return [];
+
+  // ピボット: code → { name, qty[12], amt[12] }
+  const productMap = new Map<string, { name: string; qty: number[]; amt: number[] }>();
+
+  rows.forEach((r) => {
+    const code = getString(r, ["code"], "");
+    if (!code) return;
+    const month = getString(r, ["month"], "");
+    const monthIdx = parseInt(month.slice(5, 7)) - 1;
+    if (monthIdx < 0 || monthIdx > 11) return;
+
+    let entry = productMap.get(code);
+    if (!entry) {
+      entry = { name: getString(r, ["name"], code), qty: new Array(12).fill(0), amt: new Array(12).fill(0) };
+      productMap.set(code, entry);
+    }
+    entry.qty[monthIdx] += getNumber(r, ["quantity"], 0);
+    entry.amt[monthIdx] += getNumber(r, ["amount"], 0);
+  });
+
+  return Array.from(productMap.entries())
+    .map(([code, data]) => ({
+      code,
+      name: data.name,
+      monthlyQuantity: data.qty,
+      monthlyAmount: data.amt,
+      totalQuantity: data.qty.reduce((s, v) => s + v, 0),
+      totalAmount: data.amt.reduce((s, v) => s + v, 0)
+    }))
+    .filter((p) => p.totalQuantity > 0)
+    .sort((a, b) => b.totalAmount - a.totalAmount);
+}
+
+// ─── 需要予測（DB計算済み）─────────────────────────────────────────────────────
+
+export interface DemandForecastRow {
+  productCode: string;
+  productName: string;
+  forecastMonth: string;
+  segment: string;
+  avgMonthly: number;
+  forecastQuantity: number;
+  forecastAmount: number;
+  safetyStock: number;
+  calculatedAt: string;
+}
+
+export async function fetchDemandForecasts(): Promise<DemandForecastRow[]> {
+  const rows = await supabaseQuery<LooseRow>("product_demand_forecasts", {
+    order: "forecast_amount.desc"
+  });
+  return rows.map((r) => ({
+    productCode: getString(r, ["product_code"], ""),
+    productName: getString(r, ["product_name"], ""),
+    forecastMonth: getString(r, ["forecast_month"], ""),
+    segment: getString(r, ["segment"], "monthly"),
+    avgMonthly: getNumber(r, ["avg_monthly"], 0),
+    forecastQuantity: getNumber(r, ["forecast_quantity"], 0),
+    forecastAmount: getNumber(r, ["forecast_amount"], 0),
+    safetyStock: getNumber(r, ["safety_stock"], 0),
+    calculatedAt: getDateString(r, ["calculated_at"], "")
+  }));
+}
+
+// ─── 納品カレンダー用: 直近の伝票から納品予定を構築 ─────────────────────────────
+
+export interface DeliveryScheduleEntry {
+  date: string;
+  customerName: string;
+  productName: string;
+  quantity: number;
+  documentNo: string;
+}
+
+export async function fetchDeliverySchedule(): Promise<DeliveryScheduleEntry[]> {
+  // 直近3ヶ月の伝票から納品実績/予定を取得
+  const threeMonthsAgo = new Date();
+  threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 1);
+  const cutoffDate = threeMonthsAgo.toISOString().slice(0, 10);
+
+  const headers = await supabaseQueryAll<SalesDocumentHeaderRow>("sales_document_headers", {
+    select: "id,document_no,legacy_document_no,sales_date,document_date,customer_name",
+    order: "sales_date.desc",
+    sales_date: `gte.${cutoffDate}`
+  });
+
+  if (headers.length === 0) return [];
+
+  const headerIds = headers.map((h) => String(h.id)).filter(Boolean);
+  // lineを取得（header_idで絞る）
+  const lines = await supabaseQueryAll<SalesDocumentLineRow>("sales_document_lines", {
+    select: "header_id,document_header_id,product_name,quantity"
+  });
+
+  // headerIdマップ
+  const headerMap = new Map<string, SalesDocumentHeaderRow>();
+  headers.forEach((h) => {
+    if (h.id) headerMap.set(String(h.id), h);
+  });
+
+  const entries: DeliveryScheduleEntry[] = [];
+  lines.forEach((line) => {
+    const headerId = String(line.header_id ?? line.document_header_id ?? "");
+    const header = headerMap.get(headerId);
+    if (!header) return;
+    const date = header.sales_date ?? header.document_date ?? "";
+    if (!date || date < cutoffDate) return;
+
+    entries.push({
+      date: date.slice(0, 10),
+      customerName: header.customer_name ?? "不明",
+      productName: line.product_name ?? "不明",
+      quantity: toNumber(line.quantity),
+      documentNo: header.document_no ?? header.legacy_document_no ?? ""
+    });
+  });
+
+  return entries.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ─── システムお知らせ ────────────────────────────────────────────────────────
+
+export interface SystemAnnouncement {
+  id: string;
+  message: string;
+  level: "info" | "warning" | "maintenance" | "update";
+  startsAt: string;
+  endsAt: string | null;
+  dismissible: boolean;
+}
+
+export async function fetchAnnouncements(): Promise<SystemAnnouncement[]> {
+  const now = new Date().toISOString();
+  const rows = await supabaseQuery<LooseRow>("system_announcements", {
+    is_active: "eq.true",
+    starts_at: `lte.${now}`,
+    or: `(ends_at.is.null,ends_at.gte.${now})`,
+    order: "created_at.desc"
+  });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    message: getString(r, ["message"], ""),
+    level: getString(r, ["level"], "info") as SystemAnnouncement["level"],
+    startsAt: getDateString(r, ["starts_at"], ""),
+    endsAt: r["ends_at"] ? getDateString(r, ["ends_at"], "") : null,
+    dismissible: getBoolean(r, ["dismissible"], true)
+  }));
+}
+
+// ─── 事前計算テーブルから読み取る営業分析API ────────────────────────────────────
+
+export interface ChurnAlertRow {
+  customer_code: string;
+  customer_name: string;
+  business_type: string;
+  area_code: string;
+  phone: string;
+  last_order_date: string;
+  days_since_order: number;
+  amount_12m: number;
+  is_dormant: boolean;
+  is_at_risk: boolean;
+}
+
+export async function fetchChurnAlerts(): Promise<ChurnAlertRow[]> {
+  const rows = await supabaseQueryAll<LooseRow>("customer_sales_summary", {
+    select: "customer_code,customer_name,business_type,area_code,phone,last_order_date,days_since_order,amount_12m,is_dormant,is_at_risk",
+    or: "(is_dormant.eq.true,is_at_risk.eq.true)"
+  });
+  if (rows.length > 0) {
+    return rows.map((r) => ({
+      customer_code: getString(r, ["customer_code"], ""),
+      customer_name: getString(r, ["customer_name"], ""),
+      business_type: getString(r, ["business_type"], ""),
+      area_code: getString(r, ["area_code"], ""),
+      phone: getString(r, ["phone"], ""),
+      last_order_date: getString(r, ["last_order_date"], ""),
+      days_since_order: getNumber(r, ["days_since_order"], 0),
+      amount_12m: getNumber(r, ["amount_12m"], 0),
+      is_dormant: getBoolean(r, ["is_dormant"], false),
+      is_at_risk: getBoolean(r, ["is_at_risk"], false)
+    }));
+  }
+  return [];
+}
+
+export interface VisitPriorityRow {
+  customer_code: string;
+  customer_name: string;
+  phone: string;
+  address: string;
+  area_code: string;
+  business_type: string;
+  priority_score: number;
+  reasons: string[];
+  last_order_date: string;
+  days_since_order: number;
+  annual_revenue: number;
+  recommended_action: string;
+}
+
+export async function fetchVisitPriorities(): Promise<VisitPriorityRow[]> {
+  const rows = await supabaseQueryAll<LooseRow>("visit_priority", {
+    select: "customer_code,customer_name,phone,address,area_code,business_type,priority_score,reasons,last_order_date,days_since_order,annual_revenue,recommended_action",
+    order: "priority_score.desc"
+  });
+  return rows.map((r) => ({
+    customer_code: getString(r, ["customer_code"], ""),
+    customer_name: getString(r, ["customer_name"], ""),
+    phone: getString(r, ["phone"], ""),
+    address: getString(r, ["address"], ""),
+    area_code: getString(r, ["area_code"], ""),
+    business_type: getString(r, ["business_type"], ""),
+    priority_score: getNumber(r, ["priority_score"], 0),
+    reasons: Array.isArray(r["reasons"]) ? (r["reasons"] as string[]) : [],
+    last_order_date: getString(r, ["last_order_date"], ""),
+    days_since_order: getNumber(r, ["days_since_order"], 0),
+    annual_revenue: getNumber(r, ["annual_revenue"], 0),
+    recommended_action: getString(r, ["recommended_action"], "")
+  }));
+}
+
+export interface SeasonalProfileRow {
+  product_code: string;
+  product_name: string;
+  season_type: string;
+  peak_months: number[];
+  proposal_month: number | null;
+  avg_monthly_qty: number;
+}
+
+export async function fetchSeasonalProfiles(): Promise<SeasonalProfileRow[]> {
+  const rows = await supabaseQueryAll<LooseRow>("product_seasonal_profile", {
+    select: "product_code,product_name,season_type,peak_months,proposal_month,avg_monthly_qty"
+  });
+  return rows.map((r) => ({
+    product_code: getString(r, ["product_code"], ""),
+    product_name: getString(r, ["product_name"], ""),
+    season_type: getString(r, ["season_type"], "year-round"),
+    peak_months: Array.isArray(r["peak_months"]) ? (r["peak_months"] as number[]) : [],
+    proposal_month: r["proposal_month"] != null ? Number(r["proposal_month"]) : null,
+    avg_monthly_qty: getNumber(r, ["avg_monthly_qty"], 0)
+  }));
+}
+
+export async function fetchProductShipmentsFromTable(): Promise<ProductMonthlyShipment[]> {
+  const rows = await supabaseQueryAll<LooseRow>("product_monthly_shipments", {
+    select: "product_code,product_name,category,m01,m02,m03,m04,m05,m06,m07,m08,m09,m10,m11,m12,total_quantity,total_amount",
+    order: "total_amount.desc"
+  });
+  return rows.map((r) => ({
+    code: getString(r, ["product_code"], ""),
+    name: getString(r, ["product_name"], ""),
+    monthlyQuantity: [
+      getNumber(r, ["m01"], 0), getNumber(r, ["m02"], 0), getNumber(r, ["m03"], 0),
+      getNumber(r, ["m04"], 0), getNumber(r, ["m05"], 0), getNumber(r, ["m06"], 0),
+      getNumber(r, ["m07"], 0), getNumber(r, ["m08"], 0), getNumber(r, ["m09"], 0),
+      getNumber(r, ["m10"], 0), getNumber(r, ["m11"], 0), getNumber(r, ["m12"], 0)
+    ],
+    monthlyAmount: [0,0,0,0,0,0,0,0,0,0,0,0],
+    totalQuantity: getNumber(r, ["total_quantity"], 0),
+    totalAmount: getNumber(r, ["total_amount"], 0)
+  })).filter((p) => p.totalQuantity > 0);
+}
+
+// ─── 機能要望 ────────────────────────────────────────────────────────────────
+
+export async function submitFeatureRequest(title: string, category: string, description: string): Promise<boolean> {
+  try {
+    await supabaseInsert("feature_requests", { title, category, description });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── マスタ編集 ─────────────────────────────────────────────────────────────
+
+export async function updateCustomer(id: string, data: Record<string, unknown>): Promise<boolean> {
+  return supabaseUpdate("customers", id, data);
+}
+
+export async function updateProduct(id: string, data: Record<string, unknown>): Promise<boolean> {
+  return supabaseUpdate("products", id, data);
+}
+
+// ─── 価格テーブル ───────────────────────────────────────────────────────────
+// 価格優先順位:
+//   1. customer_product_prices (個別単価)
+//   2. price_type別の標準価格:
+//      000 → purchase_price (生産者価格)
+//      001 → list_price (小売価格)
+//      002 → default_sale_price (卸価格)
+//   3. default_sale_price (フォールバック)
+
+export type PriceType = "000" | "001" | "002" | "";
+
+export interface CustomerPricing {
+  priceType: PriceType;
+  priceGroup: string;
+  individualPrices: Map<string, number>;
+}
+
+export async function fetchCustomerPricing(customers: MasterCustomer[], customerCode: string): Promise<CustomerPricing> {
+  const c = customers.find((cust) => cust.code === customerCode);
+  const priceType = (c?.priceGroup ? "" : "") as PriceType; // fallback
+  const priceGroup = c?.priceGroup || customerCode;
+
+  // memoからprice_typeを取得（フロントではpriceGroupフィールドに格納）
+  // 実際のprice_typeはSupabaseから取得
+  let actualPriceType: PriceType = "";
+  try {
+    const rows = await supabaseQuery<{ memo: string }>( "customers", {
+      select: "memo", legacy_customer_code: `eq.${customerCode}`, limit: "1"
+    });
+    if (rows[0]?.memo) {
+      const memo = typeof rows[0].memo === "string" ? JSON.parse(rows[0].memo) : rows[0].memo;
+      actualPriceType = (memo?.price_type ?? "") as PriceType;
+    }
+  } catch { /* ignore */ }
+
+  // 個別単価を取得
+  const individualPrices = new Map<string, number>();
+  if (priceGroup) {
+    const rows = await supabaseQuery<{ legacy_product_code: string; special_price: number }>(
+      "customer_product_prices",
+      { price_group: `eq.${priceGroup}`, select: "legacy_product_code,special_price" }
+    );
+    for (const r of rows) {
+      individualPrices.set(r.legacy_product_code, r.special_price);
+    }
+  }
+
+  return { priceType: actualPriceType, priceGroup, individualPrices };
+}
+
+export function resolveProductPrice(product: MasterProduct, pricing: CustomerPricing): { price: number; label: string } {
+  // 1. 個別単価
+  const individual = pricing.individualPrices.get(product.code);
+  if (individual != null && individual > 0) {
+    return { price: individual, label: "個別単価" };
+  }
+  // 2. price_type別の標準価格
+  switch (pricing.priceType) {
+    case "000":
+      if (product.purchasePrice > 0) return { price: product.purchasePrice, label: "生産者価格" };
+      break;
+    case "001":
+      if (product.listPrice > 0) return { price: product.listPrice, label: "小売価格" };
+      break;
+    case "002":
+      if (product.salePrice > 0) return { price: product.salePrice, label: "卸価格" };
+      break;
+  }
+  // 3. フォールバック
+  return { price: product.salePrice || 0, label: "標準価格" };
+}
+
+// ─── 商品力・営業効率 ───────────────────────────────────────────────────────
+
+export interface ProductPower {
+  code: string; name: string; volumeMl: number | null; category: string;
+  yearAmount: number; yearQty: number;
+  recentAmount: number; recentQty: number; prevAmount: number;
+  sharePct: number; growthRate: number | null; rank: string;
+}
+
+export interface CustomerEfficiency {
+  code: string; name: string; address: string;
+  yearAmount: number; sharePct: number;
+  recentAmount: number; recentQty: number; orderDays: number;
+  prevAmount: number; growthRate: number | null;
+  currentRank: string; prevRank: string;
+}
+
+export async function fetchProductPower(): Promise<ProductPower[]> {
+  const rows = await supabaseQuery<Record<string, unknown>>("product_power", {
+    select: "legacy_product_code,product_name,volume_ml,category_code,year_amount,year_qty,recent_amount,recent_qty,prev_amount,share_pct,growth_rate,rank",
+    order: "year_amount.desc", limit: "100"
+  });
+  return rows.map((r) => ({
+    code: String(r.legacy_product_code ?? ""),
+    name: String(r.product_name ?? ""),
+    volumeMl: r.volume_ml ? Number(r.volume_ml) : null,
+    category: String(r.category_code ?? ""),
+    yearAmount: Number(r.year_amount ?? 0),
+    yearQty: Number(r.year_qty ?? 0),
+    recentAmount: Number(r.recent_amount ?? 0),
+    recentQty: Number(r.recent_qty ?? 0),
+    prevAmount: Number(r.prev_amount ?? 0),
+    sharePct: Number(r.share_pct ?? 0),
+    growthRate: r.growth_rate != null ? Number(r.growth_rate) : null,
+    rank: String(r.rank ?? "C")
+  }));
+}
+
+export interface ProductDailyRow {
+  date: string;
+  productCode: string;
+  productName: string;
+  volumeMl: number | null;
+  amount: number;
+  qty: number;
+}
+
+export async function fetchProductDaily(): Promise<ProductDailyRow[]> {
+  const rows = await supabaseQueryAll<Record<string, unknown>>("product_daily", {
+    select: "sales_date,legacy_product_code,product_name,volume_ml,amount,qty",
+    order: "sales_date.desc"
+  });
+  return rows.map((r) => ({
+    date: String(r.sales_date ?? ""),
+    productCode: String(r.legacy_product_code ?? ""),
+    productName: String(r.product_name ?? ""),
+    volumeMl: r.volume_ml ? Number(r.volume_ml) : null,
+    amount: Number(r.amount ?? 0),
+    qty: Number(r.qty ?? 0)
+  }));
+}
+
+export async function fetchCustomerEfficiency(): Promise<CustomerEfficiency[]> {
+  const rows = await supabaseQuery<Record<string, unknown>>("customer_efficiency", {
+    select: "legacy_customer_code,customer_name,address1,year_amount,share_pct,recent_amount,recent_qty,order_days,prev_amount,growth_rate,current_rank,prev_rank",
+    order: "year_amount.desc", limit: "100"
+  });
+  return rows.map((r) => ({
+    code: String(r.legacy_customer_code ?? ""),
+    name: String(r.customer_name ?? ""),
+    address: String(r.address1 ?? ""),
+    yearAmount: Number(r.year_amount ?? 0),
+    sharePct: Number(r.share_pct ?? 0),
+    recentAmount: Number(r.recent_amount ?? 0),
+    recentQty: Number(r.recent_qty ?? 0),
+    orderDays: Number(r.order_days ?? 0),
+    prevAmount: Number(r.prev_amount ?? 0),
+    growthRate: r.growth_rate != null ? Number(r.growth_rate) : null,
+    currentRank: String(r.current_rank ?? "C"),
+    prevRank: String(r.prev_rank ?? "")
+  }));
+}
+
+// ─── 得意先別集計・ABC分析 ──────────────────────────────────────────────────
+
+export interface CustomerRankRow {
+  code: string;
+  name: string;
+  amount: number;
+  documents: number;
+  ratio: number;
+  cumRatio: number;
+  abcRank: "A" | "B" | "C";
+}
+
+export interface CustomerAnalysisData {
+  generatedAt: string;
+  ranking: CustomerRankRow[];
+  months: string[];
+  monthlyByCustomer: { label: string; values: number[] }[];
+}
+
+export interface ProductRankRow {
+  code: string;
+  name: string;
+  amount: number;
+  quantity: number;
+  ratio: number;
+  cumRatio: number;
+  abcRank: "A" | "B" | "C";
+}
+
+export interface ProductABCData {
+  generatedAt: string;
+  totalAmount: number;
+  ranking: ProductRankRow[];
+  months: string[];
+  monthlyByProduct: { label: string; values: number[] }[];
+}
+
+function buildAbcRanking<T extends { amount: number }>(
+  rows: T[]
+): (T & { ratio: number; cumRatio: number; abcRank: "A" | "B" | "C" })[] {
+  const sorted = [...rows].sort((a, b) => b.amount - a.amount);
+  const total = sorted.reduce((s, r) => s + r.amount, 0);
+  if (total === 0) return [];
+  let cum = 0;
+  return sorted.map((row) => {
+    const ratio = (row.amount / total) * 100;
+    cum += ratio;
+    const abcRank: "A" | "B" | "C" = cum <= 70 ? "A" : cum <= 90 ? "B" : "C";
+    return { ...row, ratio, cumRatio: cum, abcRank };
+  });
+}
+
+export async function fetchCustomerAnalysis(): Promise<CustomerAnalysisData> {
+  const [abcRows, report] = await Promise.all([
+    supabaseQuery<LooseRow>("mv_customer_abc", { order: "amount.desc" }),
+    fetchSalesReport()
+  ]);
+
+  const ranking: CustomerRankRow[] = abcRows.map((r) => ({
+    code: getString(r, ["code"], ""),
+    name: getString(r, ["name"], ""),
+    amount: getNumber(r, ["amount"], 0),
+    documents: getNumber(r, ["documents"], 0),
+    ratio: getNumber(r, ["ratio"], 0),
+    cumRatio: getNumber(r, ["cum_ratio"], 0),
+    abcRank: (getString(r, ["abc_rank"], "C") as "A" | "B" | "C")
+  }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    ranking,
+    months: report.months,
+    monthlyByCustomer: report.salesByCustomer
+  };
+}
+
+export async function fetchProductABC(): Promise<ProductABCData> {
+  const [abcRows, report] = await Promise.all([
+    supabaseQuery<LooseRow>("mv_product_abc", { order: "amount.desc" }),
+    fetchSalesReport()
+  ]);
+
+  const ranking: ProductRankRow[] = abcRows.map((r) => ({
+    code: getString(r, ["code"], ""),
+    name: getString(r, ["name"], ""),
+    amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0),
+    ratio: getNumber(r, ["ratio"], 0),
+    cumRatio: getNumber(r, ["cum_ratio"], 0),
+    abcRank: (getString(r, ["abc_rank"], "C") as "A" | "B" | "C")
+  }));
+
+  const totalAmount = ranking.reduce((s, r) => s + r.amount, 0);
+  const aRankNames = new Set(ranking.filter((r) => r.abcRank === "A").map((r) => r.name));
+  const monthlyByProduct = report.salesByProduct.filter((p) => aRankNames.has(p.label));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totalAmount,
+    ranking,
+    months: report.months,
+    monthlyByProduct: monthlyByProduct.length > 0 ? monthlyByProduct : report.salesByProduct
+  };
 }
 
 // ─── 蔵内管理 ────────────────────────────────────────────────────────────────
@@ -1317,15 +1982,25 @@ export interface JikomiRecord {
   note: string;
 }
 
-const mockJikomi: JikomiRecord[] = [
-  { id: "j1", jikomiNo: "J2026-01", productName: "純米吟醸", riceType: "山田錦", plannedKg: 400, actualKg: 400, startDate: "2026-01-10", expectedDoneDate: "2026-02-20", status: "done", tankNo: "T01", note: "" },
-  { id: "j2", jikomiNo: "J2026-02", productName: "本醸造", riceType: "日本晴", plannedKg: 600, actualKg: 600, startDate: "2026-02-01", expectedDoneDate: "2026-03-15", status: "done", tankNo: "T02", note: "" },
-  { id: "j3", jikomiNo: "J2026-03", productName: "特別純米", riceType: "五百万石", plannedKg: 500, actualKg: 480, startDate: "2026-03-05", expectedDoneDate: "2026-04-20", status: "active", tankNo: "T03", note: "経過良好" },
-  { id: "j4", jikomiNo: "J2026-04", productName: "純米大吟醸", riceType: "山田錦", plannedKg: 300, actualKg: 0, startDate: "2026-04-15", expectedDoneDate: "2026-06-01", status: "planned", tankNo: "T04", note: "" }
-];
 
 export async function fetchJikomiList(): Promise<JikomiRecord[]> {
-  return fetchJson("data/api/latest/jikomi.json", mockJikomi);
+  const rows = await supabaseQuery<LooseRow>("brewing_batches", { order: "start_date.desc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      jikomiNo: getString(row, ["batch_no", "legacy_batch_no"], ""),
+      productName: getString(row, ["brand_name"], ""),
+      riceType: getString(row, ["rice_type"], ""),
+      plannedKg: getNumber(row, ["planned_rice_kg"], 0),
+      actualKg: getNumber(row, ["actual_rice_kg"], 0),
+      startDate: getDateString(row, ["start_date"], ""),
+      expectedDoneDate: getDateString(row, ["expected_done_date"], ""),
+      status: (getString(row, ["status"], "planned") as JikomiStatus),
+      tankNo: getString(row, ["tank_no"], ""),
+      note: getString(row, ["remarks"], "")
+    }));
+  }
+  return [];
 }
 
 export interface TankRecord {
@@ -1339,16 +2014,22 @@ export interface TankRecord {
   lastUpdated: string;
 }
 
-const mockTanks: TankRecord[] = [
-  { id: "t1", tankNo: "T01", capacity: 3000, currentVolume: 0, productName: "", jikomiNo: "", status: "empty", lastUpdated: "2026-03-01" },
-  { id: "t2", tankNo: "T02", capacity: 4000, currentVolume: 0, productName: "", jikomiNo: "", status: "empty", lastUpdated: "2026-03-20" },
-  { id: "t3", tankNo: "T03", capacity: 3500, currentVolume: 2800, productName: "特別純米", jikomiNo: "J2026-03", status: "in_use", lastUpdated: "2026-04-10" },
-  { id: "t4", tankNo: "T04", capacity: 2000, currentVolume: 0, productName: "純米大吟醸", jikomiNo: "J2026-04", status: "in_use", lastUpdated: "2026-04-15" },
-  { id: "t5", tankNo: "T05", capacity: 5000, currentVolume: 3200, productName: "本醸造（貯蔵）", jikomiNo: "J2026-02", status: "aging", lastUpdated: "2026-03-20" }
-];
 
 export async function fetchTankList(): Promise<TankRecord[]> {
-  return fetchJson("data/api/latest/tanks.json", mockTanks);
+  const rows = await supabaseQuery<LooseRow>("tanks", { order: "tank_no.asc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      tankNo: getString(row, ["tank_no"], ""),
+      capacity: getNumber(row, ["capacity_l"], 0),
+      currentVolume: getNumber(row, ["current_volume_l"], 0),
+      productName: getString(row, ["current_product_code"], ""),
+      jikomiNo: getString(row, ["current_batch_id"], ""),
+      status: (getString(row, ["status"], "empty") as TankRecord["status"]),
+      lastUpdated: getDateString(row, ["last_updated_at"], "")
+    }));
+  }
+  return [];
 }
 
 export interface KenteiRecord {
@@ -1365,14 +2046,25 @@ export interface KenteiRecord {
   status: "pending" | "submitted" | "approved";
 }
 
-const mockKentei: KenteiRecord[] = [
-  { id: "k1", kenteiNo: "K2026-001", jikomiNo: "J2026-01", productName: "純米吟醸", kenteiDate: "2026-02-25", alcoholDegree: 16.2, extractDegree: 3.8, sakaMeterValue: 2.5, volume: 2850, taxCategory: "清酒", status: "approved" },
-  { id: "k2", kenteiNo: "K2026-002", jikomiNo: "J2026-02", productName: "本醸造", kenteiDate: "2026-03-18", alcoholDegree: 15.5, extractDegree: 4.1, sakaMeterValue: 1.8, volume: 3600, taxCategory: "清酒", status: "submitted" },
-  { id: "k3", kenteiNo: "K2026-003", jikomiNo: "J2026-03", productName: "特別純米", kenteiDate: "2026-04-18", alcoholDegree: 0, extractDegree: 0, sakaMeterValue: 0, volume: 0, taxCategory: "清酒", status: "pending" }
-];
 
 export async function fetchKenteiList(): Promise<KenteiRecord[]> {
-  return fetchJson("data/api/latest/kentei.json", mockKentei);
+  const rows = await supabaseQuery<LooseRow>("kentei_records", { order: "kentei_date.desc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      kenteiNo: getString(row, ["kentei_no"], ""),
+      jikomiNo: getString(row, ["batch_id"], ""),
+      productName: getString(row, ["product_code"], ""),
+      kenteiDate: getDateString(row, ["kentei_date"], ""),
+      alcoholDegree: getNumber(row, ["alcohol_degree"], 0),
+      extractDegree: getNumber(row, ["extract_degree"], 0),
+      sakaMeterValue: getNumber(row, ["sakemeter_value"], 0),
+      volume: getNumber(row, ["volume_l"], 0),
+      taxCategory: getString(row, ["tax_category_code"], ""),
+      status: (getString(row, ["status"], "pending") as KenteiRecord["status"])
+    }));
+  }
+  return [];
 }
 
 export interface MaterialRecord {
@@ -1386,17 +2078,22 @@ export interface MaterialRecord {
   lastUpdated: string;
 }
 
-const mockMaterials: MaterialRecord[] = [
-  { id: "m1", code: "M001", name: "720ml瓶", unit: "本", currentStock: 2400, minimumStock: 500, unitCost: 85, lastUpdated: "2026-04-10" },
-  { id: "m2", code: "M002", name: "1.8L瓶", unit: "本", currentStock: 1800, minimumStock: 300, unitCost: 140, lastUpdated: "2026-04-10" },
-  { id: "m3", code: "M003", name: "300ml瓶", unit: "本", currentStock: 3600, minimumStock: 600, unitCost: 55, lastUpdated: "2026-04-08" },
-  { id: "m4", code: "M004", name: "キャップ（金）", unit: "個", currentStock: 8000, minimumStock: 1000, unitCost: 12, lastUpdated: "2026-04-05" },
-  { id: "m5", code: "M005", name: "ラベル（純米吟醸）", unit: "枚", currentStock: 1200, minimumStock: 300, unitCost: 28, lastUpdated: "2026-04-01" },
-  { id: "m6", code: "M006", name: "化粧箱（720ml）", unit: "個", currentStock: 180, minimumStock: 100, unitCost: 320, lastUpdated: "2026-04-01" }
-];
 
 export async function fetchMaterialList(): Promise<MaterialRecord[]> {
-  return fetchJson("data/api/latest/materials.json", mockMaterials);
+  const rows = await supabaseQuery<LooseRow>("materials", { order: "name.asc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      code: getString(row, ["material_code", "legacy_material_code"], ""),
+      name: getString(row, ["name"], ""),
+      unit: getString(row, ["unit"], ""),
+      currentStock: getNumber(row, ["current_stock"], 0),
+      minimumStock: getNumber(row, ["minimum_stock"], 0),
+      unitCost: getNumber(row, ["unit_cost"], 0),
+      lastUpdated: getDateString(row, ["updated_at"], "")
+    }));
+  }
+  return [];
 }
 
 // ─── 仕入・買掛管理 ───────────────────────────────────────────────────────────
@@ -1414,12 +2111,6 @@ export interface PurchaseRecord {
   status: "pending" | "confirmed" | "paid";
 }
 
-const mockPurchases: PurchaseRecord[] = [
-  { id: "p1", documentNo: "K240050", purchaseDate: "2026-04-05", supplierCode: "S001", supplierName: "山田農場", itemName: "山田錦（精米65%）", quantity: 500, unitPrice: 480, amount: 240000, status: "confirmed" },
-  { id: "p2", documentNo: "K240051", purchaseDate: "2026-04-06", supplierCode: "S002", supplierName: "日本瓶工業", itemName: "720ml瓶", quantity: 1200, unitPrice: 85, amount: 102000, status: "confirmed" },
-  { id: "p3", documentNo: "K240052", purchaseDate: "2026-04-10", supplierCode: "S003", supplierName: "山本麹店", itemName: "米麹", quantity: 80, unitPrice: 1200, amount: 96000, status: "pending" },
-  { id: "p4", documentNo: "K240053", purchaseDate: "2026-04-12", supplierCode: "S001", supplierName: "山田農場", itemName: "五百万石（精米60%）", quantity: 300, unitPrice: 420, amount: 126000, status: "pending" }
-];
 
 export interface PayableRecord {
   supplierCode: string;
@@ -1431,11 +2122,6 @@ export interface PayableRecord {
   status: "unpaid" | "partial" | "paid";
 }
 
-const mockPayables: PayableRecord[] = [
-  { supplierCode: "S001", supplierName: "山田農場", totalPurchase: 366000, paidAmount: 240000, balance: 126000, nextPaymentDate: "2026-04-30", status: "partial" },
-  { supplierCode: "S002", supplierName: "日本瓶工業", totalPurchase: 102000, paidAmount: 102000, balance: 0, nextPaymentDate: "", status: "paid" },
-  { supplierCode: "S003", supplierName: "山本麹店", totalPurchase: 96000, paidAmount: 0, balance: 96000, nextPaymentDate: "2026-04-30", status: "unpaid" }
-];
 
 export interface BillRecord {
   id: string;
@@ -1447,11 +2133,6 @@ export interface BillRecord {
   status: "holding" | "due" | "cleared";
 }
 
-const mockBills: BillRecord[] = [
-  { id: "b1", billNo: "H240001", supplierName: "山田農場", amount: 240000, issueDate: "2026-03-31", dueDate: "2026-04-30", status: "holding" },
-  { id: "b2", billNo: "H240002", supplierName: "大阪資材", amount: 185000, issueDate: "2026-03-31", dueDate: "2026-05-31", status: "holding" },
-  { id: "b3", billNo: "H230045", supplierName: "中部農業", amount: 320000, issueDate: "2026-02-28", dueDate: "2026-03-31", status: "cleared" }
-];
 
 export interface RawMaterialStock {
   code: string;
@@ -1463,28 +2144,72 @@ export interface RawMaterialStock {
   unitCost: number;
 }
 
-const mockRawStock: RawMaterialStock[] = [
-  { code: "R001", name: "山田錦（精米65%）", unit: "kg", currentStock: 380, minimumStock: 100, lastPurchaseDate: "2026-04-05", unitCost: 480 },
-  { code: "R002", name: "五百万石（精米60%）", unit: "kg", currentStock: 290, minimumStock: 100, lastPurchaseDate: "2026-04-12", unitCost: 420 },
-  { code: "R003", name: "米麹", unit: "kg", currentStock: 62, minimumStock: 20, lastPurchaseDate: "2026-04-10", unitCost: 1200 },
-  { code: "R004", name: "醸造用アルコール", unit: "L", currentStock: 240, minimumStock: 50, lastPurchaseDate: "2026-03-20", unitCost: 180 },
-  { code: "R005", name: "清酒用酵母", unit: "g", currentStock: 500, minimumStock: 100, lastPurchaseDate: "2026-02-15", unitCost: 3200 }
-];
 
 export async function fetchPurchaseList(): Promise<PurchaseRecord[]> {
-  return fetchJson("data/api/latest/purchases.json", mockPurchases);
+  const rows = await supabaseQuery<LooseRow>("purchase_document_headers", { order: "purchase_date.desc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      documentNo: getString(row, ["document_no", "legacy_document_no"], ""),
+      purchaseDate: getDateString(row, ["purchase_date"], ""),
+      supplierCode: getString(row, ["supplier_code", "legacy_supplier_code"], ""),
+      supplierName: getString(row, ["supplier_name"], ""),
+      itemName: "",
+      quantity: 0,
+      unitPrice: 0,
+      amount: getNumber(row, ["total_amount"], 0),
+      status: (getString(row, ["payment_status"], "pending") as PurchaseRecord["status"])
+    }));
+  }
+  return [];
 }
 
 export async function fetchPayableList(): Promise<PayableRecord[]> {
-  return fetchJson("data/api/latest/payables.json", mockPayables);
+  const rows = await supabaseQuery<LooseRow>("supplier_payment_status", { order: "legacy_supplier_code.asc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      supplierCode: getString(row, ["supplier_code", "legacy_supplier_code"], ""),
+      supplierName: getString(row, ["legacy_supplier_code"], ""),
+      totalPurchase: getNumber(row, ["total_purchase"], 0),
+      paidAmount: getNumber(row, ["paid_amount"], 0),
+      balance: getNumber(row, ["balance"], 0),
+      nextPaymentDate: getDateString(row, ["next_payment_date"], ""),
+      status: (getString(row, ["status"], "unpaid") as PayableRecord["status"])
+    }));
+  }
+  return [];
 }
 
 export async function fetchBillList(): Promise<BillRecord[]> {
-  return fetchJson("data/api/latest/bills.json", mockBills);
+  const rows = await supabaseQuery<LooseRow>("bills_of_exchange", { order: "due_date.desc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      billNo: getString(row, ["bill_no"], ""),
+      supplierName: getString(row, ["counterparty_name"], ""),
+      amount: getNumber(row, ["amount"], 0),
+      issueDate: getDateString(row, ["issue_date"], ""),
+      dueDate: getDateString(row, ["due_date"], ""),
+      status: (getString(row, ["status"], "holding") as BillRecord["status"])
+    }));
+  }
+  return [];
 }
 
 export async function fetchRawMaterialStock(): Promise<RawMaterialStock[]> {
-  return fetchJson("data/api/latest/raw-stock.json", mockRawStock);
+  const rows = await supabaseQuery<LooseRow>("raw_materials", { order: "name.asc" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      code: getString(row, ["material_code", "legacy_material_code"], ""),
+      name: getString(row, ["name"], ""),
+      unit: getString(row, ["unit"], ""),
+      currentStock: getNumber(row, ["current_stock"], 0),
+      minimumStock: getNumber(row, ["minimum_stock"], 0),
+      lastPurchaseDate: getDateString(row, ["last_purchase_date"], ""),
+      unitCost: getNumber(row, ["unit_cost"], 0)
+    }));
+  }
+  return [];
 }
 
 // ─── 税務管理（eTax連携対応） ───────────────────────────────────────────────
@@ -1554,75 +2279,78 @@ export interface TaxDeclaration {
 }
 
 const mockTaxDeclaration: TaxDeclaration = {
-  targetYear: 2026,
-  targetMonth: 3,
-  companyName: "金井酒造店",
-  companyNo: "1234567890123",
-  companyAddress: "神奈川県秦野市堀山下182",
-  companyRepresentative: "金井 和雄",
-  taxOffice: "小田原税務署",
-  rows: [
-    {
-      taxCategory: "01",
-      taxCategoryName: "清酒（普通酒）",
-      alcoholDegree: 15.5,
-      productionVolume: 3800,
-      previousBalance: 0,
-      currentAdjustment: 0,
-      exportDeduction: 100,
-      sampleDeduction: 100,
-      taxableVolume: 3600,
-      volume: 3600,
-      taxRate: 100,
-      taxAmount: 360000
-    },
-    {
-      taxCategory: "02",
-      taxCategoryName: "清酒（純米酒）",
-      alcoholDegree: 16.2,
-      productionVolume: 2900,
-      previousBalance: 0,
-      currentAdjustment: 0,
-      exportDeduction: 0,
-      sampleDeduction: 50,
-      taxableVolume: 2850,
-      volume: 2850,
-      taxRate: 100,
-      taxAmount: 285000
-    },
-    {
-      taxCategory: "03",
-      taxCategoryName: "清酒（吟醸酒）",
-      alcoholDegree: 16.5,
-      productionVolume: 1250,
-      previousBalance: 0,
-      currentAdjustment: 0,
-      exportDeduction: 0,
-      sampleDeduction: 50,
-      taxableVolume: 1200,
-      volume: 1200,
-      taxRate: 100,
-      taxAmount: 120000
-    }
-  ],
-  deductions: [
-    { type: "export", categoryCode: "01", volume: 100, reason: "シンガポール向け輸出", documentNo: "EX2026-003" },
-    { type: "sample", categoryCode: "01", volume: 100, reason: "展示会サンプル出荷" },
-    { type: "sample", categoryCode: "02", volume: 50, reason: "品評会出品" },
-    { type: "sample", categoryCode: "03", volume: 50, reason: "全国新酒鑑評会出品" }
-  ],
-  totalVolume: 7650,
-  totalTax: 765000,
-  status: "draft",
-  submittedAt: null
+  targetYear: 0, targetMonth: 0, companyName: "", companyNo: "",
+  companyAddress: "", companyRepresentative: "", taxOffice: "",
+  rows: [], deductions: [], totalVolume: 0, totalTax: 0,
+  status: "draft", submittedAt: null
 };
 
 export async function fetchTaxDeclaration(year: number, month: number): Promise<TaxDeclaration> {
-  return fetchJson(`data/api/latest/tax-${year}-${String(month).padStart(2, "0")}.json`, {
+  const declRows = await supabaseQuery<LooseRow>("tax_declarations", {
+    target_year: `eq.${year}`,
+    target_month: `eq.${month}`,
+    limit: "1"
+  });
+
+  if (declRows.length > 0) {
+    const decl = declRows[0];
+    const declId = getString(decl, ["id"], "");
+
+    const [taxRows, dedRows] = await Promise.all([
+      supabaseQuery<LooseRow>("tax_declaration_rows", {
+        declaration_id: `eq.${declId}`,
+        order: "tax_category_code.asc"
+      }),
+      supabaseQuery<LooseRow>("tax_deductions", {
+        declaration_id: `eq.${declId}`
+      })
+    ]);
+
+    const rows: TaxDeclarationRow[] = taxRows.map((r) => ({
+      taxCategory: getString(r, ["tax_category_code"], ""),
+      taxCategoryName: getString(r, ["tax_category_name"], ""),
+      alcoholDegree: getNumber(r, ["alcohol_degree"], 0),
+      volume: getNumber(r, ["taxable_volume"], 0),
+      taxRate: getNumber(r, ["tax_rate"], 0),
+      taxAmount: getNumber(r, ["tax_amount"], 0),
+      productionVolume: getNumber(r, ["production_volume"], 0),
+      previousBalance: getNumber(r, ["previous_balance"], 0),
+      currentAdjustment: getNumber(r, ["current_adjustment"], 0),
+      exportDeduction: getNumber(r, ["export_deduction"], 0),
+      sampleDeduction: getNumber(r, ["sample_deduction"], 0),
+      taxableVolume: getNumber(r, ["taxable_volume"], 0)
+    }));
+
+    const deductions: TaxDeductionRow[] = dedRows.map((d) => ({
+      type: getString(d, ["deduction_type"], "sample") as TaxDeductionRow["type"],
+      categoryCode: getString(d, ["tax_category_code"], ""),
+      volume: getNumber(d, ["volume"], 0),
+      reason: getString(d, ["reason"], ""),
+      documentNo: getString(d, ["reference_document_no"], "") || undefined
+    }));
+
+    return {
+      targetYear: year,
+      targetMonth: month,
+      companyName: getString(decl, ["company_name"], ""),
+      companyNo: getString(decl, ["company_no"], ""),
+      companyAddress: getString(decl, ["company_address"], ""),
+      companyRepresentative: getString(decl, ["company_representative"], ""),
+      taxOffice: getString(decl, ["tax_office"], ""),
+      rows,
+      deductions,
+      totalVolume: getNumber(decl, ["total_taxable_volume"], 0),
+      totalTax: getNumber(decl, ["total_tax_amount"], 0),
+      status: getString(decl, ["status"], "draft") as TaxDeclaration["status"],
+      submittedAt: getString(decl, ["submitted_at"], "") || null
+    };
+  }
+
+  return {
     ...mockTaxDeclaration,
     targetYear: year,
     targetMonth: month
-  });
+  } as TaxDeclaration;
 }
 
 // XMLエスケープ
@@ -1797,30 +2525,45 @@ export interface StoreOrder {
   shippingDate: string;
 }
 
-const mockStoreSales: StoreSale[] = Array.from({ length: 10 }, (_, i) => ({
-  id: `ss${i + 1}`,
-  saleDate: "2026-04-15",
-  saleTime: `${9 + i}:${String(i * 7 % 60).padStart(2, "0")}`,
-  productCode: `P${String((i % 4) + 1).padStart(5, "0")}`,
-  productName: ["純米吟醸 720ml", "本醸造 1.8L", "梅酒 500ml", "特別純米 300ml"][i % 4],
-  quantity: 1 + (i % 3),
-  unitPrice: [2200, 1800, 980, 680][i % 4],
-  amount: (1 + (i % 3)) * [2200, 1800, 980, 680][i % 4],
-  paymentMethod: (["cash", "card", "paypay", "cash"] as const)[i % 4]
-}));
-
-const mockStoreOrders: StoreOrder[] = [
-  { id: "o1", orderNo: "ORD-2604001", orderDate: "2026-04-13", customerName: "鈴木 太郎", postalCode: "150-0001", address: "東京都渋谷区〇〇1-1", items: [{ productName: "純米吟醸 720ml", quantity: 2, amount: 4400 }], totalAmount: 4400, status: "shipped", shippingDate: "2026-04-14" },
-  { id: "o2", orderNo: "ORD-2604002", orderDate: "2026-04-14", customerName: "田中 花子", postalCode: "530-0001", address: "大阪府大阪市北区〇〇2-3", items: [{ productName: "梅酒 500ml", quantity: 3, amount: 2940 }, { productName: "本醸造 1.8L", quantity: 1, amount: 1800 }], totalAmount: 4740, status: "processing", shippingDate: "" },
-  { id: "o3", orderNo: "ORD-2604003", orderDate: "2026-04-15", customerName: "佐藤 一郎", postalCode: "460-0001", address: "愛知県名古屋市中区〇〇3-5", items: [{ productName: "特別純米 300ml ×6本セット", quantity: 1, amount: 3980 }], totalAmount: 3980, status: "new", shippingDate: "" }
-];
 
 export async function fetchStoreSales(date: string): Promise<StoreSale[]> {
-  return fetchJson(`data/api/latest/store-sales-${date}.json`, mockStoreSales);
+  const rows = await supabaseQuery<LooseRow>("store_sales", {
+    sale_date: `eq.${date}`,
+    order: "sale_time.asc"
+  });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      saleDate: getString(row, ["sale_date"], date),
+      saleTime: getString(row, ["sale_time"], ""),
+      productCode: getString(row, ["product_code"], ""),
+      productName: getString(row, ["product_name"], ""),
+      quantity: getNumber(row, ["quantity"], 0),
+      unitPrice: getNumber(row, ["unit_price"], 0),
+      amount: getNumber(row, ["amount"], 0),
+      paymentMethod: (getString(row, ["payment_method"], "cash") as StoreSale["paymentMethod"])
+    }));
+  }
+  return [];
 }
 
 export async function fetchStoreOrders(): Promise<StoreOrder[]> {
-  return fetchJson("data/api/latest/store-orders.json", mockStoreOrders);
+  const rows = await supabaseQuery<LooseRow>("store_orders", { order: "order_date.desc", limit: "100" });
+  if (rows.length > 0) {
+    return rows.map((row) => ({
+      id: getString(row, ["id"], ""),
+      orderNo: getString(row, ["order_no"], ""),
+      orderDate: getDateString(row, ["order_date"], ""),
+      customerName: getString(row, ["customer_name"], ""),
+      postalCode: getString(row, ["postal_code"], ""),
+      address: getString(row, ["shipping_address"], ""),
+      items: [],
+      totalAmount: getNumber(row, ["total_amount"], 0),
+      status: (getString(row, ["status"], "new") as StoreOrder["status"]),
+      shippingDate: getDateString(row, ["shipping_date"], "")
+    }));
+  }
+  return [];
 }
 
 export async function saveEmailCampaign(campaign: EmailCampaign): Promise<EmailCampaign> {
@@ -2279,20 +3022,59 @@ export async function fetchShopifyOrders(): Promise<ShopifyOrder[]> {
 
 // ─── Google Calendar 連携（基本同期） ────────────────────────────────────
 
+async function refreshGoogleToken(
+  setting: IntegrationSetting
+): Promise<{ token: string; error?: string }> {
+  const refreshToken = setting.config["refresh_token"];
+  const clientId = setting.config["client_id"];
+  const clientSecret = setting.config["client_secret"];
+  if (!refreshToken || !clientId || !clientSecret) {
+    return { token: "", error: "refresh_token / client_id / client_secret が未設定です" };
+  }
+  const resp = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: clientId,
+      client_secret: clientSecret
+    })
+  });
+  if (!resp.ok) return { token: "", error: `トークンリフレッシュ失敗: HTTP ${resp.status}` };
+  const data = (await resp.json()) as { access_token: string };
+  const newToken = data.access_token;
+  await saveIntegrationSetting({
+    ...setting,
+    config: { ...setting.config, oauth_token: newToken }
+  });
+  setting.config["oauth_token"] = newToken;
+  return { token: newToken };
+}
+
 export async function syncGoogleCalendar(
   setting: IntegrationSetting
 ): Promise<{ count: number; error?: string }> {
-  const token = setting.config["oauth_token"];
+  let token = setting.config["oauth_token"];
   const calendarId = setting.config["calendar_id"] || "primary";
-  if (!token) {
-    return { count: 0, error: "oauth_token を設定してください (Google Cloud Console で取得)" };
+  if (!token && !setting.config["refresh_token"]) {
+    return { count: 0, error: "oauth_token または refresh_token を設定してください" };
   }
   try {
-    // 直近30日のイベントを取得
     const timeMin = new Date().toISOString();
     const timeMax = new Date(Date.now() + 30 * 86400 * 1000).toISOString();
     const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+
+    let resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+
+    // トークン期限切れなら自動リフレッシュ
+    if (resp.status === 401) {
+      const refreshed = await refreshGoogleToken(setting);
+      if (refreshed.error) return { count: 0, error: refreshed.error };
+      token = refreshed.token;
+      resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    }
+
     if (!resp.ok) return { count: 0, error: `HTTP ${resp.status}` };
     const data = (await resp.json()) as { items: Array<Record<string, unknown>> };
     const { supabaseInsert } = await import("./supabase");
@@ -3338,7 +4120,134 @@ export async function saveTourInquiry(t: TourInquiry): Promise<TourInquiry | nul
   return r ? t : null;
 }
 
-// ─── 需要分析・安全在庫・生産計画 ────────────────────────────────────────────
+// ── rawデータブラウザ ────────────────────────────────────
+
+export type { RawTableInfo, RawRecord } from "./components/RawBrowser";
+
+const RAW_TABLE_DEFS: { table: string; display: string }[] = [
+  { table: "sake_sales_document_lines", display: "売上伝票明細" },
+  { table: "sake_purchase_document_lines", display: "仕入伝票明細" },
+  { table: "sake_sales_document_headers", display: "売上伝票ヘッダ" },
+  { table: "sake_purchase_document_headers", display: "仕入伝票ヘッダ" },
+  { table: "sake_inventory_movements_sk", display: "在庫移動(SK)" },
+  { table: "sake_current_stock_sh", display: "在庫(SH)" },
+  { table: "sake_inventory_movements_k5", display: "在庫移動(K5)" },
+  { table: "sake_current_stock_h5", display: "在庫(H5)" },
+  { table: "sake_special_prices_sh", display: "特価(SH)" },
+  { table: "sake_products_sh", display: "商品(SH)" },
+  { table: "sake_special_prices_h5", display: "特価(H5)" },
+  { table: "sake_products_sk", display: "商品(SK)" },
+  { table: "sake_products_k5", display: "商品(K5)" },
+  { table: "sake_products_h5", display: "商品(H5)" },
+  { table: "sake_customers", display: "得意先" },
+  { table: "sake_suppliers", display: "仕入先" },
+  { table: "sake_delivery_destinations", display: "納品先" },
+  { table: "sake_trading_partners", display: "取引先" },
+  { table: "sake_current_stock_sk", display: "在庫(SK)" },
+];
+
+export async function fetchRawTableList(): Promise<import("./components/RawBrowser").RawTableInfo[]> {
+  const results = await Promise.all(
+    RAW_TABLE_DEFS.map(async (def) => {
+      const [count, latestRows] = await Promise.all([
+        supabaseCount(def.table),
+        supabaseQuery<{ _synced_at?: string }>(def.table, {
+          select: "_synced_at",
+          order: "_synced_at.desc",
+          limit: "1"
+        })
+      ]);
+      return {
+        tableName: def.table,
+        displayName: def.display,
+        rowCount: count,
+        lastSyncAt: latestRows[0]?._synced_at ?? null
+      };
+    })
+  );
+  return results.sort((a, b) => b.rowCount - a.rowCount);
+}
+
+export async function fetchRawRecords(
+  table: string,
+  page: number,
+  pageSize = 100
+): Promise<{ records: import("./components/RawBrowser").RawRecord[]; total: number }> {
+  const offset = (page - 1) * pageSize;
+  const [records, total] = await Promise.all([
+    supabaseQuery<import("./components/RawBrowser").RawRecord>(table, {
+      select: "_source_file,_record_index,_record_size,_raw_b64,_source_path,_source_file_mtime,_synced_at",
+      order: "_record_index.asc",
+      limit: String(pageSize),
+      offset: String(offset)
+    }),
+    supabaseCount(table)
+  ]);
+  return { records, total };
+}
+
+// ── 単価グループ / 特価検索 ─────────────────────────────
+
+export async function fetchCustomerPriceGroup(customerCode: string): Promise<string> {
+  const rows = await supabaseQuery<LooseRow>("customers", {
+    select: "memo",
+    or: `legacy_customer_code.eq.${customerCode},customer_code.eq.${customerCode}`,
+    limit: "1"
+  });
+  if (rows.length === 0) return "";
+  const memo = rows[0].memo;
+  if (typeof memo === "string" && memo) {
+    try {
+      const parsed = JSON.parse(memo);
+      return String(parsed.price_group ?? "");
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+interface SpecialPriceRow {
+  special_price?: number | string | null;
+}
+
+interface ProductPriceRow {
+  default_sale_price?: number | string | null;
+}
+
+export async function fetchProductPrice(
+  priceGroup: string,
+  productCode: string
+): Promise<number> {
+  // 1. 特価テーブルを優先
+  if (priceGroup) {
+    const specialRows = await supabaseQuery<SpecialPriceRow>("customer_product_prices", {
+      select: "special_price",
+      price_group: `eq.${priceGroup}`,
+      legacy_product_code: `eq.${productCode}`,
+      limit: "1"
+    });
+    if (specialRows.length > 0 && specialRows[0].special_price) {
+      return toNumber(specialRows[0].special_price);
+    }
+  }
+
+  // 2. 商品マスタの標準単価にフォールバック
+  const productRows = await supabaseQuery<ProductPriceRow>("products", {
+    select: "default_sale_price",
+    or: `legacy_product_code.eq.${productCode},product_code.eq.${productCode}`,
+    limit: "1"
+  });
+  if (productRows.length > 0 && productRows[0].default_sale_price) {
+    return toNumber(productRows[0].default_sale_price);
+  }
+
+  return 0;
+}
+
+// =============================================================================
+// 需要分析・安全在庫・生産計画
+// =============================================================================
 
 export interface DemandMonthlyRow {
   yearMonth: string;
@@ -3346,20 +4255,16 @@ export interface DemandMonthlyRow {
   productName: string;
   quantity: number;
   amount: number;
-  documentCount: number;
 }
 
 export interface DemandAnalysis {
   months: string[];
   products: { code: string; name: string }[];
-  matrix: Record<string, Record<string, number>>;  // [productCode][yearMonth] = qty
-  totals: {
-    code: string;
-    name: string;
-    total: number;
-    avg: number;
-    stdDev: number;
-  }[];
+  matrix: Record<string, Record<string, number>>;
+  totals: Record<string, number>;
+  productTotals: Record<string, number>;
+  productAvg: Record<string, number>;
+  productStdDev: Record<string, number>;
 }
 
 export interface SafetyStockParams {
@@ -3372,7 +4277,6 @@ export interface SafetyStockParams {
   serviceLevel: number;
   safetyStockQty: number;
   reorderPoint: number;
-  lastCalcAt: string | null;
   memo: string;
 }
 
@@ -3391,291 +4295,173 @@ export interface ProductionPlanRow {
   notes: string;
 }
 
-// ─── 需要分析モック ───────────────────────────────────────────────────────────
+// ─── モックデータ ─────────────────────────────────────────────────────────────
 
-const MOCK_PRODUCTS = [
-  { code: "P00001", name: "純米吟醸 720ml" },
-  { code: "P00002", name: "本醸造 1.8L" },
-  { code: "P00003", name: "特別純米 300ml" },
-  { code: "P00004", name: "梅酒 500ml" }
+const _DEMAND_MOCK_PRODUCTS = [
+  { code: "SAK001", name: "純米大吟醸　金井" },
+  { code: "SAK002", name: "純米吟醸　金井" },
+  { code: "SAK003", name: "本醸造　金井" },
+  { code: "SAK004", name: "純米酒　金井" }
 ];
 
-// 月別季節係数（1月=インデックス0）
-const SAKE_SEASONAL: Record<string, number[]> = {
-  P00001: [1.8, 0.8, 1.2, 1.1, 0.9, 0.6, 0.5, 0.5, 0.7, 0.9, 1.2, 1.9],
-  P00002: [1.7, 0.8, 1.1, 1.0, 0.9, 0.6, 0.5, 0.5, 0.7, 0.9, 1.1, 1.8],
-  P00003: [1.7, 0.9, 1.2, 1.1, 1.0, 0.7, 0.5, 0.5, 0.8, 1.0, 1.2, 1.8],
-  P00004: [0.7, 0.6, 0.8, 1.0, 1.3, 1.5, 1.6, 1.3, 0.8, 0.7, 0.8, 1.1]
+const _SAKE_SEASONAL = [1.6, 0.7, 1.3, 1.2, 0.9, 0.7, 0.6, 0.7, 0.9, 1.0, 1.1, 1.5];
+
+const _DEMAND_BASES: Record<string, number> = {
+  SAK001: 80,
+  SAK002: 150,
+  SAK003: 220,
+  SAK004: 180
 };
 
-const MOCK_BASES: Record<string, number> = {
-  P00001: 800, P00002: 500, P00003: 1100, P00004: 450
-};
-
-function buildMockDemandAnalysis(): DemandAnalysis {
-  const now = new Date(2026, 3, 1); // 2026-04
+function _buildMockDemandAnalysis(): DemandAnalysis {
+  const now = new Date();
   const months: string[] = [];
   for (let i = 11; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   }
-
+  const products = _DEMAND_MOCK_PRODUCTS;
   const matrix: Record<string, Record<string, number>> = {};
-  const totals = MOCK_PRODUCTS.map((p) => {
+  const totals: Record<string, number> = {};
+  for (const p of products) {
     matrix[p.code] = {};
-    const seasonal = SAKE_SEASONAL[p.code] ?? Array(12).fill(1);
-    const base = MOCK_BASES[p.code] ?? 500;
-    let total = 0;
-    const values: number[] = [];
-    months.forEach((ym) => {
-      const mIdx = parseInt(ym.slice(5, 7), 10) - 1;
-      const qty = Math.round(base * seasonal[mIdx] * (0.9 + Math.random() * 0.2));
+    for (const ym of months) {
+      const monthIdx = parseInt(ym.split("-")[1]) - 1;
+      const base = _DEMAND_BASES[p.code] ?? 100;
+      const qty = Math.round(base * _SAKE_SEASONAL[monthIdx] * (0.85 + Math.random() * 0.3));
       matrix[p.code][ym] = qty;
-      total += qty;
-      values.push(qty);
-    });
-    const avg = total / months.length;
-    const variance = values.reduce((s, v) => s + (v - avg) ** 2, 0) / values.length;
-    const stdDev = Math.sqrt(variance);
-    return { code: p.code, name: p.name, total, avg, stdDev };
-  });
-
-  return { months, products: MOCK_PRODUCTS, matrix, totals };
+      totals[ym] = (totals[ym] ?? 0) + qty;
+    }
+  }
+  const productTotals: Record<string, number> = {};
+  const productAvg: Record<string, number> = {};
+  const productStdDev: Record<string, number> = {};
+  for (const p of products) {
+    const vals = months.map((m) => matrix[p.code][m] ?? 0);
+    const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+    const variance = vals.reduce((s, v) => s + (v - avg) ** 2, 0) / vals.length;
+    productTotals[p.code] = vals.reduce((s, v) => s + v, 0);
+    productAvg[p.code] = avg;
+    productStdDev[p.code] = Math.sqrt(variance);
+  }
+  return { months, products, matrix, totals, productTotals, productAvg, productStdDev };
 }
 
-function buildMockSafetyStock(analysis: DemandAnalysis): SafetyStockParams[] {
-  const leadTimes: Record<string, number> = {
-    P00001: 30, P00002: 30, P00003: 30, P00004: 45
-  };
-  return analysis.totals.map((t) => {
-    const lt = leadTimes[t.code] ?? 30;
-    const z = 1.65; // 95%
-    const ss = Math.ceil(z * t.stdDev * Math.sqrt(lt / 30));
-    const rop = Math.ceil(t.avg * (lt / 30) + ss);
-    return {
-      productCode: t.code,
-      productName: t.name,
-      unit: "本",
-      avgMonthlyDemand: t.avg,
-      demandStdDev: t.stdDev,
-      leadTimeDays: lt,
-      serviceLevel: 0.95,
-      safetyStockQty: ss,
-      reorderPoint: rop,
-      lastCalcAt: new Date().toISOString(),
-      memo: ""
-    };
-  });
-}
-
-function buildMockProductionPlan(
-  analysis: DemandAnalysis,
-  safetyParams: SafetyStockParams[],
-  yearMonth: string
-): ProductionPlanRow[] {
-  const mIdx = parseInt(yearMonth.slice(5, 7), 10) - 1;
-  return MOCK_PRODUCTS.map((p) => {
-    const seasonal = SAKE_SEASONAL[p.code] ?? Array(12).fill(1);
-    const base = MOCK_BASES[p.code] ?? 500;
-    const sp = safetyParams.find((s) => s.productCode === p.code);
-    const forecast = Math.round(base * seasonal[mIdx]);
-    const ss = sp?.safetyStockQty ?? 0;
-    const opening = Math.round(forecast * 0.3); // 仮：期首在庫 = 予測の 30%
-    const required = Math.max(0, forecast + ss - opening);
-    return {
-      id: `plan-${yearMonth}-${p.code}`,
-      yearMonth,
-      productCode: p.code,
-      productName: p.name,
-      demandForecast: forecast,
-      safetyStockTarget: ss,
-      openingStock: opening,
-      requiredProduction: required,
-      plannedQty: required,
-      actualQty: 0,
-      status: "draft" as const,
-      notes: ""
-    };
-  });
-}
-
-// ─── 需要分析 fetch ────────────────────────────────────────────────────────────
+// ─── API 関数 ─────────────────────────────────────────────────────────────────
 
 export async function fetchDemandAnalysis(): Promise<DemandAnalysis> {
-  interface PmsRow {
-    year_month: string;
-    product_code: string;
-    product_name: string | null;
-    quantity: number | string | null;
-  }
-  const rows = await supabaseQuery<PmsRow>("product_monthly_sales", {
+  const rows = await supabaseQueryAll<LooseRow>("product_monthly_sales", {
     select: "year_month,product_code,product_name,quantity",
-    order: "year_month.asc",
-    limit: "300"
+    order: "year_month.asc"
   });
+  if (rows.length === 0) return _buildMockDemandAnalysis();
 
-  if (rows.length > 0) {
-    const productMap = new Map<string, string>();
-    const matrix: Record<string, Record<string, number>> = {};
-    const monthSet = new Set<string>();
-
-    rows.forEach((r) => {
-      const code = r.product_code;
-      const ym = r.year_month.slice(0, 7);
-      const qty = toNumber(r.quantity);
-      productMap.set(code, r.product_name ?? code);
-      if (!matrix[code]) matrix[code] = {};
-      matrix[code][ym] = (matrix[code][ym] ?? 0) + qty;
-      monthSet.add(ym);
-    });
-
-    const months = Array.from(monthSet).sort().slice(-12);
-    const products = Array.from(productMap.entries()).map(([code, name]) => ({ code, name }));
-    const totals = products.map((p) => {
-      const values = months.map((m) => matrix[p.code]?.[m] ?? 0);
-      const total = values.reduce((s, v) => s + v, 0);
-      const avg = total / months.length;
-      const variance = values.reduce((s, v) => s + (v - avg) ** 2, 0) / values.length;
-      return { code: p.code, name: p.name, total, avg, stdDev: Math.sqrt(variance) };
-    });
-
-    return { months, products, matrix, totals };
+  const monthSet = new Set<string>();
+  const productMap = new Map<string, string>();
+  const matrix: Record<string, Record<string, number>> = {};
+  const totals: Record<string, number> = {};
+  for (const r of rows) {
+    const ym = getString(r, ["year_month"], "");
+    const pc = getString(r, ["product_code"], "");
+    const pn = getString(r, ["product_name"], pc);
+    const qty = getNumber(r, ["quantity"], 0);
+    if (!ym || !pc) continue;
+    monthSet.add(ym);
+    productMap.set(pc, pn);
+    if (!matrix[pc]) matrix[pc] = {};
+    matrix[pc][ym] = qty;
+    totals[ym] = (totals[ym] ?? 0) + qty;
   }
-
-  return buildMockDemandAnalysis();
+  const months = [...monthSet].sort();
+  const products = [...productMap.entries()].map(([code, name]) => ({ code, name }));
+  const productTotals: Record<string, number> = {};
+  const productAvg: Record<string, number> = {};
+  const productStdDev: Record<string, number> = {};
+  for (const p of products) {
+    const vals = months.map((m) => matrix[p.code]?.[m] ?? 0);
+    const avg = vals.reduce((s, v) => s + v, 0) / (vals.length || 1);
+    const variance = vals.reduce((s, v) => s + (v - avg) ** 2, 0) / (vals.length || 1);
+    productTotals[p.code] = vals.reduce((s, v) => s + v, 0);
+    productAvg[p.code] = avg;
+    productStdDev[p.code] = Math.sqrt(variance);
+  }
+  return { months, products, matrix, totals, productTotals, productAvg, productStdDev };
 }
 
 export async function fetchSafetyStockParams(): Promise<SafetyStockParams[]> {
-  interface SspRow {
-    product_code: string;
-    product_name: string | null;
-    unit: string | null;
-    avg_monthly_demand: number | string | null;
-    demand_std_dev: number | string | null;
-    lead_time_days: number | null;
-    service_level: number | string | null;
-    safety_stock_qty: number | string | null;
-    reorder_point: number | string | null;
-    last_calc_at: string | null;
-    memo: string | null;
-  }
-  const rows = await supabaseQuery<SspRow>("product_safety_stock_params", {
+  const rows = await supabaseQuery<LooseRow>("product_safety_stock_params", {
     order: "product_code.asc"
   });
-
-  if (rows.length > 0) {
-    return rows.map((r) => ({
-      productCode: r.product_code,
-      productName: r.product_name ?? r.product_code,
-      unit: r.unit ?? "本",
-      avgMonthlyDemand: toNumber(r.avg_monthly_demand),
-      demandStdDev: toNumber(r.demand_std_dev),
-      leadTimeDays: r.lead_time_days ?? 30,
-      serviceLevel: toNumber(r.service_level) || 0.95,
-      safetyStockQty: toNumber(r.safety_stock_qty),
-      reorderPoint: toNumber(r.reorder_point),
-      lastCalcAt: r.last_calc_at,
-      memo: r.memo ?? ""
-    }));
-  }
-
-  // Supabase にデータがなければ需要実績から算出してモック返却
-  const analysis = await fetchDemandAnalysis();
-  return buildMockSafetyStock(analysis);
+  return rows.map((r) => ({
+    productCode: getString(r, ["product_code"], ""),
+    productName: getString(r, ["product_name"], ""),
+    unit: getString(r, ["unit"], "本"),
+    avgMonthlyDemand: getNumber(r, ["avg_monthly_demand"], 0),
+    demandStdDev: getNumber(r, ["demand_std_dev"], 0),
+    leadTimeDays: getNumber(r, ["lead_time_days"], 30),
+    serviceLevel: getNumber(r, ["service_level"], 0.95),
+    safetyStockQty: getNumber(r, ["safety_stock_qty"], 0),
+    reorderPoint: getNumber(r, ["reorder_point"], 0),
+    memo: getString(r, ["memo"], "")
+  }));
 }
 
 export async function fetchProductionPlan(yearMonth: string): Promise<ProductionPlanRow[]> {
-  interface PpRow {
-    id: string;
-    year_month: string;
-    product_code: string;
-    product_name: string | null;
-    demand_forecast: number | string | null;
-    safety_stock_target: number | string | null;
-    opening_stock: number | string | null;
-    required_production: number | string | null;
-    planned_qty: number | string | null;
-    actual_qty: number | string | null;
-    status: string | null;
-    notes: string | null;
-  }
-  const rows = await supabaseQuery<PpRow>("production_plan", {
-    select: "*",
-    "year_month": `eq.${yearMonth}`,
+  const rows = await supabaseQuery<LooseRow>("production_plan", {
+    year_month: `eq.${yearMonth}`,
     order: "product_code.asc"
   });
-
-  if (rows.length > 0) {
-    return rows.map((r) => ({
-      id: r.id,
-      yearMonth: r.year_month,
-      productCode: r.product_code,
-      productName: r.product_name ?? r.product_code,
-      demandForecast: toNumber(r.demand_forecast),
-      safetyStockTarget: toNumber(r.safety_stock_target),
-      openingStock: toNumber(r.opening_stock),
-      requiredProduction: toNumber(r.required_production),
-      plannedQty: toNumber(r.planned_qty),
-      actualQty: toNumber(r.actual_qty),
-      status: (r.status ?? "draft") as ProductionPlanRow["status"],
-      notes: r.notes ?? ""
-    }));
-  }
-
-  const [analysis, ssParams] = await Promise.all([
-    fetchDemandAnalysis(),
-    fetchSafetyStockParams()
-  ]);
-  return buildMockProductionPlan(analysis, ssParams, yearMonth);
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    yearMonth: getString(r, ["year_month"], yearMonth),
+    productCode: getString(r, ["product_code"], ""),
+    productName: getString(r, ["product_name"], ""),
+    demandForecast: getNumber(r, ["demand_forecast"], 0),
+    safetyStockTarget: getNumber(r, ["safety_stock_target"], 0),
+    openingStock: getNumber(r, ["opening_stock"], 0),
+    requiredProduction: getNumber(r, ["required_production"], 0),
+    plannedQty: getNumber(r, ["planned_qty"], 0),
+    actualQty: getNumber(r, ["actual_qty"], 0),
+    status: getString(r, ["status"], "draft") as ProductionPlanRow["status"],
+    notes: getString(r, ["notes"], "")
+  }));
 }
 
-export async function saveSafetyStockParams(params: SafetyStockParams[]): Promise<boolean> {
+export async function saveSafetyStockParams(params: SafetyStockParams): Promise<boolean> {
   const { supabaseUpsert } = await import("./supabase");
-  try {
-    for (const p of params) {
-      await supabaseUpsert("product_safety_stock_params", {
-        product_code: p.productCode,
-        product_name: p.productName,
-        unit: p.unit,
-        avg_monthly_demand: p.avgMonthlyDemand,
-        demand_std_dev: p.demandStdDev,
-        lead_time_days: p.leadTimeDays,
-        service_level: p.serviceLevel,
-        safety_stock_qty: p.safetyStockQty,
-        reorder_point: p.reorderPoint,
-        last_calc_at: new Date().toISOString(),
-        memo: p.memo,
-        updated_at: new Date().toISOString()
-      });
-    }
-    return true;
-  } catch {
-    return false;
-  }
+  const result = await supabaseUpsert("product_safety_stock_params", {
+    product_code: params.productCode,
+    product_name: params.productName,
+    unit: params.unit,
+    avg_monthly_demand: params.avgMonthlyDemand,
+    demand_std_dev: params.demandStdDev,
+    lead_time_days: params.leadTimeDays,
+    service_level: params.serviceLevel,
+    safety_stock_qty: params.safetyStockQty,
+    reorder_point: params.reorderPoint,
+    memo: params.memo,
+    last_calc_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  });
+  return result !== null;
 }
 
-export async function saveProductionPlan(rows: ProductionPlanRow[]): Promise<boolean> {
+export async function saveProductionPlan(row: ProductionPlanRow): Promise<boolean> {
   const { supabaseUpsert } = await import("./supabase");
-  try {
-    for (const r of rows) {
-      const required = Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
-      await supabaseUpsert("production_plan", {
-        year_month: r.yearMonth,
-        product_code: r.productCode,
-        product_name: r.productName,
-        demand_forecast: r.demandForecast,
-        safety_stock_target: r.safetyStockTarget,
-        opening_stock: r.openingStock,
-        required_production: required,
-        planned_qty: r.plannedQty,
-        actual_qty: r.actualQty,
-        status: r.status,
-        notes: r.notes,
-        updated_at: new Date().toISOString()
-      });
-    }
-    return true;
-  } catch {
-    return false;
-  }
+  const result = await supabaseUpsert("production_plan", {
+    ...(row.id ? { id: row.id } : {}),
+    year_month: row.yearMonth,
+    product_code: row.productCode,
+    product_name: row.productName,
+    demand_forecast: row.demandForecast,
+    safety_stock_target: row.safetyStockTarget,
+    opening_stock: row.openingStock,
+    required_production: row.requiredProduction,
+    planned_qty: row.plannedQty,
+    actual_qty: row.actualQty,
+    status: row.status,
+    notes: row.notes,
+    updated_at: new Date().toISOString()
+  });
+  return result !== null;
 }

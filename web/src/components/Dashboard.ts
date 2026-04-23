@@ -1,5 +1,48 @@
-import type { PipelineMeta, SalesSummary, SalesAnalytics, Prospect, CalendarEvent, TourInquiry } from "../api";
+import type { PipelineMeta, SalesSummary, SalesAnalytics, Prospect, CalendarEvent, TourInquiry, SalesPeriod, SalesDayPoint } from "../api";
+import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 import { PROSPECT_STAGE_COLORS, PROSPECT_STAGE_LABELS } from "../api";
+import { renderDeliveryCalendarWidget, type DeliveryCalendarEntry } from "./DemandForecast";
+
+const PERIOD_LABELS: Record<SalesPeriod, string> = {
+  today: "当日",
+  month: "当月",
+  "90days": "90日",
+  year: "1年",
+  all: "全期間",
+  custom: "指定期間"
+};
+
+function shiftYear(isoDate: string, years: number): string {
+  const d = new Date(isoDate);
+  d.setFullYear(d.getFullYear() + years);
+  return d.toISOString();
+}
+
+function filterByPeriod(allDays: SalesDayPoint[], period: SalesPeriod, customRange?: { start: string; end: string }): SalesDayPoint[] {
+  if (period === "all") return allDays;
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+  const cutoff = new Date(now);
+
+  switch (period) {
+    case "today":
+      return allDays.filter((d) => d.date.slice(0, 10) === todayKey);
+    case "month":
+      return allDays.filter((d) => d.date.slice(0, 7) === todayKey.slice(0, 7));
+    case "90days":
+      cutoff.setDate(cutoff.getDate() - 90);
+      return allDays.filter((d) => d.date >= cutoff.toISOString());
+    case "year":
+      cutoff.setFullYear(cutoff.getFullYear() - 1);
+      return allDays.filter((d) => d.date >= cutoff.toISOString());
+    case "custom":
+      if (!customRange?.start || !customRange?.end) return allDays;
+      return allDays.filter((d) => {
+        const dateKey = d.date.slice(0, 10);
+        return dateKey >= customRange.start && dateKey <= customRange.end;
+      });
+  }
+}
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", {
@@ -143,13 +186,19 @@ export interface DashboardExtras {
   tourInquiries: TourInquiry[];
   workflowOrdersCount: { new: number; picking: number; packed: number; shipped: number; total: number };
   lowStockCount: number;
+  masterCounts?: { customers: number; products: number; suppliers: number; specialPrices: number };
+  deliveries?: DeliveryCalendarEntry[];
+  deliveryCalendarMonth?: string;
 }
 
 export function renderDashboard(
   summary: SalesSummary,
   pipeline: PipelineMeta,
   analytics: SalesAnalytics | null,
-  extras?: DashboardExtras
+  extras?: DashboardExtras,
+  activePeriod: SalesPeriod = "month",
+  customRange?: { start: string; end: string },
+  dailySortState: SortState = []
 ): string {
   const statusLabelMap = {
     success: "正常",
@@ -157,6 +206,29 @@ export function renderDashboard(
     error: "異常",
     running: "実行中"
   };
+
+  const filteredDays = filterByPeriod(summary.allDailySales, activePeriod, customRange);
+  const periodTotal = filteredDays.reduce((s, d) => s + d.amount, 0);
+  const periodBottles = filteredDays.reduce((s, d) => s + d.bottles, 0);
+  const periodVolume = filteredDays.reduce((s, d) => s + d.volumeMl, 0);
+  const periodDays = filteredDays.length;
+  const avgPricePerBottle = periodBottles > 0 ? Math.round(periodTotal / periodBottles) : 0;
+  const avgPricePerLiter = periodVolume > 0 ? Math.round(periodTotal / (periodVolume / 1000)) : 0;
+
+  // 昨対比較: 同じ期間の前年データを抽出
+  const lastYearDays = filteredDays.length > 0
+    ? summary.allDailySales.filter((d) => {
+        const currentStart = filteredDays[0]?.date ?? "";
+        const currentEnd = filteredDays[filteredDays.length - 1]?.date ?? "";
+        const lyStart = shiftYear(currentStart, -1);
+        const lyEnd = shiftYear(currentEnd, -1);
+        return d.date >= lyStart && d.date <= lyEnd;
+      })
+    : [];
+  const lastYearTotal = lastYearDays.reduce((s, d) => s + d.amount, 0);
+  const yoyDelta = lastYearTotal > 0 ? ((periodTotal - lastYearTotal) / lastYearTotal) * 100 : 0;
+  const yoySign = yoyDelta > 0 ? "+" : "";
+
   const recentSalesRows = summary.salesRecords
     .slice(0, 10)
     .map(
@@ -171,6 +243,10 @@ export function renderDashboard(
     )
     .join("");
 
+  const periodButtons = (["today", "month", "90days", "year", "all"] as SalesPeriod[])
+    .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-period="${p}">${PERIOD_LABELS[p]}</button>`)
+    .join("");
+
   return `
     <section class="page-head">
       <div>
@@ -179,7 +255,19 @@ export function renderDashboard(
       </div>
       <div class="meta-stack">
         <span class="status-pill ${pipeline.status}">${statusLabelMap[pipeline.status]}</span>
-        <span class="meta-note">最終同期 ${formatDateTime(pipeline.lastSyncAt)}</span>
+        <span class="meta-note">データ最新日 ${pipeline.lastDataAt ? pipeline.lastDataAt.slice(0, 10) : "―"}</span>
+        <span class="meta-note" style="font-size:11px;opacity:0.7;">同期エージェント ${formatDateTime(pipeline.lastSyncAt)}</span>
+        <button class="button secondary small" data-action="dashboard-refresh" title="データを再取得">↻ 更新</button>
+      </div>
+    </section>
+
+    <section class="period-filter">
+      <div class="button-group">${periodButtons}</div>
+      <div class="custom-range" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+        <input type="date" id="range-start" class="range-input" />
+        <span>〜</span>
+        <input type="date" id="range-end" class="range-input" />
+        <button class="button secondary small" type="button" data-action="apply-range">適用</button>
       </div>
     </section>
 
@@ -190,9 +278,14 @@ export function renderDashboard(
         <p class="kpi-sub">前日比 ${summary.kpis.todayDelta > 0 ? "+" : ""}${summary.kpis.todayDelta.toFixed(1)}%</p>
       </article>
       <article class="panel kpi-card">
-        <p class="panel-title">当月累計</p>
-        <p class="kpi-value">${formatCurrency(summary.kpis.monthSales)}</p>
-        <p class="kpi-sub">前年同月比 ${summary.kpis.monthDelta > 0 ? "+" : ""}${summary.kpis.monthDelta.toFixed(1)}%</p>
+        <p class="panel-title">${PERIOD_LABELS[activePeriod]}売上</p>
+        <p class="kpi-value">${formatCurrency(periodTotal)}</p>
+        <p class="kpi-sub">${periodDays}日間${periodDays > 0 ? ` / 日平均 ${formatCurrency(Math.round(periodTotal / periodDays))}` : ""}</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">昨対比</p>
+        <p class="kpi-value" style="color:${yoyDelta >= 0 ? "#2f855a" : "#c53d3d"}">${lastYearTotal > 0 ? `${yoySign}${yoyDelta.toFixed(1)}%` : "―"}</p>
+        <p class="kpi-sub">前年同期 ${lastYearTotal > 0 ? formatCurrency(lastYearTotal) : "データなし"}</p>
       </article>
       <article class="panel kpi-card kpi-alert">
         <p class="panel-title">未入金件数</p>
@@ -206,15 +299,50 @@ export function renderDashboard(
       </article>
     </section>
 
+    <section class="kpi-grid compact">
+      <article class="panel kpi-card">
+        <p class="panel-title">出荷本数</p>
+        <p class="kpi-value">${periodBottles.toLocaleString("ja-JP")} 本</p>
+        <p class="kpi-sub">本単価 ${formatCurrency(avgPricePerBottle)}</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">出荷液体量</p>
+        <p class="kpi-value">${(periodVolume / 1000).toLocaleString("ja-JP", { maximumFractionDigits: 0 })} L</p>
+        <p class="kpi-sub">L単価 ${formatCurrency(avgPricePerLiter)}</p>
+      </article>
+    </section>
+
+    ${extras?.masterCounts ? `
+    <section class="kpi-grid compact">
+      <article class="panel kpi-card">
+        <p class="panel-title">得意先マスタ</p>
+        <p class="kpi-value">${extras.masterCounts.customers.toLocaleString("ja-JP")}</p>
+        <p class="kpi-sub">Supabase正規化済み</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">商品マスタ</p>
+        <p class="kpi-value">${extras.masterCounts.products.toLocaleString("ja-JP")}</p>
+        <p class="kpi-sub">Supabase正規化済み</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">仕入先</p>
+        <p class="kpi-value">${extras.masterCounts.suppliers.toLocaleString("ja-JP")}</p>
+        <p class="kpi-sub">Supabase正規化済み</p>
+      </article>
+    </section>
+    ` : ""}
+
     <section class="content-grid">
       <article class="panel">
         <div class="panel-header">
           <div>
             <h2>日次売上</h2>
-            <p class="panel-caption">直近30日の売上推移</p>
+            <p class="panel-caption">${PERIOD_LABELS[activePeriod]} (${filteredDays.length}日分)</p>
           </div>
         </div>
-        ${buildBars(summary.dailySales)}
+        <div class="chart-scroll">
+          ${buildBars(filteredDays.length > 0 ? filteredDays : summary.dailySales)}
+        </div>
       </article>
 
       <aside class="panel sync-panel">
@@ -227,16 +355,16 @@ export function renderDashboard(
           </div>
           <dl class="meta-list">
             <div>
-              <dt>ジョブ</dt>
-              <dd>${pipeline.jobName}</dd>
+              <dt>データ最新日</dt>
+              <dd style="font-weight:700;color:var(--accent)">${pipeline.lastDataAt ? pipeline.lastDataAt.slice(0, 10) : "―"}</dd>
             </div>
             <div>
-              <dt>最終同期</dt>
+              <dt>同期エージェント</dt>
               <dd>${formatDateTime(pipeline.lastSyncAt)}</dd>
             </div>
             <div>
-              <dt>更新時刻</dt>
-              <dd>${formatDateTime(pipeline.generatedAt)}</dd>
+              <dt>ジョブ</dt>
+              <dd>${pipeline.jobName}</dd>
             </div>
           </dl>
         </div>
@@ -245,14 +373,19 @@ export function renderDashboard(
           <div class="quick-links">
             <div class="panel-header">
               <div>
-                <h2>クイックリンク</h2>
-                <p class="panel-caption">よく使う業務画面へ移動</p>
+                <h2>クイックアクセス</h2>
+                <p class="panel-caption">業務画面へ移動</p>
               </div>
             </div>
             <div class="quick-link-grid">
-              <button class="button secondary" type="button" data-link="/invoice-entry">伝票入力</button>
-              <button class="button secondary" type="button" data-link="/delivery">納品書</button>
-              <button class="button secondary" type="button" data-link="/billing">月次請求</button>
+              <button class="button secondary small" type="button" data-link="/invoice-entry">伝票入力</button>
+              <button class="button secondary small" type="button" data-link="/sales">売上一覧</button>
+              <button class="button secondary small" type="button" data-link="/payment">入金状況</button>
+              <button class="button secondary small" type="button" data-link="/delivery">納品書</button>
+              <button class="button secondary small" type="button" data-link="/billing">月次請求</button>
+              <button class="button secondary small" type="button" data-link="/master">マスタ</button>
+              <button class="button secondary small" type="button" data-link="/workflow">受注処理</button>
+              <button class="button secondary small" type="button" data-link="/analytics">売上分析</button>
             </div>
           </div>
         </div>
@@ -281,7 +414,51 @@ export function renderDashboard(
       </div>
     </section>
 
+    <details class="panel collapsible-panel">
+      <summary class="panel-header clickable">
+        <div>
+          <h2>日次推移</h2>
+          <p class="panel-caption">${PERIOD_LABELS[activePeriod]} — 売上・本数・液体量・単価（${filteredDays.length}日分）</p>
+        </div>
+        <span class="collapse-icon">▼</span>
+      </summary>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              ${makeSortableHeader("date", "日付", dailySortState)}
+              ${makeSortableHeader("amount", "売上", dailySortState, "numeric")}
+              ${makeSortableHeader("bottles", "本数", dailySortState, "numeric")}
+              ${makeSortableHeader("volumeMl", "液体量(L)", dailySortState, "numeric")}
+              ${makeSortableHeader("pricePerBottle", "本単価", dailySortState, "numeric")}
+              ${makeSortableHeader("pricePerLiter", "L単価", dailySortState, "numeric")}
+            </tr>
+          </thead>
+          <tbody>${applySortToRows(
+            dailySortState.length > 0 ? filteredDays : filteredDays.slice().reverse(),
+            dailySortState,
+            { date: "date", amount: "amount", bottles: "bottles", volumeMl: "volumeMl", pricePerBottle: "pricePerBottle", pricePerLiter: "pricePerLiter" }
+          ).slice(0, 31).map((d) => `
+            <tr>
+              <td class="mono">${d.date.slice(0, 10)}</td>
+              <td class="numeric">${formatCurrency(d.amount)}</td>
+              <td class="numeric">${d.bottles.toLocaleString("ja-JP")}</td>
+              <td class="numeric">${(d.volumeMl / 1000).toLocaleString("ja-JP", { maximumFractionDigits: 0 })}</td>
+              <td class="numeric">${formatCurrency(d.pricePerBottle)}</td>
+              <td class="numeric">${formatCurrency(d.pricePerLiter)}</td>
+            </tr>
+          `).join("")}</tbody>
+        </table>
+      </div>
+    </details>
+
     ${extras ? renderExtraWidgets(extras) : ""}
+
+    <section class="panel" style="padding:12px 16px;">
+      <p style="margin:0;font-size:12px;color:var(--text-secondary);">
+        機能要望・バグ報告は <button class="button secondary small" type="button" data-link="/setup">設定画面</button> からお送りいただけます。
+      </p>
+    </section>
   `;
 }
 
@@ -366,5 +543,9 @@ function renderExtraWidgets(extras: DashboardExtras): string {
         }
       </aside>
     </section>
+
+    ${extras.deliveries && extras.deliveries.length > 0
+      ? renderDeliveryCalendarWidget(extras.deliveries, extras.deliveryCalendarMonth || new Date().toISOString().slice(0, 7))
+      : ""}
   `;
 }

@@ -1,4 +1,4 @@
-import type { PipelineMeta } from "../api";
+import type { PipelineMeta, SyncDashboard } from "../api";
 
 function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat("ja-JP", {
@@ -116,10 +116,91 @@ function renderPrepStep(config: {
   `;
 }
 
+function freshnessClass(isoDate: string | null): string {
+  if (!isoDate) return "error";
+  const diffMs = Date.now() - new Date(isoDate).getTime();
+  const hours = diffMs / (1000 * 60 * 60);
+  if (hours < 1) return "success";
+  if (hours < 24) return "warning";
+  return "error";
+}
+
+function freshnessLabel(isoDate: string | null): string {
+  if (!isoDate) return "未同期";
+  const diffMs = Date.now() - new Date(isoDate).getTime();
+  const hours = diffMs / (1000 * 60 * 60);
+  if (hours < 1) return "正常";
+  if (hours < 24) return "注意";
+  return "要確認";
+}
+
+function renderSyncDashboard(sync: SyncDashboard): string {
+  return `
+    <section class="kpi-grid compact">
+      <article class="panel kpi-card">
+        <p class="panel-title">RAWレコード合計</p>
+        <p class="kpi-value">${sync.totalRawRecords.toLocaleString("ja-JP")}</p>
+        <p class="kpi-sub">酒仙iから同期済み</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">正規化レコード</p>
+        <p class="kpi-value">${sync.totalNormalizedRecords.toLocaleString("ja-JP")}</p>
+        <p class="kpi-sub">デコード済みマスタ</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">最終同期</p>
+        <p class="kpi-value">${sync.lastOverallSync ? formatDateTime(sync.lastOverallSync) : "---"}</p>
+        <p class="kpi-sub">全テーブル最新</p>
+      </article>
+      <article class="panel kpi-card">
+        <p class="panel-title">データ鮮度</p>
+        <p class="kpi-value">
+          <span class="status-pill ${freshnessClass(sync.lastOverallSync)}">${freshnessLabel(sync.lastOverallSync)}</span>
+        </p>
+        <p class="kpi-sub">${freshnessClass(sync.lastOverallSync) === "success" ? "1時間以内" : freshnessClass(sync.lastOverallSync) === "warning" ? "24時間以内" : "24時間超"}</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>テーブル同期ステータス</h2>
+          <p class="panel-caption">Supabase上の各��ーブルの行数と最終同期日時</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>テーブル</th>
+              <th>種別</th>
+              <th class="numeric">レコード数</th>
+              <th>最終同期</th>
+              <th>鮮度</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sync.tables.map((t) => `
+            <tr>
+              <td>${escapeHtml(t.displayName)}</td>
+              <td><span class="status-pill ${t.tableType === "raw" ? "neutral" : "success"}">${t.tableType === "raw" ? "RAW" : "正規化"}</span></td>
+              <td class="numeric">${t.rowCount.toLocaleString("ja-JP")}</td>
+              <td>${t.lastSyncAt ? formatDateTime(t.lastSyncAt) : "---"}</td>
+              <td><span class="status-pill ${freshnessClass(t.lastSyncAt)}">${freshnessLabel(t.lastSyncAt)}</span></td>
+            </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
 export function renderRelaySetup(
   pipeline: PipelineMeta,
   supabaseUrl: string,
-  supabaseAnonKey: string
+  supabaseAnonKey: string,
+  syncDashboard?: SyncDashboard | null
 ): string {
   const statusLabelMap = {
     success: "正常",
@@ -135,6 +216,8 @@ export function renderRelaySetup(
         <h1>WEB連動PC セットアップ</h1>
       </div>
     </section>
+
+    ${syncDashboard ? renderSyncDashboard(syncDashboard) : ""}
 
     <section class="kpi-grid compact">
       <article class="panel kpi-card">

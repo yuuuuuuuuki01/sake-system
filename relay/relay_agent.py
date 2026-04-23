@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -287,6 +288,7 @@ def sync_single_file(
 
 def run(dry_run: bool = False, only: list[str] | None = None, force: bool = False, batch_size_override: int | None = None) -> int:
     logger = setup_logging("INFO")
+    run_started_at = datetime.now(tz=UTC)
 
     try:
         config = load_config()
@@ -323,6 +325,16 @@ def run(dry_run: bool = False, only: list[str] | None = None, force: bool = Fals
 
         if not to_sync:
             logger.info("No changes detected")
+            if not dry_run:
+                write_sync_log(
+                    config, logger, run_started_at,
+                    status="no_change",
+                    modules_synced=[],
+                    files_scanned=len(all_targets),
+                    files_updated=0,
+                    rows_upserted=0,
+                    errors=[],
+                )
             return 0
 
         client: SupabaseClient | DryRunClient
@@ -358,11 +370,110 @@ def run(dry_run: bool = False, only: list[str] | None = None, force: bool = Fals
         if errors:
             for name, err in errors:
                 logger.warning("  - %s: %s", name, err)
+            if not dry_run:
+                write_sync_log(
+                    config, logger, run_started_at,
+                    status="error",
+                    modules_synced=[p.name for p in to_sync],
+                    files_scanned=len(all_targets),
+                    files_updated=len(to_sync),
+                    rows_upserted=total_rows,
+                    errors=[f"{name}: {err}" for name, err in errors],
+                )
             return 2
+        if not dry_run:
+            write_sync_log(
+                config, logger, run_started_at,
+                status="success",
+                modules_synced=[p.name for p in to_sync],
+                files_scanned=len(all_targets),
+                files_updated=len(to_sync),
+                rows_upserted=total_rows,
+                errors=[],
+            )
         return 0
     except Exception:
         logger.exception("Relay failed catastrophically")
+        try:
+            config2 = load_config()
+            write_sync_log(
+                config2, logger, run_started_at,
+                status="error",
+                modules_synced=[],
+                files_scanned=0,
+                files_updated=0,
+                rows_upserted=0,
+                errors=["Catastrophic failure"],
+            )
+        except Exception:
+            pass
         return 1
+
+
+def write_sync_log(
+    config: dict[str, Any],
+    logger: logging.Logger,
+    started_at: datetime,
+    status: str,
+    modules_synced: list[str],
+    files_scanned: int,
+    files_updated: int,
+    rows_upserted: int,
+    errors: list[str],
+) -> None:
+    """同期結果を relay_sync_log テーブルに記録する"""
+    import socket
+    try:
+        url = config["supabase_url"].rstrip("/") + "/rest/v1/relay_sync_log"
+        headers = {
+            "apikey": config["supabase_anon_key"],
+            "Authorization": f"Bearer {config['supabase_anon_key']}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+        }
+        payload = {
+            "sync_started_at": started_at.isoformat(),
+            "sync_ended_at": datetime.now(tz=UTC).isoformat(),
+            "status": status,
+            "modules_synced": modules_synced,
+            "files_scanned": files_scanned,
+            "files_updated": files_updated,
+            "rows_upserted": rows_upserted,
+            "errors": errors,
+            "agent_version": "1.0",
+            "agent_hostname": socket.gethostname(),
+        }
+        resp = requests.post(url, json=payload, headers=headers, timeout=30)
+        if not resp.ok:
+            logger.warning(f"relay_sync_log write failed: HTTP {resp.status_code} {resp.text[:200]}")
+    except Exception as exc:
+        logger.warning(f"relay_sync_log write error: {exc}")
+
+
+def refresh_analytics(config: dict[str, Any], logger: logging.Logger) -> None:
+    """同期後にマテリアライズドビューと需要予測をリフレッシュ"""
+    try:
+        url = config["supabase_url"] + "/rest/v1/rpc/refresh_all_analytics"
+        headers = {
+            "apikey": config["supabase_anon_key"],
+            "Authorization": f"Bearer {config['supabase_anon_key']}",
+            "Content-Type": "application/json",
+        }
+        resp = requests.post(url, json={}, headers=headers, timeout=120)
+        if resp.ok:
+            logger.info("Analytics materialized views refreshed")
+        else:
+            logger.warning(f"Analytics refresh failed: HTTP {resp.status_code}")
+
+        # 需要予測も更新
+        url2 = config["supabase_url"] + "/rest/v1/rpc/calculate_demand_forecasts"
+        resp2 = requests.post(url2, json={}, headers=headers, timeout=120)
+        if resp2.ok:
+            logger.info("Demand forecasts recalculated")
+        else:
+            logger.warning(f"Demand forecast calculation failed: HTTP {resp2.status_code}")
+    except Exception as exc:
+        logger.warning(f"Post-sync analytics refresh error: {exc}")
 
 
 def main() -> int:
@@ -390,9 +501,40 @@ def main() -> int:
         metavar="N",
         help="UPSERTバッチサイズ (既定: config値 or 500)",
     )
+    parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="定期実行モード。interval_minutes間隔でループ",
+    )
     args = parser.parse_args()
-    return run(dry_run=args.dry_run, only=args.only, force=args.force, batch_size_override=args.batch_size or None)
+
+    if args.daemon:
+        config = _load_config()
+        logger = logging.getLogger("relay")
+        interval = int(config.get("interval_minutes", 5)) * 60
+        logger.info(f"Daemon mode: interval={interval}s")
+        while True:
+            try:
+                result = run(dry_run=args.dry_run, only=args.only, force=False, batch_size_override=args.batch_size or None)
+                if result == 0:
+                    refresh_analytics(config, logger)
+            except Exception as exc:
+                logger.error(f"Sync cycle error: {exc}")
+            time.sleep(interval)
+    else:
+        return run(dry_run=args.dry_run, only=args.only, force=args.force, batch_size_override=args.batch_size or None)
+
+
+def _load_config() -> dict[str, Any]:
+    config_dir = Path(__file__).resolve().parent
+    config: dict[str, Any] = {}
+    for name in ("relay_config.json", "relay_config.local.json"):
+        path = config_dir / name
+        if path.exists():
+            with open(path) as f:
+                config.update(json.load(f))
+    return config
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main() or 0)

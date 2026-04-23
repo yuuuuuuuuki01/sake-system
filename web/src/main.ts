@@ -10,7 +10,6 @@ import {
   fetchBillList,
   fetchCustomerLedger,
   fetchDeliveryNote,
-  fetchDemandAnalysis,
   fetchInvoices,
   fetchJikomiList,
   fetchKenteiList,
@@ -18,29 +17,40 @@ import {
   fetchMaterialList,
   fetchPayableList,
   fetchPaymentStatus,
+  fetchCustomerPriceGroup,
   fetchPipelineMeta,
-  fetchProductionPlan,
-  fetchRelaySyncLogs,
+  fetchProductPrice,
+  fetchRawRecords,
+  fetchRawTableList,
+  fetchSyncDashboard,
   fetchPurchaseList,
   fetchRawMaterialStock,
-  fetchSafetyStockParams,
+  fetchCustomerAnalysis,
+  fetchProductABC,
   fetchSalesAnalytics,
   fetchSalesReport,
+  submitFeatureRequest,
+  updateCustomer,
+  updateProduct,
+  fetchCustomerPricing,
+  resolveProductPrice,
+  fetchProductPower,
+  fetchProductDaily,
+  type ProductDailyRow,
+  fetchCustomerEfficiency,
+  type CustomerPricing,
+  type ProductPower,
+  type CustomerEfficiency,
   fetchSalesSummary,
   fetchStoreOrders,
   fetchStoreSales,
   fetchTankList,
   fetchTaxDeclaration,
   saveEmailCampaign,
-  saveProductionPlan,
-  saveSafetyStockParams,
   sendEmailCampaign,
   saveInvoice,
   SEASONAL_TEMPLATES,
   type AnalyticsTab,
-  type DemandAnalysis,
-  type ProductionPlanRow,
-  type SafetyStockParams,
   type BillingSummary,
   type BillRecord,
   type CustomerLedger,
@@ -57,11 +67,14 @@ import {
   type PayableRecord,
   type PaymentStatusSummary,
   type PipelineMeta,
-  type RelaySyncLog,
+  type SyncDashboard,
   type PurchaseRecord,
   type RawMaterialStock,
+  type CustomerAnalysisData,
+  type ProductABCData,
   type SalesAnalytics,
   type SalesReport,
+  type SalesPeriod,
   type SalesSummary,
   type MailSender,
   type CalendarEvent,
@@ -74,7 +87,6 @@ import {
   type ProspectActivity,
   type SlackNotificationRule,
   type SlackNotificationLog,
-  type MaterialRecord,
   type DeliveryLocation,
   type CallLog,
   type LeadList,
@@ -82,7 +94,9 @@ import {
   type StoreOrder,
   type StoreSale,
   type TankRecord,
-  type TaxDeclaration
+  type TaxDeclaration,
+  fetchAnnouncements,
+  type SystemAnnouncement
 } from "./api";
 import { REQUIRE_AUTH } from "./config";
 import { renderBilling } from "./components/Billing";
@@ -99,18 +113,23 @@ import {
 import { renderGlobalSearch } from "./components/GlobalSearch";
 import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
+import { renderQuoteBuilder, defaultQuoteState, generateQuotePdf, type QuoteState } from "./components/QuoteBuilder";
+import { toggleSort, type SortState } from "./utils/tableSort";
+import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter, type ProductPeriod } from "./components/BusinessIntelligence";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
 import { renderKentei } from "./components/Kentei";
 import { renderLoginScreen } from "./components/LoginScreen";
-import { renderMasterStats } from "./components/MasterStats";
+import { renderMasterStats, renderEditCustomerModal, renderEditProductModal, defaultMasterFilter, type MasterFilterState } from "./components/MasterStats";
 import { renderMaterials } from "./components/Materials";
 import { renderPaymentStatus } from "./components/PaymentStatus";
 import { renderProductPicker } from "./components/ProductPicker";
 import { renderPurchase } from "./components/Purchase";
 import { renderRawMaterial } from "./components/RawMaterial";
 import { renderRelaySetup } from "./components/RelaySetup";
+import { renderCustomerAnalysis } from "./components/CustomerAnalysis";
+import { renderProductABC } from "./components/ProductABC";
 import { renderSalesAnalytics } from "./components/SalesAnalytics";
 import { renderSalesReport } from "./components/SalesReport";
 import { renderSalesTable } from "./components/SalesTable";
@@ -157,9 +176,16 @@ import {
   type ImportPreview,
   type ImportableEntity
 } from "./utils/import";
+import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./components/RawBrowser";
+import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromSchedule, renderDeliveryCalendarWidget, defaultDemandForecastState, type DemandForecastState, type DeliveryCalendarEntry, type ProductionSegment } from "./components/DemandForecast";
+import { renderDemandPlanning, type DemandTab } from "./components/DemandPlanning";
+import { renderChurnAlert, buildChurnAlertData, type ChurnAlertData } from "./components/ChurnAlert";
+import { renderSeasonalCalendar, buildSeasonalData, type SeasonalCalendarState } from "./components/SeasonalCalendar";
+import { renderVisitPlanner, buildVisitPlan, type VisitPlannerState } from "./components/VisitPlanner";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
-import { renderDemandPlanning, type DemandTab } from "./components/DemandPlanning";
+import { showToast } from "./components/Toast";
+import { showConfirm } from "./components/ConfirmModal";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase";
 import "./styles/main.css";
 import { downloadCSV, type CSVColumn } from "./utils/csv";
@@ -176,7 +202,11 @@ type RoutePath =
   | "/invoice"
   | "/ledger"
   | "/analytics"
+  | "/customer-analysis"
+    | "/product-power"
+  | "/customer-efficiency"
   | "/invoice-entry"
+  | "/quote"
   | "/delivery"
   | "/billing"
   | "/report"
@@ -209,9 +239,14 @@ type RoutePath =
   | "/slack"
   | "/calls"
   | "/list-builder"
+  | "/raw-browser"
+  | "/demand-forecast"
+  | "/churn-alert"
+  | "/seasonal-calendar"
+  | "/visit-planner"
   | "/demand";
 
-type CategoryKey = "dashboard" | "sales" | "brewery" | "purchase" | "more" | "email";
+type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
 
 type NavGroup = {
   label: string;
@@ -239,6 +274,7 @@ const ALL_ROUTES: RoutePath[] = [
   "/invoice",
   "/ledger",
   "/analytics",
+  "/customer-analysis",
   "/invoice-entry",
   "/delivery",
   "/billing",
@@ -272,19 +308,32 @@ const ALL_ROUTES: RoutePath[] = [
   "/slack",
   "/calls",
   "/list-builder",
+  "/raw-browser",
+  "/demand-forecast",
+  "/churn-alert",
+  "/seasonal-calendar",
+  "/visit-planner",
   "/demand"
 ];
 
-const EMAIL_RECIPIENTS: EmailRecipientRecord[] = [
-  { name: "青葉商事", email: "aoba@example.jp", area: "関東", historySegment: "seasonal" },
-  { name: "北斗酒販", email: "hokuto@example.jp", area: "北海道", historySegment: "premium" },
-  { name: "中央フーズ", email: "chuo@example.jp", area: "関東", historySegment: "seasonal" },
-  { name: "東海酒店", email: "tokai@example.jp", area: "中部", historySegment: "premium" },
-  { name: "三和物産", email: "sanwa@example.jp", area: "関西", historySegment: "liqueur" },
-  { name: "南星リカー", email: "nansei@example.jp", area: "九州", historySegment: "seasonal" },
-  { name: "山川酒店", email: "yamakawa@example.jp", area: "関西", historySegment: "premium" },
-  { name: "瑞穂商店", email: "mizuho@example.jp", area: "中部", historySegment: "seasonal" }
-];
+let EMAIL_RECIPIENTS: EmailRecipientRecord[] = [];
+
+async function loadEmailRecipients(): Promise<void> {
+  const { supabaseQueryAll } = await import("./supabase");
+  const rows = await supabaseQueryAll<Record<string, unknown>>("customers", {
+    select: "name,email,delivery_area_code",
+    email: "neq.",
+    is_active: "eq.true"
+  });
+  EMAIL_RECIPIENTS = rows
+    .filter((r) => typeof r.email === "string" && r.email.length > 0)
+    .map((r) => ({
+      name: String(r.name ?? ""),
+      email: String(r.email ?? ""),
+      area: String(r.delivery_area_code ?? ""),
+      historySegment: "seasonal" as const
+    }));
+}
 
 const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/sales", title: "売上一覧" },
@@ -297,7 +346,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/delivery", title: "納品書" },
   { path: "/billing", title: "月次請求" },
   { path: "/report", title: "集計帳票" },
-  { path: "/jikomi", title: "仕込管理" },
+  { path: "/customer-analysis", title: "得意先分析" },
+    { path: "/jikomi", title: "仕込管理" },
   { path: "/tanks", title: "タンク管理" },
   { path: "/kentei", title: "検定管理" },
   { path: "/materials", title: "資材管理" },
@@ -324,7 +374,13 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/prospects", title: "新規営業" },
   { path: "/slack", title: "Slack通知" },
   { path: "/calls", title: "通話履歴(IVRy)" },
-  { path: "/list-builder", title: "リスト取得ツール" }
+  { path: "/list-builder", title: "リスト取得ツール" },
+  { path: "/raw-browser", title: "データブラウザ" },
+  { path: "/demand-forecast", title: "需要予測・納品カレンダー" },
+  { path: "/churn-alert", title: "離反アラート・休眠顧客" },
+  { path: "/seasonal-calendar", title: "季節提案カレンダー" },
+  { path: "/visit-planner", title: "訪問計画・ルート最適化" },
+  { path: "/demand", title: "需要分析・安全在庫・生産計画" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -370,13 +426,21 @@ interface AppState {
   paymentStatus: PaymentStatusSummary | null;
   masterStats: MasterStatsSummary | null;
   pipelineMeta: PipelineMeta | null;
-  syncLogs: RelaySyncLog[];
+  syncDashboard: SyncDashboard | null;
+  rawTableList: RawTableInfo[];
+  rawRecords: RawRecord[];
+  rawSelectedTable: string | null;
+  rawPage: number;
+  rawTotalCount: number;
   invoiceRecords: InvoiceRecord[];
   customerLedger: CustomerLedger | null;
   salesAnalytics: SalesAnalytics | null;
+  customerAnalysis: CustomerAnalysisData | null;
+  productABC: ProductABCData | null;
   invoiceForm: InvoiceFormData;
   invoiceSaving: boolean;
   invoiceSavedDocNo: string | null;
+  invoicePriceGroup: string;
   pickerMode: "customer" | "product" | null;
   pickerQuery: string;
   pickerTargetLine: number | null;
@@ -457,16 +521,34 @@ interface AppState {
   route: RoutePath;
   currentCategory: CategoryKey;
   sidebarOpen: boolean;
+  announcements: SystemAnnouncement[];
+  dismissedAnnouncements: Set<string>;
+  updateAvailable: boolean;
   salesFilter: { startDate: string; endDate: string };
   invoiceFilter: InvoiceFilter;
   ledgerCustomerCode: string;
+  salesPeriod: SalesPeriod;
+  customRange: { start: string; end: string };
+  quoteState: QuoteState;
+  quoteCustomerQuery: string;
+  quoteProductQuery: string;
+  quotePricing: CustomerPricing | null;
+  productPower: ProductPower[];
+  customerEfficiency: CustomerEfficiency[];
   masterTab: MasterTab;
+  masterFilter: MasterFilterState;
   analyticsTab: AnalyticsTab;
-  demandAnalysis: DemandAnalysis | null;
-  safetyStockParams: SafetyStockParams[];
-  productionPlan: ProductionPlanRow[];
-  demandTab: DemandTab;
-  demandPlanYearMonth: string;
+  analyticsPeriod: import("./api").AnalyticsPeriod;
+  analyticsPeriodFilter: string;
+  analyticsPeriodRows: import("./api").PeriodBreakdownRow[];
+  analyticsPeriodOptions: string[];
+  analyticsStaffFilter: string;
+  analyticsTagFilter: string;
+  analyticsStaffPeriod: import("./api").AnalyticsPeriod;
+  analyticsStaffPeriodFilter: string;
+  analyticsStaffPeriodOptions: string[];
+  analyticsStaffTotals: import("./api").AnalyticsBreakdownRow[];
+  analyticsStaffDrilldown: { code: string; name: string; breakdownTab: "customers" | "products"; customerRows: import("./api").StaffBreakdownRow[]; productRows: import("./api").StaffBreakdownRow[] } | null;
   emailAudienceMode: EmailAudienceMode;
   emailRegion: string;
   emailHistorySegment: string;
@@ -475,6 +557,15 @@ interface AppState {
   emailBody: string;
   emailSaveMessage: string | null;
   emailSending: boolean;
+  demandForecast: DemandForecastState;
+  churnAlert: ChurnAlertData | null;
+  seasonalCalendar: SeasonalCalendarState | null;
+  visitPlanner: VisitPlannerState | null;
+  demandAnalysis: import("./api").DemandAnalysis | null;
+  safetyStockParams: import("./api").SafetyStockParams[];
+  productionPlan: import("./api").ProductionPlanRow[];
+  demandTab: DemandTab;
+  demandPlanYearMonth: string;
   globalSearchOpen: boolean;
   globalQuery: string;
   authSkipped: boolean;
@@ -499,34 +590,60 @@ function normalizePath(pathname: string): RoutePath {
 
 function inferCurrentCategory(route: RoutePath): CategoryKey {
   switch (route) {
-    case "/cat/sales":
-    case "/invoice":
-    case "/ledger":
     case "/invoice-entry":
+    case "/quote":
     case "/delivery":
     case "/billing":
-    case "/report":
+    case "/invoice":
+    case "/ledger":
       return "sales";
-    case "/cat/brewery":
+    case "/analytics":
+    case "/customer-analysis":
+    case "/product-power":
+    case "/customer-efficiency":
+    case "/report":
+    case "/demand-forecast":
+      return "analytics";
+    case "/prospects":
+    case "/map":
+    case "/list-builder":
+    case "/calls":
+    case "/email":
+    case "/mail-senders":
+    case "/workflow":
+    case "/mobile-order":
+    case "/shopify":
+    case "/fax":
+    case "/churn-alert":
+    case "/seasonal-calendar":
+    case "/visit-planner":
+      return "crm";
+    case "/purchase":
+    case "/raw-material":
+      return "orders";
     case "/jikomi":
     case "/tanks":
     case "/kentei":
     case "/materials":
+    case "/tax":
     case "/demand":
       return "brewery";
-    case "/cat/purchase":
-    case "/purchase":
-    case "/raw-material":
-      return "purchase";
-    case "/cat/more":
     case "/master":
-    case "/analytics":
-    case "/tax":
+    case "/calendar":
     case "/store":
+    case "/tour":
+    case "/print":
+    case "/form-designer":
+      return "master";
     case "/setup":
-      return "more";
-    case "/email":
-      return "email";
+    case "/integrations":
+    case "/slack":
+    case "/import":
+    case "/raw-browser":
+    case "/users":
+    case "/profile":
+    case "/audit":
+      return "settings";
     default:
       return "dashboard";
   }
@@ -539,13 +656,21 @@ const state: AppState = {
   paymentStatus: null,
   masterStats: null,
   pipelineMeta: null,
-  syncLogs: [],
+  syncDashboard: null,
+  rawTableList: [],
+  rawRecords: [],
+  rawSelectedTable: null,
+  rawPage: 1,
+  rawTotalCount: 0,
   invoiceRecords: [],
   customerLedger: null,
   salesAnalytics: null,
+  customerAnalysis: null,
+  productABC: null,
   invoiceForm: makeDefaultInvoiceForm(),
   invoiceSaving: false,
   invoiceSavedDocNo: null,
+  invoicePriceGroup: "",
   pickerMode: null,
   pickerQuery: "",
   pickerTargetLine: null,
@@ -670,16 +795,47 @@ const state: AppState = {
   route: initialRoute,
   currentCategory: inferCurrentCategory(initialRoute),
   sidebarOpen: false,
+  announcements: [] as SystemAnnouncement[],
+  dismissedAnnouncements: new Set<string>(),
+  updateAvailable: false,
   salesFilter: { startDate: "", endDate: "" },
   invoiceFilter: { documentNo: "", startDate: "", endDate: "", customerCode: "" },
   ledgerCustomerCode: defaultLedgerCustomerCode,
+  salesPeriod: "month",
+  customRange: { start: "", end: "" },
+  quoteState: (() => {
+    const s = { ...defaultQuoteState };
+    try { const seal = localStorage.getItem("quote-seal"); if (seal) s.sealSettings = JSON.parse(seal); } catch {}
+    return s;
+  })(),
+  quoteCustomerQuery: "",
+  quoteProductQuery: "",
+  quotePricing: null,
+  productPower: [],
+  productFilter: "all" as ProductViewFilter,
+  productPeriod: "year" as ProductPeriod,
+  productDaily: [] as ProductDailyRow[],
+  productCustomStart: "",
+  productCustomEnd: "",
+  productSortState: [] as SortState,
+  customerSortState: [] as SortState,
+  dashboardSortState: [] as SortState,
+  masterSortState: [] as SortState,
+  customerEfficiency: [],
   masterTab: "customers",
+  masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
-  demandAnalysis: null,
-  safetyStockParams: [],
-  productionPlan: [],
-  demandTab: "demand",
-  demandPlanYearMonth: new Date().toISOString().slice(0, 7),
+  analyticsPeriod: "all" as import("./api").AnalyticsPeriod,
+  analyticsPeriodFilter: "",
+  analyticsPeriodRows: [] as import("./api").PeriodBreakdownRow[],
+  analyticsPeriodOptions: [] as string[],
+  analyticsStaffFilter: "",
+  analyticsTagFilter: "",
+  analyticsStaffPeriod: "all" as import("./api").AnalyticsPeriod,
+  analyticsStaffPeriodFilter: "",
+  analyticsStaffPeriodOptions: [] as string[],
+  analyticsStaffTotals: [] as import("./api").AnalyticsBreakdownRow[],
+  analyticsStaffDrilldown: null as { code: string; name: string; breakdownTab: "customers" | "products"; customerRows: import("./api").StaffBreakdownRow[]; productRows: import("./api").StaffBreakdownRow[] } | null,
   emailAudienceMode: defaultEmailState.mode,
   emailRegion: defaultEmailState.region,
   emailHistorySegment: defaultEmailState.historySegment,
@@ -688,6 +844,15 @@ const state: AppState = {
   emailBody: defaultEmailState.body,
   emailSaveMessage: defaultEmailState.saveMessage,
   emailSending: false,
+  demandForecast: { ...defaultDemandForecastState },
+  churnAlert: null,
+  seasonalCalendar: null,
+  visitPlanner: null,
+  demandAnalysis: null,
+  safetyStockParams: [],
+  productionPlan: [],
+  demandTab: "demand",
+  demandPlanYearMonth: new Date().toISOString().slice(0, 7),
   globalSearchOpen: false,
   globalQuery: "",
   authSkipped: false,
@@ -716,6 +881,7 @@ function closePicker(): void {
 function clearInvoiceForm(): void {
   state.invoiceForm = makeDefaultInvoiceForm();
   state.invoiceSavedDocNo = null;
+  state.invoicePriceGroup = "";
   state.invoiceErrors = {};
   closePicker();
 }
@@ -795,6 +961,7 @@ function tryAutofillCustomerByCode(code: string): boolean {
   if (!customer) return false;
   state.invoiceForm.customerCode = customer.code;
   state.invoiceForm.customerName = customer.name;
+  state.invoicePriceGroup = customer.priceGroup || "";
   return true;
 }
 
@@ -803,6 +970,7 @@ function tryAutofillCustomerByName(name: string): boolean {
   if (!customer) return false;
   state.invoiceForm.customerCode = customer.code;
   state.invoiceForm.customerName = customer.name;
+  state.invoicePriceGroup = customer.priceGroup || "";
   return true;
 }
 
@@ -1128,6 +1296,166 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           state.salesReport = await fetchSalesReport();
         }
         break;
+      case "/product-power":
+        if (state.productPower.length === 0) {
+          state.productPower = await fetchProductPower();
+        }
+        break;
+      case "/customer-efficiency":
+        if (state.customerEfficiency.length === 0) {
+          state.customerEfficiency = await fetchCustomerEfficiency();
+        }
+        break;
+      case "/customer-analysis":
+        if (!state.customerAnalysis) {
+          state.customerAnalysis = await fetchCustomerAnalysis();
+        }
+        break;
+      case "/demand-forecast":
+        if (state.demandForecast.forecasts.length === 0) {
+          const { fetchDemandForecasts, fetchDeliverySchedule } = await import("./api");
+          const [dbForecasts, schedule] = await Promise.all([
+            fetchDemandForecasts(),
+            fetchDeliverySchedule()
+          ]);
+          // DB計算済みの予測をそのままstateに変換
+          state.demandForecast.forecasts = dbForecasts.map((f) => ({
+            code: f.productCode,
+            name: f.productName,
+            segment: f.segment as ProductionSegment,
+            monthlyQuantity: new Array(12).fill(0),
+            avgMonthly: Math.round(f.avgMonthly),
+            adjustedAvg: Math.round(f.avgMonthly),
+            nextMonthForecast: Math.round(f.forecastQuantity),
+            annualForecast: Math.round(f.avgMonthly * 12),
+            safetyStock: Math.round(f.safetyStock)
+          }));
+          state.demandForecast.deliveries = buildDeliveriesFromSchedule(schedule);
+        }
+        break;
+      case "/churn-alert":
+        if (!state.churnAlert) {
+          // DB集計テーブルから読み取り → なければフォールバック
+          const { fetchChurnAlerts } = await import("./api");
+          const dbAlerts = await fetchChurnAlerts();
+          if (dbAlerts.length > 0) {
+            const dormant = dbAlerts.filter(a => a.is_dormant).map(a => ({
+              code: a.customer_code, name: a.customer_name, businessType: a.business_type,
+              areaCode: a.area_code, phone: a.phone, lastOrderDate: a.last_order_date,
+              daysSinceLastOrder: a.days_since_order, totalAmountLast12m: a.amount_12m, status: "dormant" as const
+            }));
+            const atRisk = dbAlerts.filter(a => a.is_at_risk).map(a => ({
+              code: a.customer_code, name: a.customer_name, businessType: a.business_type,
+              areaCode: a.area_code, phone: a.phone, lastOrderDate: a.last_order_date,
+              daysSinceLastOrder: a.days_since_order, totalAmountLast12m: a.amount_12m, status: "at-risk" as const
+            }));
+            state.churnAlert = { dormantCustomers: dormant, atRiskCustomers: atRisk };
+          } else {
+            // フォールバック: クライアント計算
+            const { supabaseQueryAll } = await import("./supabase");
+            const [headers, customers] = await Promise.all([
+              supabaseQueryAll<{sales_date: string; legacy_customer_code: string; customer_name: string; total_amount: number | string}>("sales_document_headers", {
+                select: "sales_date,legacy_customer_code,customer_name,total_amount"
+              }),
+              state.masterStats ? Promise.resolve(state.masterStats.customers) : fetchMasterStats().then(m => m.customers)
+            ]);
+            state.churnAlert = buildChurnAlertData(
+              headers.map(h => ({ sales_date: h.sales_date || "", legacy_customer_code: h.legacy_customer_code || "", customer_name: h.customer_name || "", total_amount: Number(h.total_amount) || 0 })),
+              (state.masterStats?.customers ?? customers).map(c => ({ code: c.code, name: c.name, businessType: c.businessType, areaCode: c.areaCode, phone: c.phone }))
+            );
+          }
+        }
+        break;
+      case "/seasonal-calendar":
+        if (!state.seasonalCalendar) {
+          // DB集計テーブルから読み取り → なければフォールバック
+          const { fetchProductShipmentsFromTable } = await import("./api");
+          const dbShipments = await fetchProductShipmentsFromTable();
+          if (dbShipments.length > 0) {
+            state.seasonalCalendar = buildSeasonalData(
+              dbShipments.map(s => ({ code: s.code, name: s.name, category: "", monthlyQuantity: s.monthlyQuantity }))
+            );
+          } else {
+            const { fetchProductMonthlyShipments: fetchShipments } = await import("./api");
+            const shipmentData = await fetchShipments();
+            state.seasonalCalendar = buildSeasonalData(
+              shipmentData.map(s => ({ code: s.code, name: s.name, category: "", monthlyQuantity: s.monthlyQuantity }))
+            );
+          }
+        }
+        break;
+      case "/visit-planner":
+        if (!state.visitPlanner) {
+          // DB集計テーブルから読み取り → なければフォールバック
+          const { fetchVisitPriorities } = await import("./api");
+          const dbVisits = await fetchVisitPriorities();
+          if (dbVisits.length > 0) {
+            state.visitPlanner = {
+              candidates: dbVisits.map(v => ({
+                code: v.customer_code, name: v.customer_name, phone: v.phone,
+                address: v.address, areaCode: v.area_code, businessType: v.business_type,
+                priorityScore: v.priority_score, reasons: v.reasons,
+                lastOrderDate: v.last_order_date, daysSinceOrder: v.days_since_order,
+                annualRevenue: v.annual_revenue, recommendedAction: v.recommended_action
+              })),
+              weekPlan: [], filterArea: "", filterMinScore: 0
+            };
+            // 週間プランはクライアントで生成 (地区別グルーピング)
+            state.visitPlanner = buildVisitPlan(
+              dbVisits.map(v => ({
+                code: v.customer_code, name: v.customer_name, phone: v.phone,
+                address1: v.address, areaCode: v.area_code, businessType: v.business_type,
+                annualRevenue: v.annual_revenue, lastOrderDate: v.last_order_date,
+                hasSeasonalProposal: v.reasons.some(r => r.includes("季節"))
+              }))
+            );
+          } else {
+            // フォールバック
+            const { supabaseQueryAll: queryAll } = await import("./supabase");
+            const [hdrs, custs] = await Promise.all([
+              queryAll<{sales_date: string; legacy_customer_code: string; total_amount: number | string}>("sales_document_headers", {
+                select: "sales_date,legacy_customer_code,total_amount"
+              }),
+              state.masterStats ? Promise.resolve(state.masterStats.customers) : fetchMasterStats().then(m => m.customers)
+            ]);
+            const customerList = state.masterStats?.customers ?? custs;
+            const revenueMap = new Map<string, { lastDate: string; total: number }>();
+            hdrs.forEach(h => {
+              const code = (h as Record<string, unknown>).legacy_customer_code as string || "";
+              const date = (h as Record<string, unknown>).sales_date as string || "";
+              const amt = Number((h as Record<string, unknown>).total_amount) || 0;
+              const existing = revenueMap.get(code);
+              if (!existing || date > existing.lastDate) {
+                revenueMap.set(code, { lastDate: date, total: (existing?.total ?? 0) + amt });
+              } else {
+                existing.total += amt;
+              }
+            });
+            state.visitPlanner = buildVisitPlan(
+              customerList.filter(c => c.isActive).map(c => ({
+                code: c.code, name: c.name, phone: c.phone, address1: c.address1,
+                areaCode: c.areaCode, businessType: c.businessType,
+                annualRevenue: revenueMap.get(c.code)?.total ?? 0,
+                lastOrderDate: revenueMap.get(c.code)?.lastDate ?? "",
+                hasSeasonalProposal: false
+              }))
+            );
+          }
+        }
+        break;
+      case "/demand":
+        if (!state.demandAnalysis) {
+          const { fetchDemandAnalysis, fetchSafetyStockParams, fetchProductionPlan } = await import("./api");
+          const [analysis, ssParams, plan] = await Promise.all([
+            fetchDemandAnalysis(),
+            fetchSafetyStockParams(),
+            fetchProductionPlan(state.demandPlanYearMonth)
+          ]);
+          state.demandAnalysis = analysis;
+          state.safetyStockParams = ssParams;
+          state.productionPlan = plan;
+        }
+        break;
       case "/jikomi":
         if (state.jikomiList.length === 0) {
           state.jikomiList = await fetchJikomiList();
@@ -1283,18 +1611,6 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
         }
         break;
-      case "/demand":
-        {
-          const [analysis, ssParams, plan] = await Promise.all([
-            fetchDemandAnalysis(),
-            fetchSafetyStockParams(),
-            fetchProductionPlan(state.demandPlanYearMonth)
-          ]);
-          state.demandAnalysis = analysis;
-          state.safetyStockParams = ssParams;
-          state.productionPlan = plan;
-        }
-        break;
       case "/":
         {
           // ダッシュボード追加データ取得
@@ -1328,15 +1644,25 @@ function renderView(): string {
   }
 
   if (state.loading) {
-    return `<section class="panel"><p>データを読み込んでいます。</p></section>`;
+    return `
+      <section class="panel">
+        <div class="loading-overlay">
+          <div class="loading-spinner"></div>
+          <p class="loading-text">データを読み込んでいます…</p>
+        </div>
+      </section>`;
   }
 
   if (state.error) {
     return `
       <section class="panel error-card">
+        <div class="empty-state-icon" style="background:#fbe9e9;color:var(--danger);">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" stroke="currentColor" stroke-width="1.5"/><path d="M8 8L16 16M16 8L8 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </div>
         <p class="eyebrow">読込失敗</p>
         <h1>画面の初期化に失敗しました</h1>
         <p>${state.error}</p>
+        <button class="button primary" onclick="location.reload()">再読込する</button>
       </section>
     `;
   }
@@ -1357,20 +1683,64 @@ function renderView(): string {
         state.invoiceSaving,
         state.invoiceErrors
       );
+    case "/quote":
+      return renderQuoteBuilder(
+        state.quoteState,
+        state.masterStats?.customers ?? [],
+        state.masterStats?.products ?? [],
+        state.quoteCustomerQuery,
+        state.quoteProductQuery,
+        state.quotePricing
+      );
     case "/email":
       return renderEmailBroadcast(buildEmailViewState());
     case "/delivery":
       return state.deliveryNote
         ? renderDeliveryNote(state.deliveryNote, state.deliverySearchDocNo)
-        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/billing":
       return state.billingSummary
         ? renderBilling(state.billingSummary, state.billingYearMonth)
-        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/report":
       return state.salesReport
         ? renderSalesReport(state.salesReport)
-        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
+    case "/product-power":
+      return renderProductPower(state.productPower, state.productFilter as ProductViewFilter, state.productDaily, state.productPeriod as ProductPeriod, state.productCustomStart, state.productCustomEnd, state.productSortState);
+    case "/customer-efficiency":
+      return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState);
+    case "/customer-analysis":
+      return state.customerAnalysis
+        ? renderCustomerAnalysis(state.customerAnalysis)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
+    case "/product-power":
+    case "/customer-efficiency":
+      return state.productABC
+        ? renderProductABC(state.productABC)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
+    case "/demand-forecast":
+      return renderDemandForecast(state.demandForecast);
+    case "/demand":
+      return renderDemandPlanning(
+        state.demandAnalysis,
+        state.safetyStockParams,
+        state.productionPlan,
+        state.demandTab,
+        state.demandPlanYearMonth
+      );
+    case "/churn-alert":
+      return state.churnAlert
+        ? renderChurnAlert(state.churnAlert)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">離反データを分析中…</p></div></section>`;
+    case "/seasonal-calendar":
+      return state.seasonalCalendar
+        ? renderSeasonalCalendar(state.seasonalCalendar)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">季節データを分析中…</p></div></section>`;
+    case "/visit-planner":
+      return state.visitPlanner
+        ? renderVisitPlanner(state.visitPlanner)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">訪問計画を生成中…</p></div></section>`;
     case "/jikomi":
       return state.jikomiView === "calendar"
         ? `${renderJikomi(state.jikomiList, state.jikomiView)}${renderJikomiCalendar(state.jikomiList)}`
@@ -1381,14 +1751,6 @@ function renderView(): string {
       return renderKentei(state.kenteiList);
     case "/materials":
       return renderMaterials(state.materialList) + renderMaterialEditModal(state.materialEditing, state.materialEditingIsNew);
-    case "/demand":
-      return renderDemandPlanning(
-        state.demandAnalysis,
-        state.safetyStockParams,
-        state.productionPlan,
-        state.demandTab,
-        state.demandPlanYearMonth
-      );
     case "/purchase":
       return renderPurchase(state.purchaseList, state.payableList);
     case "/raw-material":
@@ -1396,7 +1758,7 @@ function renderView(): string {
     case "/tax":
       return state.taxDeclaration
         ? renderTaxDeclaration(state.taxDeclaration, state.taxYear, state.taxMonth)
-        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/store":
       return renderStorePOS(
         state.storeSales,
@@ -1406,8 +1768,16 @@ function renderView(): string {
       );
     case "/setup":
       return state.pipelineMeta
-        ? renderRelaySetup(state.pipelineMeta, SUPABASE_URL, SUPABASE_ANON_KEY)
-        : `<section class="panel"><p>データを読み込んでいます…</p></section>`;
+        ? renderRelaySetup(state.pipelineMeta, SUPABASE_URL, SUPABASE_ANON_KEY, state.syncDashboard)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
+    case "/raw-browser":
+      return renderRawBrowser(
+        state.rawSelectedTable,
+        state.rawRecords,
+        state.rawTableList,
+        state.rawPage,
+        state.rawTotalCount
+      );
     case "/import":
       return renderDataImport(state.importEntity, state.importPreview, state.importing, state.importResult);
     case "/print":
@@ -1539,13 +1909,13 @@ function renderView(): string {
         )
       );
     case "/master":
-      return renderMasterStats(state.masterStats, state.masterTab);
+      return renderMasterStats(state.masterStats, state.masterTab, state.masterFilter, state.masterSortState);
     case "/invoice":
       return renderInvoiceSearch(state.invoiceRecords, state.invoiceFilter);
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals);
     case "/":
     default:
       return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
@@ -1560,9 +1930,45 @@ function renderView(): string {
           total: state.workflowOrders.length
         },
         lowStockCount: state.materialList.filter((m) => m.currentStock < m.minimumStock * 1.5).length,
-        syncLogs: state.syncLogs,
-      });
+        masterCounts: state.masterStats ? {
+          customers: state.masterStats.summary.customerCount,
+          products: state.masterStats.summary.productCount,
+          suppliers: state.syncDashboard?.tables.find((t) => t.tableName === "suppliers")?.rowCount ?? 0,
+          specialPrices: state.syncDashboard?.tables.find((t) => t.tableName === "customer_product_prices")?.rowCount ?? 0
+        } : undefined
+      }, state.salesPeriod, state.customRange, state.dashboardSortState);
   }
+}
+
+function renderAnnouncementBar(): string {
+  const LEVEL_STYLES: Record<string, { bg: string; border: string; icon: string }> = {
+    info: { bg: "#edf6ff", border: "#b8d4e8", icon: "ℹ️" },
+    warning: { bg: "#fff8e6", border: "#e6c54d", icon: "⚠️" },
+    maintenance: { bg: "#fff3e0", border: "#f5a623", icon: "🔧" },
+    update: { bg: "#e8f5e9", border: "#66bb6a", icon: "🆕" }
+  };
+
+  const visibleAnnouncements = state.announcements.filter(
+    (a) => !state.dismissedAnnouncements.has(a.id)
+  );
+
+  const bars = visibleAnnouncements.map((a) => {
+    const s = LEVEL_STYLES[a.level] ?? LEVEL_STYLES.info;
+    return `
+      <div class="announcement-bar" style="background:${s.bg};border-bottom:2px solid ${s.border};">
+        <span class="announcement-text">${s.icon} ${a.message}</span>
+        ${a.dismissible ? `<button class="announcement-dismiss" data-action="dismiss-announcement" data-id="${a.id}" aria-label="閉じる">✕</button>` : ""}
+      </div>`;
+  }).join("");
+
+  const updateBar = state.updateAvailable
+    ? `<div class="announcement-bar" style="background:#e8f5e9;border-bottom:2px solid #66bb6a;">
+        <span class="announcement-text">🆕 新しいバージョンが利用可能です</span>
+        <button class="button primary small" data-action="reload-app">更新する</button>
+      </div>`
+    : "";
+
+  return bars + updateBar;
 }
 
 function renderShell(): string {
@@ -1589,70 +1995,114 @@ function renderShell(): string {
     ],
     sales: [
       {
-        label: "販売管理",
+        label: "販売業務",
         items: [
-          { path: "/cat/sales", label: "販売管理トップ", kicker: "Category" },
           { path: "/invoice-entry", label: "伝票入力", kicker: "Entry" },
+          { path: "/quote", label: "見積作成", kicker: "Quote" },
           { path: "/delivery", label: "納品書", kicker: "Delivery" },
           { path: "/billing", label: "月次請求", kicker: "Billing" },
-          { path: "/report", label: "集計帳票", kicker: "Report" },
           { path: "/invoice", label: "伝票照会", kicker: "Invoice" },
           { path: "/ledger", label: "得意先台帳", kicker: "Ledger" }
         ]
       }
     ],
-    brewery: [
+    analytics: [
       {
-        label: "蔵内管理",
+        label: "分析",
         items: [
-          { path: "/cat/brewery", label: "蔵内管理トップ", kicker: "Category" },
-          { path: "/jikomi", label: "仕込管理", kicker: "Jikomi" },
-          { path: "/tanks", label: "タンク管理", kicker: "Tank" },
-          { path: "/kentei", label: "検定管理", kicker: "Kentei" },
-          { path: "/materials", label: "資材管理", kicker: "Material" },
-          { path: "/demand", label: "需要・生産計画", kicker: "Demand" }
+          { path: "/analytics", label: "売上分析", kicker: "Analytics" },
+          { path: "/customer-analysis", label: "得意先分析", kicker: "CustABC" },
+                    { path: "/product-power", label: "商品力分析", kicker: "Power" },
+          { path: "/customer-efficiency", label: "営業効率", kicker: "Efficiency" },
+          { path: "/demand-forecast", label: "需要予測", kicker: "Forecast" },
+          { path: "/report", label: "集計帳票", kicker: "Report" }
         ]
       }
     ],
-    purchase: [
+    crm: [
       {
-        label: "仕入管理",
+        label: "営業ツール",
         items: [
-          { path: "/cat/purchase", label: "仕入管理トップ", kicker: "Category" },
+          { path: "/churn-alert", label: "離反アラート", kicker: "Churn" },
+          { path: "/seasonal-calendar", label: "季節提案", kicker: "Season" },
+          { path: "/visit-planner", label: "訪問計画", kicker: "Visit" },
+          { path: "/prospects", label: "新規営業", kicker: "Prospects" },
+          { path: "/map", label: "取引先マップ", kicker: "Map" },
+          { path: "/list-builder", label: "リスト取得", kicker: "ListBuild" },
+          { path: "/calls", label: "通話履歴", kicker: "Calls" },
+          { path: "/email", label: "メール配信", kicker: "Mail" }
+        ]
+      },
+      {
+        label: "受注・出荷",
+        items: [
+          { path: "/workflow", label: "受注ワークフロー", kicker: "Workflow" },
+          { path: "/mobile-order", label: "モバイル受注", kicker: "Mobile" },
+          { path: "/shopify", label: "Shopify注文", kicker: "Shopify" },
+          { path: "/fax", label: "FAX OCR", kicker: "FAX" }
+        ]
+      }
+    ],
+    orders: [
+      {
+        label: "仕入・調達",
+        items: [
           { path: "/purchase", label: "仕入・買掛", kicker: "Purchase" },
           { path: "/raw-material", label: "手形・原料", kicker: "RawMat" }
         ]
       }
     ],
-    more: [
+    brewery: [
       {
-        label: "その他",
+        label: "製造管理",
         items: [
-          { path: "/cat/more", label: "その他トップ", kicker: "Category" },
+          { path: "/jikomi", label: "仕込管理", kicker: "Jikomi" },
+          { path: "/tanks", label: "タンク管理", kicker: "Tank" },
+          { path: "/kentei", label: "検定管理", kicker: "Kentei" },
+          { path: "/materials", label: "資材管理", kicker: "Material" },
           { path: "/tax", label: "酒税申告", kicker: "Tax" },
-          { path: "/store", label: "店舗・直売所", kicker: "Store" },
-          { path: "/analytics", label: "売上分析", kicker: "Analytics" },
-          { path: "/master", label: "マスタ", kicker: "Master" },
-          { path: "/email", label: "メール配信", kicker: "Mail" },
-          { path: "/setup", label: "連動設定", kicker: "Setup" }
+          { path: "/demand", label: "需要・生産計画", kicker: "Demand" }
         ]
       }
     ],
-    email: [
+    master: [
       {
-        label: "メール配信",
-        items: [{ path: "/email", label: "季節商品案内", kicker: "Mail" }]
+        label: "マスタ・ツール",
+        items: [
+          { path: "/master", label: "マスタ管理", kicker: "Master" },
+          { path: "/calendar", label: "カレンダー", kicker: "Calendar" },
+          { path: "/store", label: "店舗・直売所", kicker: "Store" },
+          { path: "/tour", label: "酒蔵見学", kicker: "Tour" },
+          { path: "/print", label: "印刷", kicker: "Print" }
+        ]
+      }
+    ],
+    settings: [
+      {
+        label: "システム設定",
+        items: [
+          { path: "/setup", label: "連動設定", kicker: "Setup" },
+          { path: "/integrations", label: "外部連携", kicker: "API" },
+          { path: "/slack", label: "Slack通知", kicker: "Slack" },
+          { path: "/import", label: "データ取込", kicker: "Import" },
+          { path: "/raw-browser", label: "データブラウザ", kicker: "RawData" },
+          { path: "/users", label: "ユーザー管理", kicker: "Users" },
+          { path: "/profile", label: "プロフィール", kicker: "Profile" },
+          { path: "/audit", label: "操作ログ", kicker: "Audit" }
+        ]
       }
     ]
   };
 
   const topLevelItems: Array<{ category: CategoryKey; path: RoutePath; label: string }> = [
     { category: "dashboard", path: "/", label: "ダッシュボード" },
-    { category: "sales", path: "/cat/sales", label: "販売管理" },
-    { category: "brewery", path: "/cat/brewery", label: "蔵内管理" },
-    { category: "purchase", path: "/cat/purchase", label: "仕入管理" },
-    { category: "more", path: "/cat/more", label: "その他" },
-    { category: "email", path: "/email", label: "メール配信" }
+    { category: "sales", path: "/invoice-entry", label: "販売" },
+    { category: "analytics", path: "/analytics", label: "分析" },
+    { category: "crm", path: "/prospects", label: "営業" },
+    { category: "orders", path: "/purchase", label: "仕入" },
+    { category: "brewery", path: "/jikomi", label: "製造" },
+    { category: "master", path: "/master", label: "マスタ" },
+    { category: "settings", path: "/setup", label: "設定" }
   ];
 
   const navHtml = navGroups[state.currentCategory]
@@ -1749,6 +2199,7 @@ function renderShell(): string {
           <button class="button secondary" type="button" data-action="global-search-open">検索 (Ctrl+K)</button>
           ${userHtml}
         </header>
+        ${renderAnnouncementBar()}
         <div class="view ${state.actionLoading ? "is-busy" : ""}">${renderView()}</div>
       </main>
       ${pickerHtml}
@@ -1946,11 +2397,448 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // サイドバーのスワイプで閉じる
+  const sidebar = root.querySelector<HTMLElement>(".sidebar");
+  if (sidebar && state.sidebarOpen) {
+    let touchStartX = 0;
+    sidebar.addEventListener("touchstart", (e) => {
+      touchStartX = e.touches[0].clientX;
+    }, { passive: true });
+    sidebar.addEventListener("touchend", (e) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      if (dx < -60) {
+        state.sidebarOpen = false;
+        renderApp();
+      }
+    }, { passive: true });
+  }
+
+  // お知らせバーの閉じるボタン
+  root.querySelectorAll<HTMLButtonElement>("[data-action='dismiss-announcement']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id ?? "";
+      state.dismissedAnnouncements.add(id);
+      renderApp();
+    });
+  });
+
+  // アプデ通知のリロードボタン
+  root.querySelector<HTMLButtonElement>("[data-action='reload-app']")?.addEventListener("click", () => {
+    location.reload();
+  });
+
   root.querySelectorAll<HTMLElement>("[data-link]").forEach((element) => {
     element.addEventListener("click", (event) => {
       event.preventDefault();
       navigate(element.dataset.link as RoutePath);
     });
+  });
+
+  root.querySelector<HTMLFormElement>("#feature-request-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = root.querySelector<HTMLInputElement>("#fr-title")?.value ?? "";
+    const category = root.querySelector<HTMLSelectElement>("#fr-category")?.value ?? "feature";
+    const description = root.querySelector<HTMLTextAreaElement>("#fr-description")?.value ?? "";
+    const result = root.querySelector<HTMLSpanElement>("#fr-result");
+    if (!title.trim()) return;
+    const ok = await submitFeatureRequest(title, category, description);
+    if (result) {
+      result.textContent = ok ? "送信しました" : "送信に失敗しました";
+      result.className = `fr-result ${ok ? "success" : "error"}`;
+    }
+    if (ok) {
+      const form = root.querySelector<HTMLFormElement>("#feature-request-form");
+      if (form) form.reset();
+    }
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-period]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.salesPeriod = btn.dataset.period as SalesPeriod;
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='apply-range']")?.addEventListener("click", () => {
+    const start = root.querySelector<HTMLInputElement>("#range-start")?.value ?? "";
+    const end = root.querySelector<HTMLInputElement>("#range-end")?.value ?? "";
+    if (start && end) {
+      state.customRange = { start, end };
+      state.salesPeriod = "custom";
+      renderApp();
+    }
+  });
+
+  // マスタ編集ボタン
+  root.querySelectorAll<HTMLButtonElement>("[data-edit-customer]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.editCustomer ?? "";
+      const cust = state.masterStats?.customers.find((c) => c.id === id);
+      if (!cust) return;
+      const modal = document.createElement("div");
+      modal.innerHTML = renderEditCustomerModal(cust);
+      document.body.appendChild(modal.firstElementChild!);
+      document.querySelector("[data-action='close-modal']")?.addEventListener("click", () => {
+        document.getElementById("edit-modal")?.remove();
+      });
+      document.getElementById("edit-customer-form")?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const r = document.getElementById("edit-result") as HTMLSpanElement;
+        const ok = await updateCustomer(id, {
+          name: (document.getElementById("ec-name") as HTMLInputElement).value,
+          kana_name: (document.getElementById("ec-kana") as HTMLInputElement).value,
+          phone: (document.getElementById("ec-phone") as HTMLInputElement).value,
+          fax: (document.getElementById("ec-fax") as HTMLInputElement).value,
+          postal_code: (document.getElementById("ec-postal") as HTMLInputElement).value,
+          address1: (document.getElementById("ec-address") as HTMLInputElement).value,
+          closing_day: parseInt((document.getElementById("ec-closing") as HTMLInputElement).value) || null,
+          payment_day: parseInt((document.getElementById("ec-payment") as HTMLInputElement).value) || null,
+          manual_override: true,
+        });
+        if (r) { r.textContent = ok ? "保存しました" : "保存に失敗"; r.className = `fr-result ${ok ? "success" : "error"}`; }
+        if (ok) { document.getElementById("edit-modal")?.remove(); void loadData(); }
+      });
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-edit-product]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.editProduct ?? "";
+      const prod = state.masterStats?.products.find((p) => p.id === id);
+      if (!prod) return;
+      const modal = document.createElement("div");
+      modal.innerHTML = renderEditProductModal(prod);
+      document.body.appendChild(modal.firstElementChild!);
+      document.querySelector("[data-action='close-modal']")?.addEventListener("click", () => {
+        document.getElementById("edit-modal")?.remove();
+      });
+      document.getElementById("edit-product-form")?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const r = document.getElementById("edit-result") as HTMLSpanElement;
+        const ok = await updateProduct(id, {
+          name: (document.getElementById("ep-name") as HTMLInputElement).value,
+          category_code: (document.getElementById("ep-category") as HTMLInputElement).value,
+          alcohol_degree: parseFloat((document.getElementById("ep-alcohol") as HTMLInputElement).value) || null,
+          volume_ml: parseInt((document.getElementById("ep-volume") as HTMLInputElement).value) || null,
+          bottle_type: (document.getElementById("ep-bottle") as HTMLInputElement).value,
+          purchase_price: parseInt((document.getElementById("ep-purchase") as HTMLInputElement).value) || null,
+          default_sale_price: parseInt((document.getElementById("ep-sale") as HTMLInputElement).value) || null,
+          manual_override: true,
+        });
+        if (r) { r.textContent = ok ? "保存しました" : "保存に失敗"; r.className = `fr-result ${ok ? "success" : "error"}`; }
+        if (ok) { document.getElementById("edit-modal")?.remove(); void loadData(); }
+      });
+    });
+  });
+
+  // 見積もり作成
+  root.querySelector<HTMLInputElement>("#q-cust-search")?.addEventListener("input", (e) => {
+    state.quoteCustomerQuery = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+  root.querySelector<HTMLInputElement>("#q-prod-search")?.addEventListener("input", (e) => {
+    state.quoteProductQuery = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-select-customer]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const custCode = btn.dataset.selectCustomer ?? "";
+      state.quoteState.customerCode = custCode;
+      state.quoteState.customerName = btn.dataset.custName ?? "";
+      state.quoteState.customerAddress = btn.dataset.custAddr ?? "";
+      state.quoteCustomerQuery = "";
+      // 価格テーブル読込（個別単価 + price_type）
+      state.quotePricing = await fetchCustomerPricing(state.masterStats?.customers ?? [], custCode);
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-add-product]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const code = btn.dataset.addProduct ?? "";
+      const name = btn.dataset.prodName ?? "";
+      const price = parseInt(btn.dataset.prodPrice ?? "0");
+      state.quoteState.lines.push({ productCode: code, productName: name, quantity: 1, unit: "本", unitPrice: price, amount: price });
+      state.quoteProductQuery = "";
+      renderApp();
+    });
+  });
+  root.querySelectorAll<HTMLInputElement>(".qty-input").forEach((inp) => {
+    inp.addEventListener("change", () => {
+      const idx = parseInt(inp.dataset.lineIdx ?? "0");
+      const line = state.quoteState.lines[idx];
+      if (line) { line.quantity = parseInt(inp.value) || 0; line.amount = line.quantity * line.unitPrice; renderApp(); }
+    });
+  });
+  root.querySelectorAll<HTMLInputElement>(".price-input").forEach((inp) => {
+    inp.addEventListener("change", () => {
+      const idx = parseInt(inp.dataset.lineIdx ?? "0");
+      const line = state.quoteState.lines[idx];
+      if (line) { line.unitPrice = parseInt(inp.value) || 0; line.amount = line.quantity * line.unitPrice; renderApp(); }
+    });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-remove-line]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.removeLine ?? "0");
+      state.quoteState.lines.splice(idx, 1);
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='save-quote']")?.addEventListener("click", async () => {
+    const q = state.quoteState;
+    q.quoteNo = q.quoteNo || `Q${Date.now().toString(36).toUpperCase()}`;
+    q.quoteDate = (document.getElementById("q-date") as HTMLInputElement)?.value ?? q.quoteDate;
+    q.validUntil = (document.getElementById("q-valid") as HTMLInputElement)?.value ?? "";
+    q.subject = (document.getElementById("q-subject") as HTMLInputElement)?.value ?? "";
+    q.remarks = (document.getElementById("q-remarks") as HTMLTextAreaElement)?.value ?? "";
+    q.deliveryDate = (document.getElementById("q-delivery-date") as HTMLInputElement)?.value ?? q.deliveryDate;
+    q.paymentTerms = (document.getElementById("q-payment-terms") as HTMLInputElement)?.value ?? q.paymentTerms;
+    q.deliveryPlace = (document.getElementById("q-delivery-place") as HTMLInputElement)?.value ?? q.deliveryPlace;
+    q.fieldConfig.headerNote = (document.getElementById("q-header-note") as HTMLInputElement)?.value ?? q.fieldConfig.headerNote;
+    q.fieldConfig.footerNote = (document.getElementById("q-footer-note") as HTMLInputElement)?.value ?? q.fieldConfig.footerNote;
+    const subtotal = q.lines.reduce((s, l) => s + l.amount, 0);
+    const tax = Math.round(subtotal * q.taxRate / 100);
+    const { supabaseInsert: insert } = await import("./supabase");
+    const saved = await insert<{ id: string }>("quotes", {
+      quote_no: q.quoteNo, quote_date: q.quoteDate, valid_until: q.validUntil || null,
+      legacy_customer_code: q.customerCode, customer_name: q.customerName,
+      customer_address: q.customerAddress, subject: q.subject,
+      subtotal, tax_amount: tax, total_amount: subtotal + tax, remarks: q.remarks
+    });
+    if (saved?.id) {
+      for (let i = 0; i < q.lines.length; i++) {
+        const l = q.lines[i];
+        await insert("quote_lines", {
+          quote_id: saved.id, line_no: i + 1,
+          legacy_product_code: l.productCode, product_name: l.productName,
+          quantity: l.quantity, unit: l.unit, unit_price: l.unitPrice, amount: l.amount
+        });
+      }
+      alert(`見積 ${q.quoteNo} を保存しました`);
+      state.quoteState = { ...defaultQuoteState };
+      renderApp();
+    }
+  });
+
+  // Quote: preview mode toggle
+  root.querySelector<HTMLButtonElement>("[data-action='quote-preview-mode']")?.addEventListener("click", () => {
+    const q = state.quoteState;
+    q.quoteDate = (document.getElementById("q-date") as HTMLInputElement)?.value ?? q.quoteDate;
+    q.validUntil = (document.getElementById("q-valid") as HTMLInputElement)?.value ?? q.validUntil;
+    q.subject = (document.getElementById("q-subject") as HTMLInputElement)?.value ?? q.subject;
+    q.remarks = (document.getElementById("q-remarks") as HTMLTextAreaElement)?.value ?? q.remarks;
+    q.quoteNo = (document.getElementById("q-no") as HTMLInputElement)?.value ?? q.quoteNo;
+    q.deliveryDate = (document.getElementById("q-delivery-date") as HTMLInputElement)?.value ?? q.deliveryDate;
+    q.paymentTerms = (document.getElementById("q-payment-terms") as HTMLInputElement)?.value ?? q.paymentTerms;
+    q.deliveryPlace = (document.getElementById("q-delivery-place") as HTMLInputElement)?.value ?? q.deliveryPlace;
+    q.fieldConfig.headerNote = (document.getElementById("q-header-note") as HTMLInputElement)?.value ?? q.fieldConfig.headerNote;
+    q.fieldConfig.footerNote = (document.getElementById("q-footer-note") as HTMLInputElement)?.value ?? q.fieldConfig.footerNote;
+    q.previewMode = true;
+    renderApp();
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='quote-edit-mode']")?.addEventListener("click", () => {
+    state.quoteState.previewMode = false;
+    renderApp();
+  });
+
+  // Quote: PDF download
+  root.querySelector<HTMLButtonElement>("[data-action='quote-download-pdf']")?.addEventListener("click", () => {
+    const q = state.quoteState;
+    // Sync current form values before PDF
+    if (!q.previewMode) {
+      q.quoteDate = (document.getElementById("q-date") as HTMLInputElement)?.value ?? q.quoteDate;
+      q.validUntil = (document.getElementById("q-valid") as HTMLInputElement)?.value ?? q.validUntil;
+      q.subject = (document.getElementById("q-subject") as HTMLInputElement)?.value ?? q.subject;
+      q.remarks = (document.getElementById("q-remarks") as HTMLTextAreaElement)?.value ?? q.remarks;
+      q.quoteNo = (document.getElementById("q-no") as HTMLInputElement)?.value ?? q.quoteNo;
+      q.deliveryDate = (document.getElementById("q-delivery-date") as HTMLInputElement)?.value ?? q.deliveryDate;
+      q.paymentTerms = (document.getElementById("q-payment-terms") as HTMLInputElement)?.value ?? q.paymentTerms;
+      q.deliveryPlace = (document.getElementById("q-delivery-place") as HTMLInputElement)?.value ?? q.deliveryPlace;
+      q.fieldConfig.headerNote = (document.getElementById("q-header-note") as HTMLInputElement)?.value ?? q.fieldConfig.headerNote;
+      q.fieldConfig.footerNote = (document.getElementById("q-footer-note") as HTMLInputElement)?.value ?? q.fieldConfig.footerNote;
+    }
+    generateQuotePdf(q);
+  });
+
+  // Quote: field config toggles
+  root.querySelectorAll<HTMLInputElement>("[data-field-toggle]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const key = cb.dataset.fieldToggle as keyof typeof state.quoteState.fieldConfig;
+      if (key && typeof state.quoteState.fieldConfig[key] === "boolean") {
+        (state.quoteState.fieldConfig as Record<string, unknown>)[key] = cb.checked;
+        renderApp();
+      }
+    });
+  });
+
+  // Quote: seal file upload
+  root.querySelector<HTMLInputElement>("#q-seal-file")?.addEventListener("change", (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      state.quoteState.sealSettings = { imageDataUrl: reader.result as string, size: 72 };
+      // Persist to localStorage
+      localStorage.setItem("quote-seal", JSON.stringify(state.quoteState.sealSettings));
+      renderApp();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Quote: seal size slider
+  root.querySelector<HTMLInputElement>("#q-seal-size")?.addEventListener("input", (e) => {
+    const size = parseInt((e.target as HTMLInputElement).value);
+    if (state.quoteState.sealSettings) {
+      state.quoteState.sealSettings.size = size;
+      localStorage.setItem("quote-seal", JSON.stringify(state.quoteState.sealSettings));
+      renderApp();
+    }
+  });
+
+  // Quote: remove seal
+  root.querySelector<HTMLButtonElement>("[data-action='remove-seal']")?.addEventListener("click", () => {
+    state.quoteState.sealSettings = null;
+    localStorage.removeItem("quote-seal");
+    renderApp();
+  });
+
+  // Demand forecast: calendar navigation
+  root.querySelectorAll<HTMLButtonElement>("[data-action='dcal-prev'],[data-action='dcal-next']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const month = btn.dataset.month;
+      if (month) { state.demandForecast.calendarMonth = month; renderApp(); }
+    });
+  });
+  // Demand forecast: segment filter
+  root.querySelectorAll<HTMLButtonElement>("[data-action='forecast-segment']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const seg = btn.dataset.segment as ProductionSegment | "all";
+      state.demandForecast.selectedSegment = seg;
+      renderApp();
+    });
+  });
+
+  // Demand planning: tab switch
+  root.querySelectorAll<HTMLButtonElement>("[data-demand-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.demandTab as DemandTab;
+      if (tab) { state.demandTab = tab; renderApp(); }
+    });
+  });
+
+  // Demand planning: plan year/month change
+  root.querySelector<HTMLInputElement>("[data-action='demand-plan-month']")?.addEventListener("change", async (e) => {
+    const ym = (e.target as HTMLInputElement).value;
+    if (!ym) return;
+    state.demandPlanYearMonth = ym;
+    const { fetchProductionPlan } = await import("./api");
+    state.productionPlan = await fetchProductionPlan(ym);
+    renderApp();
+  });
+
+  // Demand planning: save safety stock params
+  root.querySelectorAll<HTMLButtonElement>("[data-action='save-safety-stock']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const code = btn.dataset.productCode ?? "";
+      const row = root.closest("[data-product-row]") ?? btn.closest("[data-product-row]");
+      if (!row) return;
+      const leadTime = parseInt((row.querySelector<HTMLInputElement>("[data-field='lead-time']")?.value) ?? "30");
+      const serviceLevel = parseFloat((row.querySelector<HTMLSelectElement>("[data-field='service-level']")?.value) ?? "0.95");
+      const existing = state.safetyStockParams.find((p) => p.productCode === code);
+      if (!existing) return;
+      const updated = { ...existing, leadTimeDays: leadTime, serviceLevel };
+      const { saveSafetyStockParams } = await import("./api");
+      await saveSafetyStockParams(updated);
+      state.safetyStockParams = state.safetyStockParams.map((p) => p.productCode === code ? updated : p);
+      renderApp();
+    });
+  });
+
+  // Demand planning: save production plan
+  root.querySelectorAll<HTMLButtonElement>("[data-action='save-production-plan']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const code = btn.dataset.productCode ?? "";
+      const row = btn.closest("[data-product-row]");
+      if (!row) return;
+      const plannedQty = parseFloat((row.querySelector<HTMLInputElement>("[data-field='planned-qty']")?.value) ?? "0");
+      const actualQty = parseFloat((row.querySelector<HTMLInputElement>("[data-field='actual-qty']")?.value) ?? "0");
+      const status = (row.querySelector<HTMLSelectElement>("[data-field='status']")?.value ?? "draft") as "draft" | "confirmed" | "actual";
+      const existing = state.productionPlan.find((p) => p.productCode === code);
+      if (!existing) return;
+      const updated = { ...existing, plannedQty, actualQty, status };
+      const { saveProductionPlan } = await import("./api");
+      await saveProductionPlan(updated);
+      state.productionPlan = state.productionPlan.map((p) => p.productCode === code ? updated : p);
+      renderApp();
+    });
+  });
+
+  // Seasonal calendar: month selection
+  root.querySelectorAll<HTMLButtonElement>("[data-action='select-month']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const month = parseInt(btn.dataset.month ?? "0");
+      if (state.seasonalCalendar) { state.seasonalCalendar.selectedMonth = month; renderApp(); }
+    });
+  });
+
+  // Visit planner: area filter
+  root.querySelector<HTMLSelectElement>("#visit-filter-area")?.addEventListener("change", (e) => {
+    if (state.visitPlanner) { state.visitPlanner.filterArea = (e.target as HTMLSelectElement).value; renderApp(); }
+  });
+  root.querySelector<HTMLInputElement>("#visit-filter-score")?.addEventListener("change", (e) => {
+    if (state.visitPlanner) { state.visitPlanner.filterMinScore = parseInt((e.target as HTMLInputElement).value) || 0; renderApp(); }
+  });
+
+  root.querySelectorAll<HTMLElement>("[data-sort-col]").forEach((th) => {
+    th.addEventListener("click", (e) => {
+      const col = th.dataset.sortCol ?? "";
+      const multi = (e as MouseEvent).shiftKey;
+      if (state.route === "/product-power") {
+        state.productSortState = toggleSort(state.productSortState, col, multi);
+      } else if (state.route === "/customer-efficiency") {
+        state.customerSortState = toggleSort(state.customerSortState, col, multi);
+      } else if (state.route === "/" || state.route === "/sales") {
+        state.dashboardSortState = toggleSort(state.dashboardSortState, col, multi);
+      } else if (state.route === "/master") {
+        state.masterSortState = toggleSort(state.masterSortState, col, multi);
+      }
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-product-period]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.productPeriod = (btn.dataset.productPeriod ?? "year") as ProductPeriod;
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='pp-apply-range']")?.addEventListener("click", () => {
+    const start = (document.getElementById("pp-range-start") as HTMLInputElement)?.value ?? "";
+    const end = (document.getElementById("pp-range-end") as HTMLInputElement)?.value ?? "";
+    if (start && end) {
+      state.productCustomStart = start;
+      state.productCustomEnd = end;
+      state.productPeriod = "custom";
+      renderApp();
+    }
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-product-filter]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.productFilter = (btn.dataset.productFilter ?? "all") as ProductViewFilter;
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='dashboard-refresh']")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "更新中…";
+    await loadData();
+    btn.disabled = false;
+    btn.textContent = "↻ 更新";
+    showToast("ダッシュボードを更新しました", "success");
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='sales-filter']")?.addEventListener("click", () => {
@@ -1980,78 +2868,184 @@ function bindEvents(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => {
     button.addEventListener("click", () => {
       state.masterTab = button.dataset.tab as MasterTab;
+      state.masterFilter = { ...defaultMasterFilter };
       renderApp();
     });
   });
 
-  root.querySelectorAll<HTMLButtonElement>("[data-analytics-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.analyticsTab = button.dataset.analyticsTab as AnalyticsTab;
-      renderApp();
-    });
-  });
-
-  // 需要計画 — タブ切り替え
-  root.querySelectorAll<HTMLButtonElement>("[data-demand-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.demandTab = button.dataset.demandTab as DemandTab;
-      renderApp();
-    });
-  });
-
-  // 需要計画 — 対象年月変更
-  root.querySelector<HTMLSelectElement>("[data-action='plan-year-month']")?.addEventListener("change", async (event) => {
-    const ym = (event.target as HTMLSelectElement).value;
-    state.demandPlanYearMonth = ym;
-    state.productionPlan = await fetchProductionPlan(ym);
+  // マスタ検索・フィルタ
+  root.querySelector<HTMLButtonElement>("[data-action='master-filter']")?.addEventListener("click", () => {
+    state.masterFilter = {
+      query: root.querySelector<HTMLInputElement>("#master-search")?.value ?? "",
+      businessType: root.querySelector<HTMLSelectElement>("#master-business-type")?.value ?? "",
+      areaCode: root.querySelector<HTMLSelectElement>("#master-area-code")?.value ?? "",
+      activeOnly: root.querySelector<HTMLSelectElement>("#master-active-only")?.value ?? "",
+      page: 1
+    };
     renderApp();
   });
 
-  // 需要計画 — 安全在庫保存
-  root.querySelector<HTMLButtonElement>("[data-action='ss-save-all']")?.addEventListener("click", async () => {
-    const ok = await saveSafetyStockParams(state.safetyStockParams);
-    if (ok) alert("安全在庫パラメータを保存しました。");
+  root.querySelector<HTMLInputElement>("#master-search")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      root.querySelector<HTMLButtonElement>("[data-action='master-filter']")?.click();
+    }
   });
 
-  // 需要計画 — 計画数入力
-  root.querySelectorAll<HTMLInputElement>("[data-action='plan-qty']").forEach((input) => {
-    input.addEventListener("change", () => {
-      const code = input.dataset.code ?? "";
-      const qty = parseFloat(input.value) || 0;
-      const row = state.productionPlan.find((r) => r.productCode === code);
-      if (row) row.plannedQty = qty;
+  root.querySelectorAll<HTMLButtonElement>("[data-action='master-page']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const page = Number(button.dataset.page);
+      if (page >= 1) {
+        state.masterFilter = { ...state.masterFilter, page };
+        renderApp();
+      }
     });
   });
 
-  // 需要計画 — リードタイム変更
-  root.querySelectorAll<HTMLInputElement>("[data-action='ss-lead-time']").forEach((input) => {
-    input.addEventListener("change", () => {
-      const code = input.dataset.code ?? "";
-      const days = parseInt(input.value, 10) || 30;
-      const p = state.safetyStockParams.find((s) => s.productCode === code);
-      if (p) { p.leadTimeDays = days; renderApp(); }
+  // rawデータブラウザ
+  root.querySelectorAll<HTMLButtonElement>("[data-action='raw-select-table']").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const table = button.dataset.table;
+      if (!table) return;
+      state.rawSelectedTable = table;
+      state.rawPage = 1;
+      const result = await fetchRawRecords(table, 1);
+      state.rawRecords = result.records;
+      state.rawTotalCount = result.total;
+      renderApp();
     });
   });
 
-  // 需要計画 — サービス率変更
-  root.querySelectorAll<HTMLSelectElement>("[data-action='ss-service-level']").forEach((sel) => {
-    sel.addEventListener("change", () => {
-      const code = sel.dataset.code ?? "";
-      const level = parseFloat(sel.value) || 0.95;
-      const p = state.safetyStockParams.find((s) => s.productCode === code);
-      if (p) { p.serviceLevel = level; renderApp(); }
+  root.querySelector<HTMLButtonElement>("[data-action='raw-page-prev']")?.addEventListener("click", async () => {
+    if (!state.rawSelectedTable || state.rawPage <= 1) return;
+    state.rawPage -= 1;
+    const result = await fetchRawRecords(state.rawSelectedTable, state.rawPage);
+    state.rawRecords = result.records;
+    state.rawTotalCount = result.total;
+    renderApp();
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='raw-page-next']")?.addEventListener("click", async () => {
+    if (!state.rawSelectedTable) return;
+    state.rawPage += 1;
+    const result = await fetchRawRecords(state.rawSelectedTable, state.rawPage);
+    state.rawRecords = result.records;
+    state.rawTotalCount = result.total;
+    renderApp();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-analytics-tab]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      state.analyticsTab = button.dataset.analyticsTab as AnalyticsTab;
+      state.analyticsStaffDrilldown = null;
+      if (state.analyticsTab === "staff") {
+        // staffタブは独自期間状態を維持、products/customers期間は触らない
+      } else if (state.analyticsPeriod !== "all") {
+        const { fetchAnalyticsByPeriod, fetchAvailablePeriods } = await import("./api");
+        state.analyticsPeriodOptions = await fetchAvailablePeriods(state.analyticsTab, state.analyticsPeriod);
+        state.analyticsPeriodFilter = state.analyticsPeriodOptions[0] ?? "";
+        state.analyticsPeriodRows = await fetchAnalyticsByPeriod(state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter);
+      }
+      renderApp();
     });
   });
 
-  // 需要計画 — 計画保存
-  root.querySelector<HTMLButtonElement>("[data-action='plan-save']")?.addEventListener("click", async () => {
-    const ok = await saveProductionPlan(state.productionPlan);
-    if (ok) alert("生産計画を保存しました。");
+  root.querySelectorAll<HTMLButtonElement>("[data-analytics-period]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const { fetchAnalyticsByPeriod, fetchAvailablePeriods } = await import("./api");
+      const period = button.dataset.analyticsPeriod as import("./api").AnalyticsPeriod;
+      state.analyticsPeriod = period;
+      if (period === "all") {
+        state.analyticsPeriodRows = [];
+        state.analyticsPeriodOptions = [];
+        state.analyticsPeriodFilter = "";
+      } else {
+        state.analyticsPeriodOptions = await fetchAvailablePeriods(state.analyticsTab, period);
+        state.analyticsPeriodFilter = state.analyticsPeriodOptions[0] ?? "";
+        state.analyticsPeriodRows = await fetchAnalyticsByPeriod(state.analyticsTab, period, state.analyticsPeriodFilter);
+      }
+      renderApp();
+    });
   });
 
-  // 需要計画 — 需要予測再計算
-  root.querySelector<HTMLButtonElement>("[data-action='plan-recalc']")?.addEventListener("click", async () => {
-    state.productionPlan = await fetchProductionPlan(state.demandPlanYearMonth);
+  root.querySelector<HTMLSelectElement>("#analytics-period-select")?.addEventListener("change", async (e) => {
+    const { fetchAnalyticsByPeriod } = await import("./api");
+    state.analyticsPeriodFilter = (e.target as HTMLSelectElement).value;
+    state.analyticsPeriodRows = await fetchAnalyticsByPeriod(state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter);
+    renderApp();
+  });
+
+  // 担当フィルター
+  root.querySelector<HTMLInputElement>("#staff-filter-input")?.addEventListener("input", (e) => {
+    state.analyticsStaffFilter = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+
+  // 担当詳細ドリルダウン
+  root.querySelectorAll<HTMLButtonElement>("[data-staff-drilldown]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const staffCode = button.dataset.staffDrilldown ?? "";
+      const staffName = button.dataset.staffName ?? "";
+      const { fetchStaffCustomerBreakdown, fetchStaffProductBreakdown, periodToDateRange } = await import("./api");
+      const range = periodToDateRange(state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter);
+      const prevTab = state.analyticsStaffDrilldown?.breakdownTab ?? "customers";
+      const [customerRows, productRows] = await Promise.all([
+        fetchStaffCustomerBreakdown(staffCode, range?.from, range?.to),
+        fetchStaffProductBreakdown(staffCode, range?.from, range?.to)
+      ]);
+      state.analyticsStaffDrilldown = { code: staffCode, name: staffName, breakdownTab: prevTab, customerRows, productRows };
+      renderApp();
+    });
+  });
+
+  // 担当ドリルダウン 得意先/商品サブタブ切替
+  root.querySelectorAll<HTMLButtonElement>("[data-staff-breakdown-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!state.analyticsStaffDrilldown) return;
+      state.analyticsStaffDrilldown = { ...state.analyticsStaffDrilldown, breakdownTab: button.dataset.staffBreakdownTab as "customers" | "products" };
+      renderApp();
+    });
+  });
+
+  // 担当ドリルダウン閉じる
+  root.querySelector<HTMLButtonElement>("[data-action='close-staff-drilldown']")?.addEventListener("click", () => {
+    state.analyticsStaffDrilldown = null;
+    renderApp();
+  });
+
+  // 担当ドリルダウン タグ/名称フィルター
+  root.querySelector<HTMLInputElement>("[data-analytics-tag-filter]")?.addEventListener("input", (e) => {
+    state.analyticsTagFilter = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+
+  // 担当タブ 期間ボタン
+  root.querySelectorAll<HTMLButtonElement>("[data-staff-period]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const { fetchAvailablePeriods, fetchStaffTotalsByPeriod, periodToDateRange } = await import("./api");
+      const period = button.dataset.staffPeriod as import("./api").AnalyticsPeriod;
+      state.analyticsStaffPeriod = period;
+      state.analyticsStaffDrilldown = null;
+      if (period === "all") {
+        state.analyticsStaffPeriodFilter = "";
+        state.analyticsStaffPeriodOptions = [];
+        state.analyticsStaffTotals = [];
+      } else {
+        state.analyticsStaffPeriodOptions = await fetchAvailablePeriods("staff", period);
+        state.analyticsStaffPeriodFilter = state.analyticsStaffPeriodOptions[0] ?? "";
+        const range = periodToDateRange(period, state.analyticsStaffPeriodFilter);
+        state.analyticsStaffTotals = await fetchStaffTotalsByPeriod(range?.from, range?.to);
+      }
+      renderApp();
+    });
+  });
+
+  // 担当タブ 期間セレクト
+  root.querySelector<HTMLSelectElement>("#staff-period-select")?.addEventListener("change", async (e) => {
+    const { fetchStaffTotalsByPeriod, periodToDateRange } = await import("./api");
+    state.analyticsStaffPeriodFilter = (e.target as HTMLSelectElement).value;
+    const range = periodToDateRange(state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter);
+    state.analyticsStaffTotals = await fetchStaffTotalsByPeriod(range?.from, range?.to);
+    state.analyticsStaffDrilldown = null;
     renderApp();
   });
 
@@ -2128,7 +3122,7 @@ function bindEvents(root: HTMLElement): void {
   });
 
   root.querySelectorAll<HTMLElement>("[data-action='picker-select']").forEach((row) => {
-    const selectHandler = () => {
+    const selectHandler = async () => {
       const code = row.dataset.code ?? "";
       const name = row.dataset.name ?? "";
 
@@ -2136,11 +3130,22 @@ function bindEvents(root: HTMLElement): void {
         state.invoiceForm.customerCode = code;
         state.invoiceForm.customerName = name;
         delete state.invoiceErrors.customerCode;
+        // 得意先の単価グループを取得
+        const customer = state.masterStats?.customers.find((c) => c.code === code);
+        state.invoicePriceGroup = customer?.priceGroup || "";
+        if (!state.invoicePriceGroup && code) {
+          state.invoicePriceGroup = await fetchCustomerPriceGroup(code);
+        }
       } else if (state.pickerMode === "product" && state.pickerTargetLine !== null) {
         const line = state.invoiceForm.lines[state.pickerTargetLine];
         if (line) {
           line.productCode = code;
           line.productName = name;
+          // 単価グループから特価を自動取得
+          const price = await fetchProductPrice(state.invoicePriceGroup, code);
+          if (price > 0) {
+            line.unitPrice = price;
+          }
           line.amount = line.quantity * line.unitPrice;
           delete state.invoiceErrors[`lines.${state.pickerTargetLine}.productCode`];
           delete state.invoiceErrors[`lines.${state.pickerTargetLine}.productName`];
@@ -2173,10 +3178,14 @@ function bindEvents(root: HTMLElement): void {
     persistInvoice(root);
   });
 
-  root.querySelector<HTMLInputElement>("#inv-customer-code")?.addEventListener("blur", () => {
+  root.querySelector<HTMLInputElement>("#inv-customer-code")?.addEventListener("blur", async () => {
     collectInvoiceFormFromDom(root);
     if (tryAutofillCustomerByCode(state.invoiceForm.customerCode)) {
       delete state.invoiceErrors.customerCode;
+      // priceGroupがローカルになければSupabaseから取得
+      if (!state.invoicePriceGroup && state.invoiceForm.customerCode) {
+        state.invoicePriceGroup = await fetchCustomerPriceGroup(state.invoiceForm.customerCode);
+      }
       renderApp();
     }
   });
@@ -2197,6 +3206,11 @@ function bindEvents(root: HTMLElement): void {
       element.addEventListener("input", () => {
         collectInvoiceFormFromDom(root);
         state.invoiceSavedDocNo = null;
+        // 数量・単価変更時は金額を即時反映
+        const field = element.dataset.field;
+        if (field === "quantity" || field === "unitPrice") {
+          renderApp();
+        }
       });
     });
 
@@ -2283,9 +3297,9 @@ function bindEvents(root: HTMLElement): void {
     const { saveTaxDeclaration } = await import("./api");
     try {
       await saveTaxDeclaration(state.taxDeclaration);
-      alert("下書き保存しました（Supabase tax_declarationsに保存）");
+      showToast("下書き保存しました");
     } catch (e) {
-      alert("保存に失敗: " + (e instanceof Error ? e.message : String(e)));
+      showToast("保存に失敗: " + (e instanceof Error ? e.message : String(e)), "error");
     }
   });
 
@@ -2413,7 +3427,7 @@ function bindEvents(root: HTMLElement): void {
     const input = root.querySelector<HTMLInputElement>("#import-file");
     const file = input?.files?.[0];
     if (!file) {
-      alert("CSVファイルを選択してください");
+      showToast("CSVファイルを選択してください", "warning");
       return;
     }
     const reader = new FileReader();
@@ -2516,9 +3530,9 @@ function bindEvents(root: HTMLElement): void {
     try {
       localStorage.setItem("sake_print_options", JSON.stringify(state.printOptions));
       localStorage.setItem("sake_print_company", JSON.stringify(state.printCompany));
-      alert("印刷設定を保存しました（次回以降も使えます）");
+      showToast("印刷設定を保存しました");
     } catch (e) {
-      alert("保存失敗: " + (e instanceof Error ? e.message : String(e)));
+      showToast("保存失敗: " + (e instanceof Error ? e.message : String(e)), "error");
     }
   });
 
@@ -2574,16 +3588,16 @@ function bindEvents(root: HTMLElement): void {
     try {
       const saved = await savePrintLayout(layout);
       if (saved) {
-        alert(`☁️ クラウド保存成功: ${name}`);
+        showToast(`クラウド保存成功: ${name}`);
         state.fdSavedPositions = positions;
         localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
         renderApp();
       } else {
-        alert("保存に失敗しました。ローカルには保存されました。");
+        showToast("クラウド保存に失敗しました。ローカルには保存されました", "warning");
         localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
       }
     } catch (e) {
-      alert("保存エラー: " + (e instanceof Error ? e.message : ""));
+      showToast("保存エラー: " + (e instanceof Error ? e.message : ""), "error");
     }
   });
 
@@ -2595,9 +3609,9 @@ function bindEvents(root: HTMLElement): void {
     state.fdSavedPositions = positions;
     try {
       localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
-      alert(`📁 このPCに保存: ${Object.keys(positions).length}件`);
+      showToast(`ローカル保存完了: ${Object.keys(positions).length}件`);
     } catch (e) {
-      alert("保存失敗: " + (e instanceof Error ? e.message : ""));
+      showToast("保存失敗: " + (e instanceof Error ? e.message : ""), "error");
     }
   });
 
@@ -2630,10 +3644,10 @@ function bindEvents(root: HTMLElement): void {
       if (!positions) throw new Error("positions field not found");
       state.fdSavedPositions = positions;
       localStorage.setItem("sake_fd_positions", JSON.stringify(positions));
-      alert(`📥 インポート成功: ${Object.keys(positions).length}件`);
+      showToast(`インポート成功: ${Object.keys(positions).length}件`);
       renderApp();
     } catch (err) {
-      alert("インポート失敗: " + (err instanceof Error ? err.message : ""));
+      showToast("インポート失敗: " + (err instanceof Error ? err.message : ""), "error");
     }
   });
 
@@ -2662,7 +3676,7 @@ function bindEvents(root: HTMLElement): void {
             if (!layout) return;
             state.fdSavedPositions = layout.positions;
             localStorage.setItem("sake_fd_positions", JSON.stringify(layout.positions));
-            alert(`読込完了: ${layout.name}`);
+            showToast(`読込完了: ${layout.name}`);
             renderApp();
           });
         });
@@ -2670,21 +3684,22 @@ function bindEvents(root: HTMLElement): void {
         savedLayoutsDiv.querySelectorAll<HTMLButtonElement>("[data-action='fd-delete-layout']").forEach((btn) => {
           btn.addEventListener("click", async () => {
             const id = btn.dataset.layoutId;
-            if (!id || !confirm("このレイアウトを削除しますか？")) return;
+            if (!id) return;
+            if (!await showConfirm("このレイアウトを削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
             const { deletePrintLayout } = await import("./api");
             const ok = await deletePrintLayout(id);
             if (ok) {
-              alert("削除しました");
+              showToast("削除しました");
               renderApp();
-            } else alert("削除失敗");
+            } else showToast("削除失敗", "error");
           });
         });
       }
     })();
   }
 
-  root.querySelector<HTMLButtonElement>("[data-action='fd-reset-positions']")?.addEventListener("click", () => {
-    if (!confirm("フィールド位置を初期値に戻しますか？")) return;
+  root.querySelector<HTMLButtonElement>("[data-action='fd-reset-positions']")?.addEventListener("click", async () => {
+    if (!await showConfirm("フィールド位置を初期値に戻しますか？")) return;
     state.fdSavedPositions = null;
     localStorage.removeItem("sake_fd_positions");
     renderApp();
@@ -2844,7 +3859,7 @@ function bindEvents(root: HTMLElement): void {
     inq.status = "confirmed";
     inq.repliedAt = new Date().toISOString();
     inq.confirmedTime = confirmedTimeEl?.value ?? "";
-    alert("返信メールを下書き保存し、ステータスを確定にしました（実送信はSupabase連携で実装）");
+    showToast("返信メールを下書き保存し、ステータスを確定にしました");
     renderApp();
   });
 
@@ -2853,7 +3868,7 @@ function bindEvents(root: HTMLElement): void {
     const type = root.querySelector<HTMLSelectElement>("#lb-type")?.value ?? "";
     const area = root.querySelector<HTMLInputElement>("#lb-area")?.value ?? "";
     const keyword = root.querySelector<HTMLInputElement>("#lb-keyword")?.value ?? "";
-    if (!type && !keyword) { alert("業種かキーワードを入力してください"); return; }
+    if (!type && !keyword) { showToast("業種かキーワードを入力してください", "warning"); return; }
     state.leadSearchType = type;
     state.leadSearchArea = area;
     state.leadSearchQuery = keyword;
@@ -2861,7 +3876,7 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
     const setting = state.integrations.find((i) => i.provider === "google_maps");
     if (!setting || !setting.config["api_key"]) {
-      alert("Google Maps APIキーが /integrations で未設定です");
+      showToast("Google Maps APIキーが /integrations で未設定です", "warning");
       state.leadSearching = false;
       renderApp();
       return;
@@ -2871,7 +3886,7 @@ function bindEvents(root: HTMLElement): void {
     const result = await searchPlaces(setting, query, area);
     state.leadSearching = false;
     if (result.error) {
-      alert("検索失敗: " + result.error);
+      showToast("検索失敗: " + result.error, "error");
     } else {
       state.leadSearchResults = result.results;
     }
@@ -2913,7 +3928,7 @@ function bindEvents(root: HTMLElement): void {
     state.leadActiveListId = listId;
     state.leadItems = await fetchLeadItems(listId);
     state.leadSearchResults = [];
-    alert(`${selectedIndices.length}件を「${name}」として保存しました`);
+    showToast(`${selectedIndices.length}件を「${name}」として保存しました`);
     renderApp();
   });
   root.querySelectorAll<HTMLButtonElement>("[data-action='lb-select-list']").forEach((btn) => {
@@ -2946,7 +3961,7 @@ function bindEvents(root: HTMLElement): void {
       const { convertLeadToProspect, fetchLeadItems } = await import("./api");
       const result = await convertLeadToProspect(item);
       if (result) {
-        alert("見込客に追加しました: " + item.companyName);
+        showToast("見込客に追加しました: " + item.companyName);
         if (state.leadActiveListId) state.leadItems = await fetchLeadItems(state.leadActiveListId);
         renderApp();
       }
@@ -2955,7 +3970,7 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>("[data-action='lb-bulk-convert']")?.addEventListener("click", async () => {
     const checks = root.querySelectorAll<HTMLInputElement>(".lb-item-check:checked");
     if (checks.length === 0) {
-      if (!confirm(`全ての新規アイテムを見込客に変換しますか？`)) return;
+      if (!await showConfirm("全ての新規アイテムを見込客に変換しますか？")) return;
     }
     const ids = checks.length > 0
       ? Array.from(checks).map((c) => c.dataset.id!)
@@ -2968,7 +3983,7 @@ function bindEvents(root: HTMLElement): void {
         if (await convertLeadToProspect(item)) converted++;
       }
     }
-    alert(`${converted}件を見込客に変換しました`);
+    showToast(`${converted}件を見込客に変換しました`);
     if (state.leadActiveListId) state.leadItems = await fetchLeadItems(state.leadActiveListId);
     renderApp();
   });
@@ -2992,14 +4007,14 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>("[data-action='ivry-sync']")?.addEventListener("click", async () => {
     const setting = state.integrations.find((i) => i.provider === "ivry");
     if (!setting || !setting.isEnabled) {
-      alert("IVRy連携が無効です。/integrations で有効化してください");
+      showToast("IVRy連携が無効です。/integrations で有効化してください", "warning");
       return;
     }
     const { syncIvryCallLogs, fetchCallLogs } = await import("./api");
     const result = await syncIvryCallLogs(setting);
-    if (result.error) alert("同期失敗: " + result.error);
+    if (result.error) showToast("同期失敗: " + result.error, "error");
     else {
-      alert(`${result.count}件の通話履歴を同期しました`);
+      showToast(`${result.count}件の通話履歴を同期しました`);
       state.callLogs = await fetchCallLogs(100);
       renderApp();
     }
@@ -3007,10 +4022,10 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>("[data-action='ivry-push-phonebook']")?.addEventListener("click", async () => {
     const setting = state.integrations.find((i) => i.provider === "ivry");
     if (!setting || !setting.isEnabled) {
-      alert("IVRy連携が無効です");
+      showToast("IVRy連携が無効です", "warning");
       return;
     }
-    if (!confirm("全ての取引先と見込客の電話帳をIVRyに送信しますか？")) return;
+    if (!await showConfirm("全ての取引先と見込客の電話帳をIVRyに送信しますか？")) return;
     const { syncPhoneBookToIvry } = await import("./api");
     const contacts: Array<{ name: string; phone: string; customerCode?: string; note?: string }> = [];
     state.masterStats?.customers.forEach((c) => {
@@ -3020,8 +4035,8 @@ function bindEvents(root: HTMLElement): void {
       if (p.phone) contacts.push({ name: p.companyName, phone: p.phone, customerCode: p.id, note: `見込客 (${p.stage})` });
     });
     const result = await syncPhoneBookToIvry(setting, contacts);
-    if (result.error) alert("送信失敗: " + result.error);
-    else alert(`${result.synced}件の連絡先を送信しました`);
+    if (result.error) showToast("送信失敗: " + result.error, "error");
+    else showToast(`${result.synced}件の連絡先を送信しました`);
   });
   root.querySelectorAll<HTMLButtonElement>("[data-action='call-link-customer']").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -3112,7 +4127,7 @@ function bindEvents(root: HTMLElement): void {
       nextAction: root.querySelector<HTMLInputElement>("#prospect-next-action")?.value ?? "",
       note: root.querySelector<HTMLTextAreaElement>("#prospect-note")?.value ?? ""
     };
-    if (!p.companyName) { alert("会社名は必須です"); return; }
+    if (!p.companyName) { showToast("会社名は必須です", "warning"); return; }
     const { saveProspect, fetchProspects, recordAudit, sendSlackNotification } = await import("./api");
     const saved = await saveProspect(p);
     if (saved) {
@@ -3123,11 +4138,11 @@ function bindEvents(root: HTMLElement): void {
       state.prospects = await fetchProspects();
       state.prospectEditingId = null;
       renderApp();
-    } else alert("保存失敗");
+    } else showToast("保存失敗", "error");
   });
   root.querySelectorAll<HTMLButtonElement>("[data-action='prospect-delete']").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!confirm("削除しますか？")) return;
+      if (!await showConfirm("削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
       const id = btn.dataset.id ?? "";
       const { deleteProspect, fetchProspects } = await import("./api");
       if (await deleteProspect(id)) {
@@ -3140,7 +4155,7 @@ function bindEvents(root: HTMLElement): void {
     const pid = (root.querySelector<HTMLButtonElement>("[data-action='prospect-add-activity']")?.dataset.id) ?? "";
     const type = root.querySelector<HTMLSelectElement>("#prospect-activity-type")?.value ?? "call";
     const title = root.querySelector<HTMLInputElement>("#prospect-activity-title")?.value ?? "";
-    if (!title) { alert("内容を入力してください"); return; }
+    if (!title) { showToast("内容を入力してください", "warning"); return; }
     const { saveProspectActivity, fetchProspectActivities } = await import("./api");
     await saveProspectActivity({
       id: `act_${Date.now()}`,
@@ -3192,7 +4207,7 @@ function bindEvents(root: HTMLElement): void {
       isEnabled: enabled
     });
     state.integrations = await fetchIntegrationSettings();
-    alert("保存しました");
+    showToast("保存しました");
     renderApp();
   });
   root.querySelector<HTMLButtonElement>("[data-action='slack-save-rules']")?.addEventListener("click", async () => {
@@ -3203,14 +4218,14 @@ function bindEvents(root: HTMLElement): void {
       await saveSlackRule({ ...rule, enabled, channel });
     }
     state.slackRules = await fetchSlackRules();
-    alert("ルールを保存しました");
+    showToast("ルールを保存しました");
     renderApp();
   });
   root.querySelector<HTMLButtonElement>("[data-action='slack-test']")?.addEventListener("click", async () => {
     const { sendSlackNotification } = await import("./api");
     const result = await sendSlackNotification("new_order", "🧪 これはテスト通知です (syusen-cloud)");
-    if (result.ok) alert("テスト送信成功");
-    else alert("送信失敗: " + (result.error ?? ""));
+    if (result.ok) showToast("テスト送信成功");
+    else showToast("送信失敗: " + (result.error ?? ""), "error");
   });
 
   // ── 副資材 編集 ────────────────────────────────
@@ -3251,20 +4266,21 @@ function bindEvents(root: HTMLElement): void {
       lastUpdated: root.querySelector<HTMLInputElement>("#mat-last-date")?.value ?? new Date().toISOString().slice(0, 10)
     };
     (record as MaterialRecord & { materialType?: string }).materialType = root.querySelector<HTMLSelectElement>("#mat-type")?.value ?? "";
-    if (!record.code || !record.name) { alert("コードと品名は必須"); return; }
+    if (!record.code || !record.name) { showToast("コードと品名は必須です", "warning"); return; }
     const { saveMaterial, fetchMaterialList } = await import("./api");
     const saved = await saveMaterial(record);
     if (saved) {
       state.materialList = await fetchMaterialList();
       state.materialEditing = null;
       state.materialEditingIsNew = false;
-      alert("保存しました");
+      showToast("保存しました");
       renderApp();
-    } else alert("保存失敗");
+    } else showToast("保存失敗", "error");
   });
   root.querySelector<HTMLButtonElement>("[data-action='material-delete']")?.addEventListener("click", async () => {
     const id = (document.querySelector<HTMLButtonElement>("[data-action='material-delete']")?.dataset.id) ?? "";
-    if (!id || !confirm("削除しますか？")) return;
+    if (!id) return;
+    if (!await showConfirm("削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
     const { deleteMaterial, fetchMaterialList } = await import("./api");
     if (await deleteMaterial(id)) {
       state.materialList = await fetchMaterialList();
@@ -3294,7 +4310,7 @@ function bindEvents(root: HTMLElement): void {
     const email = root.querySelector<HTMLInputElement>("#user-email")?.value.trim() ?? "";
     const name = root.querySelector<HTMLInputElement>("#user-name")?.value.trim() ?? "";
     if (!email || !name) {
-      alert("名前とメールアドレスは必須です");
+      showToast("名前とメールアドレスは必須です", "warning");
       return;
     }
     const profile: UserProfile = {
@@ -3310,13 +4326,13 @@ function bindEvents(root: HTMLElement): void {
     if (isNew) {
       const password = root.querySelector<HTMLInputElement>("#user-password")?.value ?? "";
       if (password.length < 8) {
-        alert("パスワードは8文字以上必要です");
+        showToast("パスワードは8文字以上必要です", "warning");
         return;
       }
       try {
         await signUp(email, password);
       } catch (e) {
-        alert("Auth登録失敗: " + (e instanceof Error ? e.message : ""));
+        showToast("Auth登録失敗: " + (e instanceof Error ? e.message : ""), "error");
         return;
       }
     }
@@ -3331,13 +4347,13 @@ function bindEvents(root: HTMLElement): void {
       });
       state.userProfiles = await fetchUserProfiles();
       state.userEditingId = null;
-      alert("保存しました");
+      showToast("保存しました");
       renderApp();
-    } else alert("保存失敗");
+    } else showToast("保存失敗", "error");
   });
   root.querySelectorAll<HTMLButtonElement>("[data-action='user-delete']").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!confirm("削除しますか？")) return;
+      if (!await showConfirm("削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
       const id = btn.dataset.id ?? "";
       const { deleteUserProfile, fetchUserProfiles, recordAudit } = await import("./api");
       const ok = await deleteUserProfile(id);
@@ -3345,7 +4361,7 @@ function bindEvents(root: HTMLElement): void {
         await recordAudit({ action: "user_delete", entityType: "user", entityId: id, userEmail: state.user?.email });
         state.userProfiles = await fetchUserProfiles();
         renderApp();
-      } else alert("削除失敗");
+      } else showToast("削除失敗", "error");
     });
   });
 
@@ -3357,20 +4373,20 @@ function bindEvents(root: HTMLElement): void {
     const { saveUserProfile } = await import("./api");
     await saveUserProfile(updated);
     state.myProfile = updated;
-    alert("保存しました");
+    showToast("保存しました");
     renderApp();
   });
   root.querySelector<HTMLButtonElement>("[data-action='profile-change-password']")?.addEventListener("click", async () => {
     const pw = root.querySelector<HTMLInputElement>("#profile-new-password")?.value ?? "";
     if (pw.length < 8) {
-      alert("8文字以上のパスワードを入力してください");
+      showToast("8文字以上のパスワードを入力してください", "warning");
       return;
     }
     try {
       await updatePassword(pw);
-      alert("パスワードを変更しました");
+      showToast("パスワードを変更しました");
     } catch (e) {
-      alert("変更失敗: " + (e instanceof Error ? e.message : ""));
+      showToast("変更失敗: " + (e instanceof Error ? e.message : ""), "error");
     }
   });
 
@@ -3400,9 +4416,9 @@ function bindEvents(root: HTMLElement): void {
     if (saved) {
       state.integrations = await fetchIntegrationSettings();
       state.integrationEditingId = null;
-      alert("保存しました");
+      showToast("保存しました");
       renderApp();
-    } else alert("保存失敗");
+    } else showToast("保存失敗", "error");
   });
 
   // Shopify同期
@@ -3410,7 +4426,7 @@ function bindEvents(root: HTMLElement): void {
     btn.addEventListener("click", async () => {
       const setting = state.integrations.find((i) => i.provider === "shopify");
       if (!setting) {
-        alert("Shopify連携が未設定です");
+        showToast("Shopify連携が未設定です", "warning");
         return;
       }
       btn.textContent = "同期中…";
@@ -3418,9 +4434,9 @@ function bindEvents(root: HTMLElement): void {
       const { syncShopifyOrders, fetchShopifyOrders } = await import("./api");
       const result = await syncShopifyOrders(setting);
       if (result.error) {
-        alert("同期失敗: " + result.error);
+        showToast("同期失敗: " + result.error, "error");
       } else {
-        alert(`${result.count}件を同期しました`);
+        showToast(`${result.count}件を同期しました`);
         state.shopifyOrders = await fetchShopifyOrders();
       }
       renderApp();
@@ -3436,9 +4452,9 @@ function bindEvents(root: HTMLElement): void {
       (btn as HTMLButtonElement).disabled = true;
       const { syncGoogleCalendar, fetchCalendarEvents } = await import("./api");
       const result = await syncGoogleCalendar(setting);
-      if (result.error) alert("同期失敗: " + result.error);
+      if (result.error) showToast("同期失敗: " + result.error, "error");
       else {
-        alert(`${result.count}件を同期しました`);
+        showToast(`${result.count}件を同期しました`);
         state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
       }
       renderApp();
@@ -3450,12 +4466,12 @@ function bindEvents(root: HTMLElement): void {
     const fileInput = root.querySelector<HTMLInputElement>("#fax-file");
     const file = fileInput?.files?.[0];
     if (!file) {
-      alert("FAX画像を選択してください");
+      showToast("FAX画像を選択してください", "warning");
       return;
     }
     const setting = state.integrations.find((i) => i.provider === "cloud_vision");
     if (!setting || !setting.config["api_key"]) {
-      alert("Cloud Vision API Key が設定されていません (/integrations で設定してください)");
+      showToast("Cloud Vision API Key が設定されていません。/integrations で設定してください", "warning");
       return;
     }
     state.faxProcessing = true;
@@ -3484,7 +4500,7 @@ function bindEvents(root: HTMLElement): void {
       };
       reader.readAsDataURL(file);
     } catch (e) {
-      alert("OCR失敗: " + (e instanceof Error ? e.message : ""));
+      showToast("OCR失敗: " + (e instanceof Error ? e.message : ""), "error");
       state.faxProcessing = false;
       renderApp();
     }
@@ -3518,7 +4534,7 @@ function bindEvents(root: HTMLElement): void {
       isVerified: state.mailSenders.find((s) => s.id === id)?.isVerified ?? false
     };
     if (!sender.name || !sender.email) {
-      alert("名前とメールアドレスは必須です");
+      showToast("名前とメールアドレスは必須です", "warning");
       return;
     }
     const { saveMailSender, fetchMailSenders } = await import("./api");
@@ -3526,22 +4542,22 @@ function bindEvents(root: HTMLElement): void {
     if (saved) {
       state.mailSenders = await fetchMailSenders();
       state.mailSenderEditingId = null;
-      alert("保存しました");
+      showToast("保存しました");
       renderApp();
     } else {
-      alert("保存に失敗しました");
+      showToast("保存に失敗しました", "error");
     }
   });
   root.querySelectorAll<HTMLButtonElement>("[data-action='ms-delete']").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!confirm("削除しますか？")) return;
+      if (!await showConfirm("削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
       const id = btn.dataset.id ?? "";
       const { deleteMailSender, fetchMailSenders } = await import("./api");
       const ok = await deleteMailSender(id);
       if (ok) {
         state.mailSenders = await fetchMailSenders();
         renderApp();
-      } else alert("削除失敗");
+      } else showToast("削除失敗", "error");
     });
   });
 
@@ -3636,26 +4652,29 @@ function bindEvents(root: HTMLElement): void {
       color: CALENDAR_CATEGORY_COLORS[cat]
     };
     if (!ev.title) {
-      alert("タイトルは必須です");
+      showToast("タイトルは必須です", "warning");
       return;
     }
     const saved = await saveCalendarEvent(ev);
     if (saved) {
       state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
       state.calendarEdit = null;
+      showToast("保存しました");
       renderApp();
-    } else alert("保存失敗");
+    } else showToast("保存失敗", "error");
   });
   root.querySelector<HTMLButtonElement>("[data-action='cal-delete']")?.addEventListener("click", async () => {
     const id = (document.querySelector<HTMLButtonElement>("[data-action='cal-delete']")?.dataset.id) ?? "";
-    if (!id || !confirm("削除しますか？")) return;
+    if (!id) return;
+    if (!await showConfirm("削除しますか？", { variant: "danger", confirmLabel: "削除する" })) return;
     const { deleteCalendarEvent, fetchCalendarEvents } = await import("./api");
     const ok = await deleteCalendarEvent(id);
     if (ok) {
       state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
       state.calendarEdit = null;
+      showToast("削除しました");
       renderApp();
-    } else alert("削除失敗");
+    } else showToast("削除失敗", "error");
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='import-execute']")?.addEventListener("click", async () => {
@@ -3780,8 +4799,8 @@ function bindEvents(root: HTMLElement): void {
 
   root.querySelector<HTMLButtonElement>("[data-action='email-insert-link']")?.addEventListener("click", () => {
     collectEmailFormFromDom(root);
-    const linkLine = "\n\n商品詳細はこちら: https://example.jp/products/seasonal";
-    if (!state.emailBody.includes("https://example.jp/products/seasonal")) {
+    const linkLine = "\n\n商品詳細はこちら: https://kaneishuzo.co.jp/products";
+    if (!state.emailBody.includes("https://kaneishuzo.co.jp/products")) {
       state.emailBody = `${state.emailBody.trimEnd()}${linkLine}`;
     }
     state.emailSaveMessage = null;
@@ -3827,7 +4846,7 @@ function bindEvents(root: HTMLElement): void {
         state.actionLoading = false;
         state.emailSending = false;
         renderApp();
-        window.alert(`${result.sent}件送信完了`);
+        showToast(`${result.sent}件送信完了`);
       })
       .catch(async () => {
         await saveEmailCampaign(buildEmailCampaignPayload("draft"));
@@ -3835,7 +4854,7 @@ function bindEvents(root: HTMLElement): void {
         state.actionLoading = false;
         state.emailSending = false;
         renderApp();
-        window.alert("APIキー未設定のため下書き保存しました");
+        showToast("APIキー未設定のため下書き保存しました", "warning");
       });
   });
 }
@@ -3874,40 +4893,105 @@ function renderApp(): void {
       }
     }
   });
+
+  // サイドバー・モーダル開放時のbodyスクロールロック
+  const isLocked = state.sidebarOpen || state.pickerMode !== null || state.globalSearchOpen;
+  document.body.style.overflow = isLocked ? "hidden" : "";
+  document.body.style.touchAction = isLocked ? "none" : "";
 }
 
+const CACHE_KEY = "sake-cloud-cache";
+const CACHE_TTL = 30 * 60 * 1000; // 30分
+
+function saveCache(): void {
+  try {
+    const cache = {
+      ts: Date.now(),
+      salesSummary: state.salesSummary,
+      paymentStatus: state.paymentStatus,
+      masterStats: state.masterStats,
+      pipelineMeta: state.pipelineMeta,
+      salesAnalytics: state.salesAnalytics,
+    };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  } catch { /* quota超えは無視 */ }
+}
+
+function restoreCache(): boolean {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return false;
+    const cache = JSON.parse(raw);
+    if (Date.now() - cache.ts > CACHE_TTL) return false;
+    if (cache.salesSummary) state.salesSummary = cache.salesSummary;
+    if (cache.paymentStatus) state.paymentStatus = cache.paymentStatus;
+    if (cache.masterStats) state.masterStats = cache.masterStats;
+    if (cache.pipelineMeta) state.pipelineMeta = cache.pipelineMeta;
+    if (cache.salesAnalytics) state.salesAnalytics = cache.salesAnalytics;
+    return true;
+  } catch { return false; }
+}
+
+let lastLoadTime = 0;
+
 async function loadData(): Promise<void> {
-  state.loading = true;
-  renderApp();
+  // キャッシュから即座に復元して表示
+  const cached = restoreCache();
+  if (cached) {
+    state.loading = false;
+    renderApp();
+  }
+
+  state.loading = !cached;
+  if (!cached) renderApp();
   try {
     const [
       salesSummary,
       paymentStatus,
       masterStats,
       pipelineMeta,
-      syncLogs,
       invoiceRecords,
       customerLedger,
-      salesAnalytics
+      salesAnalytics,
+      syncDashboard
     ] = await Promise.all([
       fetchSalesSummary(),
       fetchPaymentStatus(),
       fetchMasterStats(),
       fetchPipelineMeta(),
-      fetchRelaySyncLogs(20),
       fetchInvoices(state.invoiceFilter),
       fetchCustomerLedger(state.ledgerCustomerCode),
-      fetchSalesAnalytics()
+      fetchSalesAnalytics(),
+      fetchSyncDashboard()
     ]);
 
     state.salesSummary = salesSummary;
     state.paymentStatus = paymentStatus;
     state.masterStats = masterStats;
     state.pipelineMeta = pipelineMeta;
-    state.syncLogs = syncLogs;
     state.invoiceRecords = invoiceRecords;
     state.customerLedger = customerLedger;
     state.salesAnalytics = salesAnalytics;
+    state.syncDashboard = syncDashboard;
+
+    // お知らせ取得
+    fetchAnnouncements().then((list) => {
+      state.announcements = list;
+      renderApp();
+    });
+
+    // メール配信先をバックグラウンドで取得
+    if (EMAIL_RECIPIENTS.length === 0) {
+      void loadEmailRecipients();
+    }
+
+    // rawブラウザのテーブル一覧をバックグラウンドで取得
+    if (state.rawTableList.length === 0) {
+      fetchRawTableList().then((list) => {
+        state.rawTableList = list;
+        if (state.route === "/raw-browser") renderApp();
+      });
+    }
 
     if (!state.salesFilter.startDate || !state.salesFilter.endDate) {
       const sortedRecords = [...salesSummary.salesRecords].sort(
@@ -3933,12 +5017,16 @@ async function loadData(): Promise<void> {
     }
 
     state.error = null;
+    saveCache();
   } catch (error) {
-    state.error = error instanceof Error ? error.message : "データの取得に失敗しました。";
+    if (!cached) {
+      state.error = error instanceof Error ? error.message : "データの取得に失敗しました。";
+    }
   } finally {
     state.loading = false;
     renderApp();
     void loadRouteData(state.route);
+    lastLoadTime = Date.now();
   }
 }
 
@@ -4112,59 +5200,61 @@ declare const L: {
   marker: (latlng: [number, number]) => unknown;
 };
 
-let mapInstance: { setView: (latlng: [number, number], zoom: number) => unknown; remove: () => void } | null = null;
+// Google Maps instance (managed internally by initCustomerMap)
 function initCustomerMap(container: HTMLElement) {
-  const Lref = (window as unknown as { L?: typeof L & { divIcon?: (opts: Record<string, unknown>) => unknown } }).L;
-  if (!Lref) {
-    container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary);">Leaflet読込中…</div>';
+  const gm = (window as unknown as { google?: { maps: typeof google.maps } }).google?.maps;
+  if (!gm) {
+    container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary);">Google Maps 読込中…</div>';
     setTimeout(() => initCustomerMap(container), 500);
     return;
   }
-  if (mapInstance) {
-    try {
-      mapInstance.remove();
-    } catch {
-      // ignore
-    }
-    mapInstance = null;
-  }
+
   container.innerHTML = "";
-  const m = Lref.map(container) as { setView: (l: [number, number], z: number) => unknown; remove: () => void };
-  m.setView([35.694, 139.769], 9); // 東京中心
-  const tile = Lref.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap contributors",
-    maxZoom: 19
-  }) as { addTo: (m: unknown) => unknown };
-  tile.addTo(m);
+  const map = new gm.Map(container, {
+    center: { lat: 35.45, lng: 139.4 },
+    zoom: 10,
+    mapId: "sake-system-map",
+    gestureHandling: "greedy"
+  });
 
-  const makeIcon = (color: string, label: string) =>
-    Lref.divIcon!({
-      className: "custom-map-marker",
-      html: `<div style="background:${color};color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);font-weight:700;font-size:11px;">${label}</div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 14]
+  const infoWindow = new gm.InfoWindow();
+
+  function addMarker(lat: number, lng: number, color: string, label: string, popupHtml: string) {
+    const marker = new gm.marker.AdvancedMarkerElement({
+      map,
+      position: { lat, lng },
+      content: (() => {
+        const el = document.createElement("div");
+        el.style.cssText = `background:${color};color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);font-weight:700;font-size:11px;cursor:pointer;`;
+        el.textContent = label;
+        return el;
+      })()
     });
+    marker.addListener("click", () => {
+      infoWindow.setContent(popupHtml);
+      infoWindow.open({ anchor: marker, map });
+    });
+  }
 
-  // 既存取引先 (青) — サンプル座標で100件表示
+  // 既存取引先 (青)
   if (state.mapFilters.showCustomers) {
     const customers = state.masterStats?.customers ?? [];
-    customers.slice(0, 100).forEach((c, i) => {
-      if (state.mapFilters.filterBusinessType && state.mapFilters.filterBusinessType !== "酒店") return;
-      const lat = 35.37 + (i % 12) * 0.08 + (Math.random() - 0.5) * 0.03;
-      const lng = 139.29 + Math.floor(i / 12) * 0.08 + (Math.random() - 0.5) * 0.03;
-      const marker = (Lref.marker([lat, lng], { icon: makeIcon("#2196F3", "既") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
-      marker.bindPopup(`<div style="min-width:180px;"><strong>${c.name}</strong><br/><span style="color:#666;font-size:11px;">${c.code}</span><br/>🔵 既存取引先<br/>締日${c.closingDay}日 / 支払日${c.paymentDay}日</div>`);
+    customers.forEach((c) => {
+      if (!c.lat || !c.lng) return;
+      if (state.mapFilters.filterBusinessType && c.businessType !== state.mapFilters.filterBusinessType) return;
+      addMarker(c.lat, c.lng, "#2196F3", "既",
+        `<div style="min-width:180px;"><strong>${c.name}</strong><br/><span style="color:#666;font-size:11px;">${c.code}</span><br/>既存取引先<br/>締日${c.closingDay}日 / 支払日${c.paymentDay}日${c.address1 ? `<br/>${c.address1}` : ""}</div>`);
     });
   }
 
-  // 新規見込客 (緑) — stage別に色分け
+  // 新規見込客 (緑)
   if (state.mapFilters.showProspects) {
     state.prospects.forEach((p) => {
       if (!p.lat || !p.lng) return;
       if (state.mapFilters.filterBusinessType && p.businessType !== state.mapFilters.filterBusinessType) return;
       const color = p.stage === "hot" || p.stage === "negotiating" ? "#EF5350" : p.stage === "won" ? "#66BB6A" : "#4CAF50";
-      const marker = (Lref.marker([p.lat, p.lng], { icon: makeIcon(color, "新") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
-      marker.bindPopup(`<div style="min-width:200px;"><strong>${p.companyName}</strong><br/><span style="color:#666;font-size:11px;">${p.contactName ?? ""}</span><br/>🟢 新規見込客 (${p.stage})<br/>想定 ¥${p.expectedAmount.toLocaleString("ja-JP")} / 確度 ${p.probability}%${p.nextAction ? `<br/>📌 ${p.nextAction}` : ""}</div>`);
+      addMarker(p.lat, p.lng, color, "新",
+        `<div style="min-width:200px;"><strong>${p.companyName}</strong><br/><span style="color:#666;font-size:11px;">${p.contactName ?? ""}</span><br/>新規見込客 (${p.stage})<br/>想定 ¥${p.expectedAmount.toLocaleString("ja-JP")} / 確度 ${p.probability}%${p.nextAction ? `<br/>${p.nextAction}` : ""}</div>`);
     });
   }
 
@@ -4172,12 +5262,44 @@ function initCustomerMap(container: HTMLElement) {
   if (state.mapFilters.showDelivery) {
     state.deliveryLocations.forEach((d) => {
       if (!d.lat || !d.lng) return;
-      const marker = (Lref.marker([d.lat, d.lng], { icon: makeIcon("#FF9800", "納") }) as { addTo: (m: unknown) => unknown; bindPopup: (h: string) => unknown }).addTo(m);
-      marker.bindPopup(`<div style="min-width:180px;"><strong>${d.name}</strong><br/>🟠 納品先${d.customerCode ? ` (${d.customerCode})` : ""}<br/>${d.address ?? ""}${d.contactName ? `<br/>📞 ${d.contactName}` : ""}${d.deliveryNote ? `<br/>📝 ${d.deliveryNote}` : ""}</div>`);
+      addMarker(d.lat, d.lng, "#FF9800", "納",
+        `<div style="min-width:180px;"><strong>${d.name}</strong><br/>納品先${d.customerCode ? ` (${d.customerCode})` : ""}<br/>${d.address ?? ""}${d.contactName ? `<br/>${d.contactName}` : ""}${d.deliveryNote ? `<br/>${d.deliveryNote}` : ""}</div>`);
     });
   }
-
-  mapInstance = m as typeof mapInstance;
 }
 
 void loadData();
+
+// ダッシュボード自動更新（5分間隔）
+const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
+setInterval(() => {
+  if (state.route === "/" && !state.loading && !document.hidden) {
+    void loadData();
+  }
+}, AUTO_REFRESH_INTERVAL);
+
+// iOSホーム画面アプリ対応: フォアグラウンド復帰時にデータ再取得
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && Date.now() - lastLoadTime > 3 * 60 * 1000) {
+    void loadData();
+  }
+});
+
+// アプデ検知（2分間隔でindex.htmlのハッシュを比較）
+let initialHtml = "";
+fetch(`${location.origin}${import.meta.env.BASE_URL}index.html?_t=${Date.now()}`)
+  .then((r) => r.text())
+  .then((t) => { initialHtml = t; })
+  .catch(() => {});
+
+setInterval(async () => {
+  if (!initialHtml || document.hidden) return;
+  try {
+    const resp = await fetch(`${location.origin}${import.meta.env.BASE_URL}index.html?_t=${Date.now()}`);
+    const text = await resp.text();
+    if (text !== initialHtml && !state.updateAvailable) {
+      state.updateAvailable = true;
+      renderApp();
+    }
+  } catch { /* ネットワークエラーは無視 */ }
+}, 2 * 60 * 1000);
