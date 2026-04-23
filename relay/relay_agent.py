@@ -439,7 +439,7 @@ def write_sync_log(
             "files_scanned": files_scanned,
             "files_updated": files_updated,
             "rows_upserted": rows_upserted,
-            "errors": json.dumps(errors),
+            "errors": errors,
             "agent_version": "1.0",
             "agent_hostname": socket.gethostname(),
         }
