@@ -2839,6 +2839,48 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
+  // Demand planning: 安全在庫 個別行変更（リードタイム）
+  root.querySelectorAll<HTMLInputElement>("[data-action='ss-lead-time']").forEach((input) => {
+    input.addEventListener("change", () => {
+      const code = input.dataset.code ?? "";
+      const lt = parseInt(input.value) || 30;
+      state.safetyStockParams = state.safetyStockParams.map((p) => {
+        if (p.productCode !== code) return p;
+        const z = p.serviceLevel >= 0.99 ? 2.33 : p.serviceLevel >= 0.97 ? 1.88 : p.serviceLevel >= 0.95 ? 1.65 : p.serviceLevel >= 0.90 ? 1.28 : 1.04;
+        const ltMonths = lt / 30;
+        const ss = Math.ceil(z * p.demandStdDev * Math.sqrt(ltMonths));
+        const rop = Math.ceil(p.avgMonthlyDemand * ltMonths + ss);
+        return { ...p, leadTimeDays: lt, safetyStockQty: ss, reorderPoint: rop };
+      });
+      renderApp();
+    });
+  });
+
+  // Demand planning: 安全在庫 個別行変更（サービス率）
+  root.querySelectorAll<HTMLSelectElement>("[data-action='ss-service-level']").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const code = sel.dataset.code ?? "";
+      const sl = parseFloat(sel.value) || 0.95;
+      state.safetyStockParams = state.safetyStockParams.map((p) => {
+        if (p.productCode !== code) return p;
+        const z = sl >= 0.99 ? 2.33 : sl >= 0.97 ? 1.88 : sl >= 0.95 ? 1.65 : sl >= 0.90 ? 1.28 : 1.04;
+        const ltMonths = p.leadTimeDays / 30;
+        const ss = Math.ceil(z * p.demandStdDev * Math.sqrt(ltMonths));
+        const rop = Math.ceil(p.avgMonthlyDemand * ltMonths + ss);
+        return { ...p, serviceLevel: sl, safetyStockQty: ss, reorderPoint: rop };
+      });
+      renderApp();
+    });
+  });
+
+  // Demand planning: 安全在庫 保存ボタン
+  root.querySelector<HTMLButtonElement>("[data-action='ss-save-all']")?.addEventListener("click", async () => {
+    if (state.safetyStockParams.length === 0) return;
+    const { saveSafetyStockParams } = await import("./api");
+    await Promise.all(state.safetyStockParams.map((p) => saveSafetyStockParams(p)));
+    renderApp();
+  });
+
   // Demand planning: 安全在庫 一括適用
   root.querySelector<HTMLButtonElement>("[data-action='bulk-apply-safety']")?.addEventListener("click", () => {
     const sl = parseFloat((document.getElementById("bulk-service-level") as HTMLSelectElement)?.value ?? "0.95");

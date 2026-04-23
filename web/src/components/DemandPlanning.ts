@@ -390,6 +390,9 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
     `;
   }).join("");
 
+  // フィルタ後のテーブル用データ（buildRows より先に定義）
+  const filteredPlan = typeFilter === "all" ? plan : plan.filter(r => r.productionType === typeFilter);
+
   const filteredRows = buildRows(filteredPlan);
 
   // 区分別サマリ
@@ -424,9 +427,6 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
       </div>
     `;
   }).join("");
-
-  // フィルタ後のテーブル用データ
-  const filteredPlan = typeFilter === "all" ? plan : plan.filter(r => r.productionType === typeFilter);
 
   // 合計（フィルタ後）
   const totalForecast = filteredPlan.reduce((s, r) => s + r.demandForecast, 0);
