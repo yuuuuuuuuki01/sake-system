@@ -1,4 +1,4 @@
-import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, PeriodBreakdownRow, SalesAnalytics } from "../api";
+import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, PeriodBreakdownRow, SalesAnalytics, StaffBreakdownRow } from "../api";
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", {
@@ -110,27 +110,136 @@ function renderPeriodRows(rows: PeriodBreakdownRow[]): string {
     .join("");
 }
 
+type StaffDrilldown = {
+  code: string;
+  name: string;
+  customerRows: StaffBreakdownRow[];
+  productRows: StaffBreakdownRow[];
+} | null;
+
+function renderDrilldownTable(rows: StaffBreakdownRow[], tagFilter: string, colLabel: string): string {
+  const filtered = tagFilter
+    ? rows.filter((r) => r.tag.includes(tagFilter) || r.name.includes(tagFilter))
+    : rows;
+
+  const bodyHtml = filtered.length === 0
+    ? `<tr><td colspan="5" class="empty-row">データなし</td></tr>`
+    : filtered.map((r) => `
+        <tr>
+          <td class="mono">${r.code || "―"}</td>
+          <td>${r.name || "未設定"}</td>
+          <td class="mono">${r.tag || "―"}</td>
+          <td class="numeric">${formatCurrency(r.amount)}</td>
+          <td class="numeric">${r.documents.toLocaleString("ja-JP")}</td>
+        </tr>
+      `).join("");
+
+  return `
+    <div class="table-wrap" style="margin-top:8px;">
+      <table>
+        <thead>
+          <tr>
+            <th>コード</th>
+            <th>${colLabel}</th>
+            <th>タグ</th>
+            <th class="numeric">売上額</th>
+            <th class="numeric">伝票数</th>
+          </tr>
+        </thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 export function renderSalesAnalytics(
   summary: SalesAnalytics,
   activeTab: AnalyticsTab,
   activePeriod: AnalyticsPeriod = "all",
   periodFilter: string = "",
   periodRows: PeriodBreakdownRow[] = [],
-  periodOptions: string[] = []
+  periodOptions: string[] = [],
+  staffFilter: string = "",
+  tagFilter: string = "",
+  staffDrilldown: StaffDrilldown = null
 ): string {
-  const tableTitle = activeTab === "products" ? "商品別集計" : "得意先別集計";
-  const rows = activeTab === "products" ? summary.productTotals : summary.customerTotals;
-  const showPeriodData = activePeriod !== "all" && periodRows.length > 0;
+  const tableTitle = activeTab === "products" ? "商品別集計" : activeTab === "customers" ? "得意先別集計" : "担当別集計";
+  const rows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
+  const showPeriodData = activePeriod !== "all" && periodRows.length > 0 && activeTab !== "staff";
 
   const periodButtons = (["all", "yearly", "monthly", "weekly", "daily"] as AnalyticsPeriod[])
     .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-analytics-period="${p}">${PERIOD_LABELS[p]}</button>`)
     .join("");
 
-  const periodSelect = activePeriod !== "all" && periodOptions.length > 0
+  const periodSelect = activePeriod !== "all" && periodOptions.length > 0 && activeTab !== "staff"
     ? `<select id="analytics-period-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
         ${periodOptions.map((o) => `<option value="${o}" ${o === periodFilter ? "selected" : ""}>${o}</option>`).join("")}
       </select>`
     : "";
+
+  // Staff tab content
+  let staffTableHtml = "";
+  let drilldownHtml = "";
+  if (activeTab === "staff") {
+    const filteredStaff = summary.staffTotals.filter((r) =>
+      !staffFilter || r.name.includes(staffFilter) || r.code.includes(staffFilter)
+    );
+
+    staffTableHtml = `
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+        <input type="text" id="staff-filter-input" placeholder="担当名で絞込" value="${staffFilter}" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;flex:1;min-width:120px;" />
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>担当コード</th>
+              <th>担当名</th>
+              <th class="numeric">売上額</th>
+              <th class="numeric">数量</th>
+              <th class="numeric">伝票数</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredStaff.length === 0 ? '<tr><td colspan="6" class="empty-row">データなし</td></tr>' :
+              filteredStaff.map((row) => `
+                <tr>
+                  <td class="mono">${row.code || "―"}</td>
+                  <td>${row.name || "未設定"}</td>
+                  <td class="numeric">${formatCurrency(row.amount)}</td>
+                  <td class="numeric">${row.quantity.toLocaleString("ja-JP")}</td>
+                  <td class="numeric">${row.documents.toLocaleString("ja-JP")}</td>
+                  <td><button class="button secondary small" data-staff-drilldown="${row.code}" data-staff-name="${row.name}">詳細</button></td>
+                </tr>
+              `).join("")
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    if (staffDrilldown) {
+      drilldownHtml = `
+        <article class="panel" style="margin-top:16px;">
+          <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <h2>${staffDrilldown.name} の得意先・商品内訳</h2>
+              <p class="panel-caption">担当別ドリルダウン</p>
+            </div>
+            <button class="button secondary small" data-action="close-staff-drilldown">閉じる</button>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+            <input type="text" data-analytics-tag-filter placeholder="名称・タグで絞込" value="${tagFilter}" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;flex:1;min-width:120px;" />
+          </div>
+          <h3 style="margin:12px 0 4px;font-size:14px;color:var(--text-secondary);">得意先別</h3>
+          ${renderDrilldownTable(staffDrilldown.customerRows, tagFilter, "得意先名")}
+          <h3 style="margin:16px 0 4px;font-size:14px;color:var(--text-secondary);">商品別</h3>
+          ${renderDrilldownTable(staffDrilldown.productRows, tagFilter, "商品名")}
+        </article>
+      `;
+    }
+  }
 
   return `
     <section class="page-head">
@@ -162,30 +271,34 @@ export function renderSalesAnalytics(
           <div class="tab-group">
             <button class="tab-button ${activeTab === "products" ? "active" : ""}" data-analytics-tab="products">商品別</button>
             <button class="tab-button ${activeTab === "customers" ? "active" : ""}" data-analytics-tab="customers">得意先別</button>
+            <button class="tab-button ${activeTab === "staff" ? "active" : ""}" data-analytics-tab="staff">担当別</button>
           </div>
         </div>
 
-        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
-          <div class="button-group">${periodButtons}</div>
-          ${periodSelect}
-        </div>
+        ${activeTab !== "staff" ? `
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+            <div class="button-group">${periodButtons}</div>
+            ${periodSelect}
+          </div>
 
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>コード</th>
-                <th>名称</th>
-                ${showPeriodData ? "<th>期間</th>" : ""}
-                <th class="numeric">売上額</th>
-                <th class="numeric">数量</th>
-                <th class="numeric">伝票数</th>
-              </tr>
-            </thead>
-            <tbody>${showPeriodData ? renderPeriodRows(periodRows) : renderBreakdownRows(rows)}</tbody>
-          </table>
-        </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>コード</th>
+                  <th>名称</th>
+                  ${showPeriodData ? "<th>期間</th>" : ""}
+                  <th class="numeric">売上額</th>
+                  <th class="numeric">数量</th>
+                  <th class="numeric">伝票数</th>
+                </tr>
+              </thead>
+              <tbody>${showPeriodData ? renderPeriodRows(periodRows) : renderBreakdownRows(rows)}</tbody>
+            </table>
+          </div>
+        ` : staffTableHtml}
       </article>
     </section>
+    ${drilldownHtml}
   `;
 }

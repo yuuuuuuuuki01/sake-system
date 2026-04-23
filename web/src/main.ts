@@ -538,6 +538,9 @@ interface AppState {
   analyticsPeriodFilter: string;
   analyticsPeriodRows: import("./api").PeriodBreakdownRow[];
   analyticsPeriodOptions: string[];
+  analyticsStaffFilter: string;
+  analyticsTagFilter: string;
+  analyticsStaffDrilldown: { code: string; name: string; customerRows: import("./api").StaffBreakdownRow[]; productRows: import("./api").StaffBreakdownRow[] } | null;
   emailAudienceMode: EmailAudienceMode;
   emailRegion: string;
   emailHistorySegment: string;
@@ -812,6 +815,9 @@ const state: AppState = {
   analyticsPeriodFilter: "",
   analyticsPeriodRows: [] as import("./api").PeriodBreakdownRow[],
   analyticsPeriodOptions: [] as string[],
+  analyticsStaffFilter: "",
+  analyticsTagFilter: "",
+  analyticsStaffDrilldown: null as { code: string; name: string; customerRows: import("./api").StaffBreakdownRow[]; productRows: import("./api").StaffBreakdownRow[] } | null,
   emailAudienceMode: defaultEmailState.mode,
   emailRegion: defaultEmailState.region,
   emailHistorySegment: defaultEmailState.historySegment,
@@ -1865,7 +1871,7 @@ function renderView(): string {
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown);
     case "/":
     default:
       return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
@@ -2830,8 +2836,9 @@ function bindEvents(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>("[data-analytics-tab]").forEach((button) => {
     button.addEventListener("click", async () => {
       state.analyticsTab = button.dataset.analyticsTab as AnalyticsTab;
+      state.analyticsStaffDrilldown = null;
       // 期間が全期間以外なら再取得
-      if (state.analyticsPeriod !== "all") {
+      if (state.analyticsPeriod !== "all" && state.analyticsTab !== "staff") {
         const { fetchAnalyticsByPeriod, fetchAvailablePeriods } = await import("./api");
         state.analyticsPeriodOptions = await fetchAvailablePeriods(state.analyticsTab, state.analyticsPeriod);
         state.analyticsPeriodFilter = state.analyticsPeriodOptions[0] ?? "";
@@ -2863,6 +2870,39 @@ function bindEvents(root: HTMLElement): void {
     const { fetchAnalyticsByPeriod } = await import("./api");
     state.analyticsPeriodFilter = (e.target as HTMLSelectElement).value;
     state.analyticsPeriodRows = await fetchAnalyticsByPeriod(state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter);
+    renderApp();
+  });
+
+  // 担当フィルター
+  root.querySelector<HTMLInputElement>("#staff-filter-input")?.addEventListener("input", (e) => {
+    state.analyticsStaffFilter = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+
+  // 担当詳細ドリルダウン
+  root.querySelectorAll<HTMLButtonElement>("[data-staff-drilldown]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const staffCode = button.dataset.staffDrilldown ?? "";
+      const staffName = button.dataset.staffName ?? "";
+      const { fetchStaffCustomerBreakdown, fetchStaffProductBreakdown } = await import("./api");
+      const [customerRows, productRows] = await Promise.all([
+        fetchStaffCustomerBreakdown(staffCode),
+        fetchStaffProductBreakdown(staffCode)
+      ]);
+      state.analyticsStaffDrilldown = { code: staffCode, name: staffName, customerRows, productRows };
+      renderApp();
+    });
+  });
+
+  // 担当ドリルダウン閉じる
+  root.querySelector<HTMLButtonElement>("[data-action='close-staff-drilldown']")?.addEventListener("click", () => {
+    state.analyticsStaffDrilldown = null;
+    renderApp();
+  });
+
+  // 担当ドリルダウン タグ/名称フィルター
+  root.querySelector<HTMLInputElement>("[data-analytics-tag-filter]")?.addEventListener("input", (e) => {
+    state.analyticsTagFilter = (e.target as HTMLInputElement).value;
     renderApp();
   });
 
@@ -4749,6 +4789,8 @@ function restoreCache(): boolean {
   } catch { return false; }
 }
 
+let lastLoadTime = 0;
+
 async function loadData(): Promise<void> {
   // キャッシュから即座に復元して表示
   const cached = restoreCache();
@@ -4841,6 +4883,7 @@ async function loadData(): Promise<void> {
     state.loading = false;
     renderApp();
     void loadRouteData(state.route);
+    lastLoadTime = Date.now();
   }
 }
 
@@ -5091,6 +5134,13 @@ setInterval(() => {
     void loadData();
   }
 }, AUTO_REFRESH_INTERVAL);
+
+// iOSホーム画面アプリ対応: フォアグラウンド復帰時にデータ再取得
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && Date.now() - lastLoadTime > 3 * 60 * 1000) {
+    void loadData();
+  }
+});
 
 // アプデ検知（2分間隔でindex.htmlのハッシュを比較）
 let initialHtml = "";

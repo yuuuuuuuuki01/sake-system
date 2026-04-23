@@ -5,7 +5,7 @@ export type { TourInquiry };
 export type PipelineStatus = "success" | "warning" | "error" | "running";
 export type PaymentState = "unpaid" | "partial" | "paid";
 export type MasterTab = "customers" | "products";
-export type AnalyticsTab = "products" | "customers";
+export type AnalyticsTab = "products" | "customers" | "staff";
 export type AnalyticsPeriod = "all" | "yearly" | "monthly" | "weekly" | "daily";
 export type EmailCampaignStatus = "draft" | "sent";
 
@@ -251,6 +251,7 @@ export interface SalesAnalytics {
   monthlySales: AnalyticsMonthlyPoint[];
   productTotals: AnalyticsBreakdownRow[];
   customerTotals: AnalyticsBreakdownRow[];
+  staffTotals: AnalyticsBreakdownRow[];
 }
 
 interface DailySalesFactRow {
@@ -347,7 +348,8 @@ const mockSalesAnalytics: SalesAnalytics = {
   generatedAt: new Date().toISOString(),
   monthlySales: [],
   productTotals: [],
-  customerTotals: []
+  customerTotals: [],
+  staffTotals: []
 };
 
 function toNumber(value: unknown): number {
@@ -547,7 +549,8 @@ function aggregateMockAnalytics(): SalesAnalytics {
     ),
     customerTotals: Array.from(customerMap.values()).sort(
       (left, right) => right.amount - left.amount
-    )
+    ),
+    staffTotals: []
   };
 }
 
@@ -933,10 +936,11 @@ export async function fetchCustomerLedger(code: string): Promise<CustomerLedger>
 }
 
 export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
-  const [monthlyRows, customerRows, productRows] = await Promise.all([
+  const [monthlyRows, customerRows, productRows, staffRows] = await Promise.all([
     supabaseQuery<LooseRow>("mv_monthly_sales", { order: "month.asc" }),
     supabaseQuery<LooseRow>("mv_customer_sales_totals", { order: "amount.desc", limit: "100" }),
-    supabaseQuery<LooseRow>("mv_product_sales_totals", { order: "amount.desc", limit: "100" })
+    supabaseQuery<LooseRow>("mv_product_sales_totals", { order: "amount.desc", limit: "100" }),
+    supabaseQuery<LooseRow>("mv_staff_sales_totals", { order: "amount.desc", limit: "50" })
   ]);
 
   if (monthlyRows.length > 0) {
@@ -959,6 +963,13 @@ export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
         amount: getNumber(r, ["amount"], 0),
         quantity: getNumber(r, ["quantity"], 0),
         documents: getNumber(r, ["documents"], 0)
+      })),
+      staffTotals: staffRows.map((r) => ({
+        code: getString(r, ["code"], ""),
+        name: getString(r, ["name"], ""),
+        amount: getNumber(r, ["amount"], 0),
+        quantity: getNumber(r, ["quantity"], 0),
+        documents: getNumber(r, ["documents"], 0)
       }))
     };
   }
@@ -975,12 +986,12 @@ export interface PeriodBreakdownRow {
   documents: number;
 }
 
-const PERIOD_VIEW_MAP: Record<AnalyticsPeriod, { products: string; customers: string }> = {
-  all: { products: "mv_product_sales_totals", customers: "mv_customer_sales_totals" },
-  yearly: { products: "mv_product_sales_yearly", customers: "mv_customer_sales_yearly" },
-  monthly: { products: "mv_product_sales_monthly", customers: "mv_customer_sales_monthly" },
-  weekly: { products: "mv_product_sales_weekly", customers: "mv_customer_sales_weekly" },
-  daily: { products: "mv_product_sales_daily", customers: "mv_customer_sales_daily" }
+const PERIOD_VIEW_MAP: Record<AnalyticsPeriod, { products: string; customers: string; staff: string }> = {
+  all: { products: "mv_product_sales_totals", customers: "mv_customer_sales_totals", staff: "mv_staff_sales_totals" },
+  yearly: { products: "mv_product_sales_yearly", customers: "mv_customer_sales_yearly", staff: "mv_staff_sales_totals" },
+  monthly: { products: "mv_product_sales_monthly", customers: "mv_customer_sales_monthly", staff: "mv_staff_sales_totals" },
+  weekly: { products: "mv_product_sales_weekly", customers: "mv_customer_sales_weekly", staff: "mv_staff_sales_totals" },
+  daily: { products: "mv_product_sales_daily", customers: "mv_customer_sales_daily", staff: "mv_staff_sales_totals" }
 };
 
 export async function fetchAnalyticsByPeriod(
@@ -1025,6 +1036,53 @@ export async function fetchAvailablePeriods(
   });
   const unique = [...new Set(rows.map((r) => getString(r, ["period"], "")))].filter(Boolean);
   return unique.sort().reverse();
+}
+
+export interface StaffBreakdownRow {
+  staffCode: string;
+  staffName: string;
+  code: string;
+  name: string;
+  tag: string;
+  amount: number;
+  quantity: number;
+  documents: number;
+}
+
+export async function fetchStaffCustomerBreakdown(staffCode: string): Promise<StaffBreakdownRow[]> {
+  const rows = await supabaseQuery<LooseRow>("mv_staff_customer_breakdown", {
+    staff_code: `eq.${staffCode}`,
+    order: "amount.desc",
+    limit: "100"
+  });
+  return rows.map((r) => ({
+    staffCode: getString(r, ["staff_code"], ""),
+    staffName: getString(r, ["staff_name"], ""),
+    code: getString(r, ["code"], ""),
+    name: getString(r, ["name"], ""),
+    tag: getString(r, ["tag"], ""),
+    amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0),
+    documents: getNumber(r, ["documents"], 0)
+  }));
+}
+
+export async function fetchStaffProductBreakdown(staffCode: string): Promise<StaffBreakdownRow[]> {
+  const rows = await supabaseQuery<LooseRow>("mv_staff_product_breakdown", {
+    staff_code: `eq.${staffCode}`,
+    order: "amount.desc",
+    limit: "100"
+  });
+  return rows.map((r) => ({
+    staffCode: getString(r, ["staff_code"], ""),
+    staffName: getString(r, ["staff_name"], ""),
+    code: getString(r, ["code"], ""),
+    name: getString(r, ["name"], ""),
+    tag: getString(r, ["tag"], ""),
+    amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0),
+    documents: getNumber(r, ["documents"], 0)
+  }));
 }
 
 // ─── 伝票入力 ────────────────────────────────────────────────────────────────
