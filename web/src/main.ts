@@ -376,7 +376,6 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/calls", title: "通話履歴(IVRy)" },
   { path: "/list-builder", title: "リスト取得ツール" },
   { path: "/raw-browser", title: "データブラウザ" },
-  { path: "/demand-forecast", title: "需要予測・納品カレンダー" },
   { path: "/churn-alert", title: "離反アラート・休眠顧客" },
   { path: "/seasonal-calendar", title: "季節提案カレンダー" },
   { path: "/visit-planner", title: "訪問計画・ルート最適化" },
@@ -602,7 +601,6 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/product-power":
     case "/customer-efficiency":
     case "/report":
-    case "/demand-forecast":
       return "analytics";
     case "/prospects":
     case "/map":
@@ -2014,7 +2012,6 @@ function renderShell(): string {
           { path: "/customer-analysis", label: "得意先分析", kicker: "CustABC" },
                     { path: "/product-power", label: "商品力分析", kicker: "Power" },
           { path: "/customer-efficiency", label: "営業効率", kicker: "Efficiency" },
-          { path: "/demand-forecast", label: "需要予測", kicker: "Forecast" },
           { path: "/report", label: "集計帳票", kicker: "Report" }
         ]
       }
