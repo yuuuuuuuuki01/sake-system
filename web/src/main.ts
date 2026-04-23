@@ -573,6 +573,7 @@ interface AppState {
   demandTab: DemandTab;
   demandPlanYearMonth: string;
   demandYearsBack: number;
+  demandPlanTypeFilter: string;
   globalSearchOpen: boolean;
   globalQuery: string;
   authSkipped: boolean;
@@ -864,6 +865,7 @@ const state: AppState = {
   demandTab: "demand",
   demandPlanYearMonth: new Date().toISOString().slice(0, 7),
   demandYearsBack: 3,
+  demandPlanTypeFilter: "all",
   globalSearchOpen: false,
   globalQuery: "",
   authSkipped: false,
@@ -1477,21 +1479,24 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           } else if (state.demandAnalysis && state.safetyStockParams.length > 0) {
             const ym = state.demandPlanYearMonth;
             const recentMonths = state.demandAnalysis.months.filter((m) => m < ym).slice(-3);
-            state.productionPlan = state.safetyStockParams
-              .filter((p) => (state.demandAnalysis!.productAvg[p.productCode] ?? 0) >= 10)
-              .map((p) => {
+            state.productionPlan = state.safetyStockParams.map((p) => {
+                const isMTO = p.productionType === "make_to_order";
                 const qtys = recentMonths.map((m) => state.demandAnalysis!.matrix[p.productCode]?.[m] ?? 0);
-                const forecast = qtys.length > 0
-                  ? Math.ceil(qtys.reduce((s, v) => s + v, 0) / qtys.length)
-                  : Math.ceil(p.avgMonthlyDemand);
-                const ss = Math.ceil(p.safetyStockQty);
+                const forecast = isMTO ? 0
+                  : qtys.length > 0
+                    ? Math.ceil(qtys.reduce((s, v) => s + v, 0) / qtys.length)
+                    : Math.ceil(p.avgMonthlyDemand);
+                const ss = isMTO ? 0 : Math.ceil(p.safetyStockQty);
+                const required = Math.max(0, forecast + ss);
                 return {
                   id: "", yearMonth: ym,
                   productCode: p.productCode, productName: p.productName,
                   demandForecast: forecast, safetyStockTarget: ss, openingStock: 0,
-                  requiredProduction: Math.max(0, forecast + ss),
-                  plannedQty: Math.max(0, forecast + ss), actualQty: 0,
-                  status: "draft" as const, productionType: "monthly" as const, notes: ""
+                  requiredProduction: required,
+                  plannedQty: isMTO ? 0 : required, actualQty: 0,
+                  status: "draft" as const,
+                  productionType: (p as any).productionType ?? "monthly",
+                  notes: ""
                 };
               });
           }
@@ -1776,7 +1781,8 @@ function renderView(): string {
         state.productionPlan,
         state.demandTab,
         state.demandPlanYearMonth,
-        state.demandYearsBack
+        state.demandYearsBack,
+        state.demandPlanTypeFilter
       );
     case "/churn-alert":
       return state.churnAlert
@@ -2796,14 +2802,14 @@ function bindEvents(root: HTMLElement): void {
     // 対象月より前の直近3ヶ月
     const recentMonths = analysis.months.filter((m) => m < ym).slice(-3);
 
-    return ssParams
-      .filter((p) => (analysis.productAvg[p.productCode] ?? 0) >= 10)
-      .map((p) => {
+    return ssParams.map((p) => {
+        const isMTO = (p as any).productionType === "make_to_order";
         const recentQtys = recentMonths.map((m) => analysis.matrix[p.productCode]?.[m] ?? 0);
-        const forecast = recentQtys.length > 0
-          ? Math.ceil(recentQtys.reduce((s, v) => s + v, 0) / recentQtys.length)
-          : Math.ceil(p.avgMonthlyDemand);
-        const ss = Math.ceil(p.safetyStockQty);
+        const forecast = isMTO ? 0
+          : recentQtys.length > 0
+            ? Math.ceil(recentQtys.reduce((s, v) => s + v, 0) / recentQtys.length)
+            : Math.ceil(p.avgMonthlyDemand);
+        const ss = isMTO ? 0 : Math.ceil(p.safetyStockQty);
         const required = Math.max(0, forecast + ss);
         return {
           id: "",
@@ -2814,7 +2820,7 @@ function bindEvents(root: HTMLElement): void {
           safetyStockTarget: ss,
           openingStock: 0,
           requiredProduction: required,
-          plannedQty: required,
+          plannedQty: isMTO ? 0 : required,
           actualQty: 0,
           status: "draft" as const,
           productionType: (p as any).productionType ?? "monthly",
@@ -2867,6 +2873,14 @@ function bindEvents(root: HTMLElement): void {
     const rows = await fetchProductionPlan(ym);
     state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
     renderApp();
+  });
+
+  // Demand planning: 生産区分フィルタ
+  root.querySelectorAll<HTMLButtonElement>("[data-action='plan-type-filter']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.demandPlanTypeFilter = btn.dataset.filter ?? "all";
+      renderApp();
+    });
   });
 
   // Demand planning: 需要予測を再計算ボタン

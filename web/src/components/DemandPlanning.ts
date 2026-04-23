@@ -328,7 +328,7 @@ const PRODUCTION_TYPE_LABELS: Record<string, string> = {
   november:      "11月生産"
 };
 
-function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
+function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter: string): string {
   const statusLabel: Record<string, string> = {
     draft: "下書き",
     confirmed: "確定",
@@ -348,7 +348,7 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
   // ラベル貼り工数定数: 表+裏の手貼り 80本/時 × 8時間 = 640本/人日
   const LABEL_BOTTLES_PER_PERSON_DAY = 640;
 
-  const rows = plan.map((row) => {
+  const buildRows = (source: ProductionPlanRow[]) => source.map((row) => {
     const required = Math.max(0, row.demandForecast + row.safetyStockTarget - row.openingStock);
     const qtyForLabel = row.plannedQty > 0 ? row.plannedQty : Math.round(required);
     const labelDays = qtyForLabel > 0
@@ -390,18 +390,52 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
     `;
   }).join("");
 
-  // 合計行
-  const totalForecast = plan.reduce((s, r) => s + r.demandForecast, 0);
-  const totalRequired = plan.reduce(
+  const filteredRows = buildRows(filteredPlan);
+
+  // 区分別サマリ
+  const typeKeys: Array<{ key: string; label: string }> = [
+    { key: "all",          label: "全て" },
+    { key: "monthly",      label: "月次" },
+    { key: "annual",       label: "年次" },
+    { key: "november",     label: "11月生産" },
+    { key: "make_to_order",label: "受注生産" }
+  ];
+
+  const labelDaysByType = (type: string) => {
+    const subset = type === "all" ? plan : plan.filter(r => r.productionType === type);
+    const qty = subset.reduce((s, r) => {
+      const req = Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
+      return s + (r.plannedQty > 0 ? r.plannedQty : Math.round(req));
+    }, 0);
+    return Math.ceil((qty / LABEL_BOTTLES_PER_PERSON_DAY) * 10) / 10;
+  };
+
+  const summaryCards = typeKeys.filter(t => t.key !== "all").map(t => {
+    const days = labelDaysByType(t.key);
+    const count = plan.filter(r => r.productionType === t.key).length;
+    const mtoOrders = t.key === "make_to_order"
+      ? plan.filter(r => r.productionType === "make_to_order" && r.plannedQty > 0).length
+      : null;
+    return `
+      <div style="background:var(--surface-alt);border-radius:8px;padding:12px 16px;min-width:130px;">
+        <p style="font-size:11px;color:var(--text-secondary);margin:0 0 4px;">${t.label}</p>
+        <p style="font-size:20px;font-weight:700;margin:0;">${days > 0 ? days.toFixed(1) : "—"}<span style="font-size:12px;font-weight:400;margin-left:3px;">人日</span></p>
+        <p style="font-size:11px;color:var(--text-secondary);margin:4px 0 0;">${count}商品${mtoOrders !== null ? ` · 受注${mtoOrders}件` : ""}</p>
+      </div>
+    `;
+  }).join("");
+
+  // フィルタ後のテーブル用データ
+  const filteredPlan = typeFilter === "all" ? plan : plan.filter(r => r.productionType === typeFilter);
+
+  // 合計（フィルタ後）
+  const totalForecast = filteredPlan.reduce((s, r) => s + r.demandForecast, 0);
+  const totalRequired = filteredPlan.reduce(
     (s, r) => s + Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock), 0
   );
-  const totalPlanned  = plan.reduce((s, r) => s + r.plannedQty, 0);
-  const totalActual   = plan.reduce((s, r) => s + r.actualQty, 0);
-  const totalLabelQty = plan.reduce((s, r) => {
-    const req = Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
-    return s + (r.plannedQty > 0 ? r.plannedQty : Math.round(req));
-  }, 0);
-  const totalLabelDays = Math.ceil((totalLabelQty / LABEL_BOTTLES_PER_PERSON_DAY) * 10) / 10;
+  const totalPlanned  = filteredPlan.reduce((s, r) => s + r.plannedQty, 0);
+  const totalActual   = filteredPlan.reduce((s, r) => s + r.actualQty, 0);
+  const totalLabelDays = labelDaysByType(typeFilter);
 
   // 年月セレクタ（前後12ヶ月）
   const now = new Date();
@@ -410,6 +444,13 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
     const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     return `<option value="${ym}" ${ym === yearMonth ? "selected" : ""}>${ym.replace("-", "年")}月</option>`;
   }).join("");
+
+  // フィルタボタン
+  const filterButtons = typeKeys.map(t =>
+    `<button class="button ${typeFilter === t.key ? "primary" : "secondary"}" type="button"
+       data-action="plan-type-filter" data-filter="${t.key}"
+       style="padding:4px 12px;font-size:13px;">${t.label}</button>`
+  ).join("");
 
   return `
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
@@ -420,10 +461,15 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
       <button class="button secondary" type="button" data-action="plan-recalc">需要予測を再計算</button>
     </div>
 
+    <section class="panel" style="margin-bottom:16px;">
+      <div class="panel-header"><h2>ラベル工数サマリ</h2><p class="panel-caption">表+裏 手貼り 80本/時 × 8h = 640本/人日</p></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;padding:4px 0 8px;">${summaryCards}</div>
+    </section>
+
     <section class="panel">
       <div class="panel-header">
         <div>
-          <h2>月次生産計画 — ${yearMonth.replace("-", "年")}月</h2>
+          <h2>生産計画 — ${yearMonth.replace("-", "年")}月</h2>
           <p class="panel-caption">必要生産数 = 需要予測 + 安全在庫目標 − 期首在庫</p>
         </div>
         <div style="display:flex;gap:8px;">
@@ -431,6 +477,7 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
           <button class="button primary" type="button" data-action="plan-save">計画を保存</button>
         </div>
       </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;padding:0 0 12px;">${filterButtons}</div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -449,8 +496,8 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string): string {
             </tr>
           </thead>
           <tbody>
-            ${rows || `<tr><td colspan="11" class="empty-row">データなし</td></tr>`}
-            ${plan.length > 0 ? `
+            ${filteredRows || `<tr><td colspan="11" class="empty-row">データなし</td></tr>`}
+            ${filteredPlan.length > 0 ? `
               <tr style="background:var(--surface-alt);font-weight:700;">
                 <td>合計</td>
                 <td>—</td>
@@ -479,7 +526,8 @@ export function renderDemandPlanning(
   productionPlan: ProductionPlanRow[],
   tab: DemandTab,
   planYearMonth: string,
-  yearsBack: number
+  yearsBack: number,
+  planTypeFilter: string = "all"
 ): string {
   const tabDefs: Array<{ key: DemandTab; label: string }> = [
     { key: "demand", label: "需要実績" },
@@ -500,7 +548,7 @@ export function renderDemandPlanning(
   } else if (tab === "safety") {
     body = renderSafetyTab(safetyStockParams);
   } else {
-    body = renderPlanTab(productionPlan, planYearMonth);
+    body = renderPlanTab(productionPlan, planYearMonth, planTypeFilter);
   }
 
   return `
