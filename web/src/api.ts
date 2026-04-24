@@ -4646,3 +4646,55 @@ export async function fetchShipmentCalendar(yearMonth: string): Promise<Shipment
 
   return result;
 }
+
+// ── 見積 ─────────────────────────────────────────────────────────────────────
+
+export interface QuoteListItem {
+  id: string;
+  quote_no: string;
+  quote_date: string;
+  valid_until: string | null;
+  customer_name: string;
+  subject: string;
+  total_amount: number;
+  template_type: string;
+  status: string;
+  created_at: string;
+}
+
+export interface QuoteLineRecord {
+  id: string;
+  quote_id: string;
+  line_no: number;
+  legacy_product_code: string | null;
+  product_name: string;
+  jan_code: string | null;
+  case_qty: number | null;
+  quantity: number;
+  unit: string;
+  unit_price: number;
+  retail_price: number | null;
+  amount: number;
+}
+
+export async function fetchQuoteList(): Promise<QuoteListItem[]> {
+  return supabaseQuery<QuoteListItem>("quotes", {
+    select: "id,quote_no,quote_date,valid_until,customer_name,subject,total_amount,template_type,status,created_at",
+    order: "quote_date.desc,created_at.desc",
+    limit: "200"
+  });
+}
+
+export async function fetchQuoteWithLines(quoteId: string): Promise<(QuoteListItem & { tax_rate: number; remarks: string; delivery_date: string; payment_terms: string; delivery_place: string; legacy_customer_code: string; customer_address: string; lines: QuoteLineRecord[] }) | null> {
+  const rows = await supabaseQuery<QuoteListItem & { tax_rate: number; remarks: string; delivery_date: string; payment_terms: string; delivery_place: string; legacy_customer_code: string; customer_address: string }>("quotes", {
+    select: "*",
+    id: `eq.${quoteId}`
+  });
+  if (!rows[0]) return null;
+  const lines = await supabaseQuery<QuoteLineRecord>("quote_lines", {
+    select: "*",
+    quote_id: `eq.${quoteId}`,
+    order: "line_no.asc"
+  });
+  return { ...rows[0], lines };
+}

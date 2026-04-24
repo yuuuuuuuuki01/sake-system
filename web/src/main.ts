@@ -114,7 +114,11 @@ import {
 import { renderGlobalSearch } from "./components/GlobalSearch";
 import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
-import { renderQuoteBuilder, defaultQuoteState, generateQuotePdf, type QuoteState } from "./components/QuoteBuilder";
+import { renderQuoteList } from "./components/QuoteList";
+import { renderQuoteSettings, loadQuoteSettings, saveQuoteSettings, type QuoteCompanySettings } from "./components/QuoteSettings";
+import { renderQuoteBuilder, makeDefaultQuoteState, generateQuotePdf, syncQuoteFormToState, defaultQuoteState, type QuoteState, type QuoteTemplateType } from "./components/QuoteBuilder";
+import { fetchQuoteList, fetchQuoteWithLines, type QuoteListItem } from "./api";
+import { supabaseDelete } from "./supabase";
 import { toggleSort, type SortState } from "./utils/tableSort";
 import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter, type ProductPeriod } from "./components/BusinessIntelligence";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
@@ -210,6 +214,7 @@ type RoutePath =
   | "/customer-efficiency"
   | "/invoice-entry"
   | "/quote"
+  | "/quote-settings"
   | "/delivery"
   | "/billing"
   | "/report"
@@ -280,6 +285,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/analytics",
   "/customer-analysis",
   "/invoice-entry",
+  "/quote",
+  "/quote-settings",
   "/delivery",
   "/billing",
   "/report",
@@ -542,6 +549,10 @@ interface AppState {
   quoteCustomerQuery: string;
   quoteProductQuery: string;
   quotePricing: CustomerPricing | null;
+  quoteList: QuoteListItem[];
+  quoteListLoading: boolean;
+  quoteEditId: string | null;
+  quoteCompanySettings: QuoteCompanySettings;
   productPower: ProductPower[];
   customerEfficiency: CustomerEfficiency[];
   masterTab: MasterTab;
@@ -603,6 +614,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
   switch (route) {
     case "/invoice-entry":
     case "/quote":
+    case "/quote-settings":
     case "/delivery":
     case "/billing":
     case "/invoice":
@@ -813,14 +825,14 @@ const state: AppState = {
   ledgerCustomerCode: defaultLedgerCustomerCode,
   salesPeriod: "month",
   customRange: { start: "", end: "" },
-  quoteState: (() => {
-    const s = { ...defaultQuoteState };
-    try { const seal = localStorage.getItem("quote-seal"); if (seal) s.sealSettings = JSON.parse(seal); } catch {}
-    return s;
-  })(),
+  quoteState: makeDefaultQuoteState(loadQuoteSettings()),
   quoteCustomerQuery: "",
   quoteProductQuery: "",
   quotePricing: null,
+  quoteList: [] as QuoteListItem[],
+  quoteListLoading: false,
+  quoteEditId: null as string | null,
+  quoteCompanySettings: loadQuoteSettings(),
   productPower: [],
   productFilter: "all" as ProductViewFilter,
   productPeriod: "year" as ProductPeriod,
@@ -1296,6 +1308,14 @@ async function loadRouteData(route: RoutePath): Promise<void> {
   renderApp();
   try {
     switch (route) {
+      case "/quote":
+        if (state.quoteEditId === null && state.quoteList.length === 0) {
+          state.quoteListLoading = true;
+          renderApp();
+          state.quoteList = await fetchQuoteList();
+          state.quoteListLoading = false;
+        }
+        break;
       case "/delivery":
         if (!state.deliveryNote) {
           state.deliveryNote = await fetchDeliveryNote(state.deliverySearchDocNo || "D240122");
@@ -1710,14 +1730,20 @@ function renderView(): string {
         state.invoiceErrors
       );
     case "/quote":
+      if (state.quoteEditId === null) {
+        return renderQuoteList(state.quoteList, state.quoteListLoading);
+      }
       return renderQuoteBuilder(
         state.quoteState,
         state.masterStats?.customers ?? [],
         state.masterStats?.products ?? [],
         state.quoteCustomerQuery,
         state.quoteProductQuery,
-        state.quotePricing
+        state.quotePricing,
+        state.quoteCompanySettings
       );
+    case "/quote-settings":
+      return renderQuoteSettings(state.quoteCompanySettings);
     case "/email":
       return renderEmailBroadcast(buildEmailViewState());
     case "/delivery":
@@ -2571,174 +2597,331 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // 見積もり作成
-  root.querySelector<HTMLInputElement>("#q-cust-search")?.addEventListener("input", (e) => {
-    state.quoteCustomerQuery = (e.target as HTMLInputElement).value;
+  // ── 見積 ──────────────────────────────────────────────────────────────────
+
+  // 新規作成ボタン（一覧画面）
+  root.querySelector<HTMLButtonElement>("[data-action='quote-new']")?.addEventListener("click", () => {
+    state.quoteState = makeDefaultQuoteState(state.quoteCompanySettings);
+    state.quoteEditId = "new";
+    state.quoteCustomerQuery = "";
+    state.quoteProductQuery = "";
+    state.quotePricing = null;
     renderApp();
   });
-  root.querySelector<HTMLInputElement>("#q-prod-search")?.addEventListener("input", (e) => {
-    state.quoteProductQuery = (e.target as HTMLInputElement).value;
-    renderApp();
-  });
-  root.querySelectorAll<HTMLButtonElement>("[data-select-customer]").forEach((btn) => {
+
+  // 既存見積を開く
+  root.querySelectorAll<HTMLButtonElement>("[data-open-quote]").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const custCode = btn.dataset.selectCustomer ?? "";
-      state.quoteState.customerCode = custCode;
-      state.quoteState.customerName = btn.dataset.custName ?? "";
-      state.quoteState.customerAddress = btn.dataset.custAddr ?? "";
+      const id = btn.dataset.openQuote!;
+      const detail = await fetchQuoteWithLines(id);
+      if (!detail) { showToast("見積の読み込みに失敗しました", "error"); return; }
+      state.quoteState = {
+        id: detail.id,
+        quoteNo: detail.quote_no,
+        quoteDate: detail.quote_date,
+        validUntil: detail.valid_until ?? "",
+        customerCode: detail.legacy_customer_code ?? "",
+        customerName: detail.customer_name,
+        customerAddress: detail.customer_address,
+        subject: detail.subject,
+        lines: detail.lines.map(l => ({
+          productCode: l.legacy_product_code ?? "",
+          productName: l.product_name,
+          janCode: l.jan_code ?? "",
+          caseQty: l.case_qty,
+          quantity: l.quantity,
+          unit: l.unit,
+          unitPrice: l.unit_price,
+          retailPrice: l.retail_price,
+          amount: l.amount
+        })),
+        remarks: detail.remarks,
+        taxRate: detail.tax_rate,
+        deliveryDate: detail.delivery_date,
+        paymentTerms: detail.payment_terms,
+        deliveryPlace: detail.delivery_place,
+        templateType: (detail.template_type as QuoteTemplateType) ?? "sake",
+        previewMode: false
+      };
+      state.quoteEditId = id;
       state.quoteCustomerQuery = "";
-      // 価格テーブル読込（個別単価 + price_type）
-      state.quotePricing = await fetchCustomerPricing(state.masterStats?.customers ?? [], custCode);
+      state.quoteProductQuery = "";
+      state.quotePricing = null;
       renderApp();
     });
   });
-  root.querySelectorAll<HTMLButtonElement>("[data-add-product]").forEach((btn) => {
+
+  // 見積削除
+  root.querySelectorAll<HTMLButtonElement>("[data-delete-quote]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.deleteQuote!;
+      const no = btn.dataset.quoteNo ?? id;
+      const ok = await showConfirm(`見積 ${no} を削除しますか？`);
+      if (!ok) return;
+      const deleted = await supabaseDelete("quotes", id);
+      if (deleted) {
+        state.quoteList = state.quoteList.filter(q => q.id !== id);
+        showToast("削除しました", "success");
+        renderApp();
+      } else {
+        showToast("削除に失敗しました", "error");
+      }
+    });
+  });
+
+  // 一覧に戻る
+  root.querySelector<HTMLButtonElement>("[data-action='quote-back-list']")?.addEventListener("click", () => {
+    state.quoteEditId = null;
+    state.quoteListLoading = true;
+    renderApp();
+    fetchQuoteList().then(list => {
+      state.quoteList = list;
+      state.quoteListLoading = false;
+      renderApp();
+    });
+  });
+
+  // テンプレート切替
+  root.querySelectorAll<HTMLInputElement>("[name='q-template']").forEach(radio => {
+    radio.addEventListener("change", () => {
+      state.quoteState.templateType = radio.value as QuoteTemplateType;
+      renderApp();
+    });
+  });
+
+  // 得意先検索
+  root.querySelector<HTMLInputElement>("#q-cust-search")?.addEventListener("input", e => {
+    state.quoteCustomerQuery = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+
+  // 商品検索
+  root.querySelector<HTMLInputElement>("#q-prod-search")?.addEventListener("input", e => {
+    state.quoteProductQuery = (e.target as HTMLInputElement).value;
+    renderApp();
+  });
+
+  // 得意先選択
+  root.querySelectorAll<HTMLButtonElement>("[data-select-customer]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const code = btn.dataset.selectCustomer ?? "";
+      state.quoteState.customerCode = code;
+      state.quoteState.customerName = btn.dataset.custName ?? "";
+      state.quoteState.customerAddress = btn.dataset.custAddr ?? "";
+      state.quoteCustomerQuery = "";
+      state.quotePricing = await fetchCustomerPricing(state.masterStats?.customers ?? [], code);
+      renderApp();
+    });
+  });
+
+  // 商品追加
+  root.querySelectorAll<HTMLButtonElement>("[data-add-product]").forEach(btn => {
     btn.addEventListener("click", () => {
       const code = btn.dataset.addProduct ?? "";
       const name = btn.dataset.prodName ?? "";
       const price = parseInt(btn.dataset.prodPrice ?? "0");
-      state.quoteState.lines.push({ productCode: code, productName: name, quantity: 1, unit: "本", unitPrice: price, amount: price });
+      const jan = btn.dataset.prodJan ?? "";
+      const caseQtyRaw = btn.dataset.prodCase ?? "";
+      const caseQty = caseQtyRaw ? parseInt(caseQtyRaw) : null;
+      state.quoteState.lines.push({
+        productCode: code, productName: name,
+        janCode: jan, caseQty,
+        quantity: 1, unit: "本",
+        unitPrice: price, retailPrice: null,
+        amount: price
+      });
       state.quoteProductQuery = "";
       renderApp();
     });
   });
-  root.querySelectorAll<HTMLInputElement>(".qty-input").forEach((inp) => {
+
+  // 数量変更
+  root.querySelectorAll<HTMLInputElement>(".qty-input").forEach(inp => {
     inp.addEventListener("change", () => {
       const idx = parseInt(inp.dataset.lineIdx ?? "0");
       const line = state.quoteState.lines[idx];
-      if (line) { line.quantity = parseInt(inp.value) || 0; line.amount = line.quantity * line.unitPrice; renderApp(); }
+      if (line) { line.quantity = parseFloat(inp.value) || 0; line.amount = line.quantity * line.unitPrice; renderApp(); }
     });
   });
-  root.querySelectorAll<HTMLInputElement>(".price-input").forEach((inp) => {
+
+  // 単価変更
+  root.querySelectorAll<HTMLInputElement>(".price-input").forEach(inp => {
     inp.addEventListener("change", () => {
       const idx = parseInt(inp.dataset.lineIdx ?? "0");
       const line = state.quoteState.lines[idx];
       if (line) { line.unitPrice = parseInt(inp.value) || 0; line.amount = line.quantity * line.unitPrice; renderApp(); }
     });
   });
-  root.querySelectorAll<HTMLButtonElement>("[data-remove-line]").forEach((btn) => {
+
+  // JANコード変更
+  root.querySelectorAll<HTMLInputElement>(".jan-input").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const idx = parseInt(inp.dataset.lineIdx ?? "0");
+      const line = state.quoteState.lines[idx];
+      if (line) { line.janCode = inp.value; }
+    });
+  });
+
+  // 入数変更
+  root.querySelectorAll<HTMLInputElement>(".case-qty-input").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const idx = parseInt(inp.dataset.lineIdx ?? "0");
+      const line = state.quoteState.lines[idx];
+      if (line) { line.caseQty = inp.value ? parseInt(inp.value) : null; }
+    });
+  });
+
+  // 希望小売価格変更
+  root.querySelectorAll<HTMLInputElement>(".retail-price-input").forEach(inp => {
+    inp.addEventListener("change", () => {
+      const idx = parseInt(inp.dataset.lineIdx ?? "0");
+      const line = state.quoteState.lines[idx];
+      if (line) { line.retailPrice = inp.value ? parseInt(inp.value) : null; }
+    });
+  });
+
+  // 行削除
+  root.querySelectorAll<HTMLButtonElement>("[data-remove-line]").forEach(btn => {
     btn.addEventListener("click", () => {
       const idx = parseInt(btn.dataset.removeLine ?? "0");
       state.quoteState.lines.splice(idx, 1);
       renderApp();
     });
   });
-  root.querySelector<HTMLButtonElement>("[data-action='save-quote']")?.addEventListener("click", async () => {
-    const q = state.quoteState;
-    q.quoteNo = q.quoteNo || `Q${Date.now().toString(36).toUpperCase()}`;
-    q.quoteDate = (document.getElementById("q-date") as HTMLInputElement)?.value ?? q.quoteDate;
-    q.validUntil = (document.getElementById("q-valid") as HTMLInputElement)?.value ?? "";
-    q.subject = (document.getElementById("q-subject") as HTMLInputElement)?.value ?? "";
-    q.remarks = (document.getElementById("q-remarks") as HTMLTextAreaElement)?.value ?? "";
-    q.deliveryDate = (document.getElementById("q-delivery-date") as HTMLInputElement)?.value ?? q.deliveryDate;
-    q.paymentTerms = (document.getElementById("q-payment-terms") as HTMLInputElement)?.value ?? q.paymentTerms;
-    q.deliveryPlace = (document.getElementById("q-delivery-place") as HTMLInputElement)?.value ?? q.deliveryPlace;
-    q.fieldConfig.headerNote = (document.getElementById("q-header-note") as HTMLInputElement)?.value ?? q.fieldConfig.headerNote;
-    q.fieldConfig.footerNote = (document.getElementById("q-footer-note") as HTMLInputElement)?.value ?? q.fieldConfig.footerNote;
-    const subtotal = q.lines.reduce((s, l) => s + l.amount, 0);
-    const tax = Math.round(subtotal * q.taxRate / 100);
-    const { supabaseInsert: insert } = await import("./supabase");
-    const saved = await insert<{ id: string }>("quotes", {
-      quote_no: q.quoteNo, quote_date: q.quoteDate, valid_until: q.validUntil || null,
-      legacy_customer_code: q.customerCode, customer_name: q.customerName,
-      customer_address: q.customerAddress, subject: q.subject,
-      subtotal, tax_amount: tax, total_amount: subtotal + tax, remarks: q.remarks
-    });
-    if (saved?.id) {
-      for (let i = 0; i < q.lines.length; i++) {
-        const l = q.lines[i];
-        await insert("quote_lines", {
-          quote_id: saved.id, line_no: i + 1,
-          legacy_product_code: l.productCode, product_name: l.productName,
-          quantity: l.quantity, unit: l.unit, unit_price: l.unitPrice, amount: l.amount
-        });
-      }
-      alert(`見積 ${q.quoteNo} を保存しました`);
-      state.quoteState = { ...defaultQuoteState };
-      renderApp();
-    }
-  });
 
-  // Quote: preview mode toggle
+  // プレビューモード
   root.querySelector<HTMLButtonElement>("[data-action='quote-preview-mode']")?.addEventListener("click", () => {
-    const q = state.quoteState;
-    q.quoteDate = (document.getElementById("q-date") as HTMLInputElement)?.value ?? q.quoteDate;
-    q.validUntil = (document.getElementById("q-valid") as HTMLInputElement)?.value ?? q.validUntil;
-    q.subject = (document.getElementById("q-subject") as HTMLInputElement)?.value ?? q.subject;
-    q.remarks = (document.getElementById("q-remarks") as HTMLTextAreaElement)?.value ?? q.remarks;
-    q.quoteNo = (document.getElementById("q-no") as HTMLInputElement)?.value ?? q.quoteNo;
-    q.deliveryDate = (document.getElementById("q-delivery-date") as HTMLInputElement)?.value ?? q.deliveryDate;
-    q.paymentTerms = (document.getElementById("q-payment-terms") as HTMLInputElement)?.value ?? q.paymentTerms;
-    q.deliveryPlace = (document.getElementById("q-delivery-place") as HTMLInputElement)?.value ?? q.deliveryPlace;
-    q.fieldConfig.headerNote = (document.getElementById("q-header-note") as HTMLInputElement)?.value ?? q.fieldConfig.headerNote;
-    q.fieldConfig.footerNote = (document.getElementById("q-footer-note") as HTMLInputElement)?.value ?? q.fieldConfig.footerNote;
-    q.previewMode = true;
+    syncQuoteFormToState(state.quoteState);
+    state.quoteState.previewMode = true;
     renderApp();
   });
 
+  // 編集モードに戻る
   root.querySelector<HTMLButtonElement>("[data-action='quote-edit-mode']")?.addEventListener("click", () => {
     state.quoteState.previewMode = false;
     renderApp();
   });
 
-  // Quote: PDF download
+  // PDF
   root.querySelector<HTMLButtonElement>("[data-action='quote-download-pdf']")?.addEventListener("click", () => {
+    if (!state.quoteState.previewMode) syncQuoteFormToState(state.quoteState);
+    generateQuotePdf(state.quoteState, state.quoteCompanySettings);
+  });
+
+  // 保存
+  root.querySelector<HTMLButtonElement>("[data-action='save-quote']")?.addEventListener("click", async () => {
+    syncQuoteFormToState(state.quoteState);
     const q = state.quoteState;
-    // Sync current form values before PDF
-    if (!q.previewMode) {
-      q.quoteDate = (document.getElementById("q-date") as HTMLInputElement)?.value ?? q.quoteDate;
-      q.validUntil = (document.getElementById("q-valid") as HTMLInputElement)?.value ?? q.validUntil;
-      q.subject = (document.getElementById("q-subject") as HTMLInputElement)?.value ?? q.subject;
-      q.remarks = (document.getElementById("q-remarks") as HTMLTextAreaElement)?.value ?? q.remarks;
-      q.quoteNo = (document.getElementById("q-no") as HTMLInputElement)?.value ?? q.quoteNo;
-      q.deliveryDate = (document.getElementById("q-delivery-date") as HTMLInputElement)?.value ?? q.deliveryDate;
-      q.paymentTerms = (document.getElementById("q-payment-terms") as HTMLInputElement)?.value ?? q.paymentTerms;
-      q.deliveryPlace = (document.getElementById("q-delivery-place") as HTMLInputElement)?.value ?? q.deliveryPlace;
-      q.fieldConfig.headerNote = (document.getElementById("q-header-note") as HTMLInputElement)?.value ?? q.fieldConfig.headerNote;
-      q.fieldConfig.footerNote = (document.getElementById("q-footer-note") as HTMLInputElement)?.value ?? q.fieldConfig.footerNote;
+
+    const { supabaseInsert, supabaseUpdate } = await import("./supabase");
+    const subtotal = q.lines.reduce((s, l) => s + l.amount, 0);
+    const tax = Math.round(subtotal * q.taxRate / 100);
+    const total = subtotal + tax;
+
+    // Generate quote number if needed
+    if (!q.quoteNo) {
+      const { supabaseRpc } = await import("./supabase");
+      const generated = await supabaseRpc<string>("generate_quote_no", {});
+      q.quoteNo = generated ?? `Q${Date.now().toString(36).toUpperCase()}`;
     }
-    generateQuotePdf(q);
+
+    const quotePayload = {
+      quote_no: q.quoteNo, quote_date: q.quoteDate, valid_until: q.validUntil || null,
+      legacy_customer_code: q.customerCode || null, customer_name: q.customerName,
+      customer_address: q.customerAddress, subject: q.subject,
+      template_type: q.templateType, subtotal, tax_amount: tax, total_amount: total,
+      tax_rate: q.taxRate, remarks: q.remarks, delivery_date: q.deliveryDate,
+      payment_terms: q.paymentTerms, delivery_place: q.deliveryPlace,
+      updated_at: new Date().toISOString()
+    };
+
+    let quoteId = q.id;
+
+    if (q.id) {
+      // Update existing
+      await supabaseUpdate("quotes", q.id, quotePayload);
+      // Delete existing lines then re-insert
+      await fetch(`${SUPABASE_URL}/rest/v1/quote_lines?quote_id=eq.${q.id}`, {
+        method: "DELETE",
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+      });
+    } else {
+      // Insert new
+      const saved = await supabaseInsert<{ id: string }>("quotes", quotePayload);
+      if (!saved?.id) { showToast("保存に失敗しました", "error"); return; }
+      quoteId = saved.id;
+      q.id = quoteId;
+    }
+
+    // Insert lines
+    for (let i = 0; i < q.lines.length; i++) {
+      const l = q.lines[i];
+      await supabaseInsert("quote_lines", {
+        quote_id: quoteId, line_no: i + 1,
+        legacy_product_code: l.productCode || null, product_name: l.productName,
+        jan_code: l.janCode || null, case_qty: l.caseQty ?? null,
+        quantity: l.quantity, unit: l.unit, unit_price: l.unitPrice,
+        retail_price: l.retailPrice ?? null, amount: l.amount
+      });
+    }
+
+    showToast(`見積 ${q.quoteNo} を保存しました`, "success");
+    renderApp();
   });
 
-  // Quote: field config toggles
-  root.querySelectorAll<HTMLInputElement>("[data-field-toggle]").forEach((cb) => {
-    cb.addEventListener("change", () => {
-      const key = cb.dataset.fieldToggle as keyof typeof state.quoteState.fieldConfig;
-      if (key && typeof state.quoteState.fieldConfig[key] === "boolean") {
-        (state.quoteState.fieldConfig as Record<string, unknown>)[key] = cb.checked;
-        renderApp();
-      }
-    });
+  // ── 会社設定 ──────────────────────────────────────────────────────────────
+
+  // 設定保存
+  root.querySelector<HTMLButtonElement>("[data-action='save-quote-settings']")?.addEventListener("click", () => {
+    const g = (id: string) => (document.getElementById(id) as HTMLInputElement)?.value ?? "";
+    const newSettings: QuoteCompanySettings = {
+      ...state.quoteCompanySettings,
+      companyName: g("qs-company-name"),
+      companyPostal: g("qs-company-postal"),
+      companyAddress1: g("qs-company-addr1"),
+      companyAddress2: g("qs-company-addr2"),
+      companyTel: g("qs-company-tel"),
+      companyFax: g("qs-company-fax"),
+      companyEmail: g("qs-company-email"),
+      companyRegistrationNo: g("qs-company-regno"),
+      billingName: g("qs-billing-name"),
+      billingPostal: g("qs-billing-postal"),
+      billingAddress: g("qs-billing-address"),
+      defaultPaymentTerms: g("qs-payment-terms"),
+      defaultHeaderNote: g("qs-header-note"),
+      defaultFooterNote: g("qs-footer-note")
+    };
+    saveQuoteSettings(newSettings);
+    state.quoteCompanySettings = newSettings;
+    showToast("設定を保存しました", "success");
+    renderApp();
   });
 
-  // Quote: seal file upload
-  root.querySelector<HTMLInputElement>("#q-seal-file")?.addEventListener("change", (e) => {
+  // 設定ページ: 社印アップロード
+  root.querySelector<HTMLInputElement>("#qs-seal-file")?.addEventListener("change", e => {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      state.quoteState.sealSettings = { imageDataUrl: reader.result as string, size: 72 };
-      // Persist to localStorage
-      localStorage.setItem("quote-seal", JSON.stringify(state.quoteState.sealSettings));
+      state.quoteCompanySettings = { ...state.quoteCompanySettings, sealImageDataUrl: reader.result as string };
+      saveQuoteSettings(state.quoteCompanySettings);
       renderApp();
     };
     reader.readAsDataURL(file);
   });
 
-  // Quote: seal size slider
-  root.querySelector<HTMLInputElement>("#q-seal-size")?.addEventListener("input", (e) => {
+  // 設定ページ: 社印サイズ
+  root.querySelector<HTMLInputElement>("#qs-seal-size")?.addEventListener("input", e => {
     const size = parseInt((e.target as HTMLInputElement).value);
-    if (state.quoteState.sealSettings) {
-      state.quoteState.sealSettings.size = size;
-      localStorage.setItem("quote-seal", JSON.stringify(state.quoteState.sealSettings));
-      renderApp();
-    }
+    state.quoteCompanySettings = { ...state.quoteCompanySettings, sealSize: size };
+    saveQuoteSettings(state.quoteCompanySettings);
+    renderApp();
   });
 
-  // Quote: remove seal
-  root.querySelector<HTMLButtonElement>("[data-action='remove-seal']")?.addEventListener("click", () => {
-    state.quoteState.sealSettings = null;
-    localStorage.removeItem("quote-seal");
+  // 設定ページ: 社印削除
+  root.querySelector<HTMLButtonElement>("[data-action='remove-company-seal']")?.addEventListener("click", () => {
+    state.quoteCompanySettings = { ...state.quoteCompanySettings, sealImageDataUrl: "" };
+    saveQuoteSettings(state.quoteCompanySettings);
     renderApp();
   });
 

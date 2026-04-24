@@ -165,6 +165,23 @@ export async function supabaseQuery<T>(
   }
 }
 
+export async function supabaseDelete(table: string, id: string): Promise<boolean> {
+  if (!SUPABASE_ANON_KEY) return false;
+  try {
+    const url = new URL(`/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, SUPABASE_URL);
+    const response = await fetch(url.toString(), {
+      method: "DELETE",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+      }
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function supabaseQueryAll<T>(
   table: string,
   params: Record<string, string> = {},
