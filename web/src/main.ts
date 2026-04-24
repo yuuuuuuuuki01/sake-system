@@ -865,7 +865,7 @@ const state: AppState = {
   demandTab: "demand",
   demandPlanYearMonth: new Date().toISOString().slice(0, 7),
   demandYearsBack: 3,
-  demandPlanTypeFilter: "all",
+  demandPlanTypeFilter: "monthly",
   globalSearchOpen: false,
   globalQuery: "",
   authSkipped: false,
