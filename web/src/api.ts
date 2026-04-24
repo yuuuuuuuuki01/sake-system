@@ -624,6 +624,7 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
     };
   }
 
+  console.error("[fetchSalesSummary] daily_sales_detail が空 — ファクトテーブル未更新の可能性あり");
   return mockSalesSummary;
 }
 

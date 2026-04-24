@@ -221,6 +221,16 @@ export function renderDashboard(
   const avgPricePerBottle = periodBottles > 0 ? Math.round(periodTotal / periodBottles) : 0;
   const avgPricePerLiter = periodVolume > 0 ? Math.round(periodTotal / (periodVolume / 1000)) : 0;
 
+  // 当月実績 + 月末見込
+  const now = new Date();
+  const monthDays = filterByPeriod(summary.allDailySales, "month");
+  const mtdAmount = monthDays.reduce((s, d) => s + d.amount, 0);
+  const mtdBottles = monthDays.reduce((s, d) => s + d.bottles, 0);
+  const dayOfMonth = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const projectedAmount = dayOfMonth > 0 ? Math.round(mtdAmount * daysInMonth / dayOfMonth) : 0;
+  const projectedBottles = dayOfMonth > 0 ? Math.round(mtdBottles * daysInMonth / dayOfMonth) : 0;
+
   // 昨対比較: 同じ期間の前年データを抽出
   const lastYearDays = filteredDays.length > 0
     ? summary.allDailySales.filter((d) => {
@@ -279,14 +289,19 @@ export function renderDashboard(
 
     <section class="kpi-grid">
       <article class="panel kpi-card">
-        <p class="panel-title">当日売上</p>
+        <p class="panel-title">当日出荷高</p>
         <p class="kpi-value">${formatCurrency(summary.kpis.todaySales)}</p>
-        <p class="kpi-sub">前日比 ${summary.kpis.todayDelta > 0 ? "+" : ""}${summary.kpis.todayDelta.toFixed(1)}%</p>
+        <p class="kpi-sub">${summary.kpis.todaySales > 0 ? `${new Date().getMonth() + 1}/${new Date().getDate()} 時点` : "本日データなし"}</p>
       </article>
       <article class="panel kpi-card">
-        <p class="panel-title">${PERIOD_LABELS[activePeriod]}売上</p>
-        <p class="kpi-value">${formatCurrency(periodTotal)}</p>
-        <p class="kpi-sub">${periodDays}日間${periodDays > 0 ? ` / 日平均 ${formatCurrency(Math.round(periodTotal / periodDays))}` : ""}</p>
+        <p class="panel-title">当月実績（本日まで）</p>
+        <p class="kpi-value">${formatCurrency(mtdAmount)}</p>
+        <p class="kpi-sub">${dayOfMonth}日経過 / ${monthDays.length}営業日 / 日平均 ${monthDays.length > 0 ? formatCurrency(Math.round(mtdAmount / monthDays.length)) : "―"}</p>
+      </article>
+      <article class="panel kpi-card" style="border-left:3px solid #0968e5;">
+        <p class="panel-title">月末見込</p>
+        <p class="kpi-value">${formatCurrency(projectedAmount)}</p>
+        <p class="kpi-sub">出荷見込 ${projectedBottles.toLocaleString("ja-JP")}本（${daysInMonth}日換算）</p>
       </article>
       <article class="panel kpi-card">
         <p class="panel-title">昨対比</p>
@@ -298,12 +313,17 @@ export function renderDashboard(
         <p class="kpi-value">${summary.kpis.unpaidCount.toLocaleString("ja-JP")} 件</p>
         <p class="kpi-sub">残高 ${formatCurrency(summary.kpis.unpaidAmount)}</p>
       </article>
+    </section>
+
+    ${activePeriod !== "month" ? `
+    <section class="kpi-grid compact">
       <article class="panel kpi-card">
-        <p class="panel-title">月次粗利率</p>
-        <p class="kpi-value">${formatMonthlyGrossMargin(analytics)}</p>
-        <p class="kpi-sub">売上分析データから集計</p>
+        <p class="panel-title">${PERIOD_LABELS[activePeriod]}売上</p>
+        <p class="kpi-value">${formatCurrency(periodTotal)}</p>
+        <p class="kpi-sub">${periodDays}日間${periodDays > 0 ? ` / 日平均 ${formatCurrency(Math.round(periodTotal / periodDays))}` : ""}</p>
       </article>
     </section>
+    ` : ""}
 
     <section class="kpi-grid compact">
       <article class="panel kpi-card">

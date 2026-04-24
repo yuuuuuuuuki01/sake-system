@@ -27,10 +27,11 @@ run_silent.vbs
 `refresh_daily_sales_fact()` は `sales_document_lines.note` フィールドの
 `src:csv` / `src:diff` タグを直接読む。ヘッダとのFK結合は不要。
 
-### データソースの優先順位
-- **歴史データ**: `import_urikake_full.py` が `売掛金元帳.csv` から投入（src:csv）
-- **差分データ**: `decoder_sales_diff.py` が SHTOR.DAT から検出（src:diff）
-  - `csv_max_date`（CSVの最大日付）より後の日付のみダッシュボードに反映される
+### データソースの優先順位（021_binary_first_refresh で変更済み）
+- **第一ソース**: `decoder_sales_diff.py` が SHTOR.DAT から検出（src:diff）
+  - 全日付分を無条件で daily_sales_fact に投入
+- **補完ソース**: `import_urikake_full.py` が `売掛金元帳.csv` から投入（src:csv）
+  - バイナリにない日付×得意先×商品の組み合わせのみ ON CONFLICT DO NOTHING で補完
 
 ### SHDEN.DAT デコーダ（`decoder_headers_diff.py`）
 参照実装は `decoder_sales.py`。フィールドオフセットの詳細は
