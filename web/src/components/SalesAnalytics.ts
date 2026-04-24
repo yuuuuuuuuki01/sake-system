@@ -1,9 +1,12 @@
-import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow, DrilldownBreakdownRow, PeriodChartPoint } from "../api";
+import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow, DrilldownBreakdownRow, PeriodChartPoint, AnalyticsMonthlyPoint } from "../api";
 import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 
 const ANALYTICS_COL_MAP: Record<string, keyof AnalyticsBreakdownRow> = {
   code: "code", name: "name", amount: "amount", quantity: "quantity", documents: "documents", volumeMl: "volumeMl"
 };
+
+export type ChartMetric = "amount" | "quantity" | "volume";
+const CHART_METRIC_LABELS: Record<ChartMetric, string> = { amount: "売上額", quantity: "出荷本数", volume: "移出量" };
 
 export type AnalyticsDrilldown = {
   tab: "products" | "customers";
@@ -12,6 +15,24 @@ export type AnalyticsDrilldown = {
   monthlySales: PeriodChartPoint[];
   breakdownRows: DrilldownBreakdownRow[];
 } | null;
+
+/** 月別データから直近12ヶ月 + 前年12ヶ月を分離するヘルパー */
+function splitYoY(all: AnalyticsMonthlyPoint[], metric: ChartMetric): { curr: { month: string; amount: number }[]; prev: { month: string; amount: number }[] } {
+  const getValue = (p: AnalyticsMonthlyPoint) => metric === "quantity" ? p.quantity : metric === "volume" ? p.volumeMl : p.amount;
+  const last12 = all.slice(-12);
+  if (last12.length === 0) return { curr: [], prev: [] };
+  const prevMonths = new Map<string, number>();
+  // 各月の前年同月を探す
+  for (const m of last12) {
+    const prevMonth = m.month.replace(/^\d{4}/, (y) => String(Number(y) - 1));
+    const found = all.find((p) => p.month === prevMonth);
+    if (found) prevMonths.set(m.month, getValue(found));
+  }
+  return {
+    curr: last12.map((p) => ({ month: p.month, amount: getValue(p) })),
+    prev: last12.map((p) => ({ month: p.month, amount: prevMonths.get(p.month) ?? 0 }))
+  };
+}
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", {
@@ -107,7 +128,7 @@ function fmtVol(ml: number): string {
 }
 
 function renderBreakdownRows(rows: AnalyticsBreakdownRow[], showDrilldownButton = false): string {
-  const cols = showDrilldownButton ? 8 : 7;
+  const cols = showDrilldownButton ? 7 : 6;
   if (rows.length === 0) {
     return `<tr><td colspan="${cols}" class="empty-row">データなし</td></tr>`;
   }
@@ -201,7 +222,8 @@ export function renderSalesAnalytics(
   sortState: SortState = [],
   drilldown: AnalyticsDrilldown = null,
   periodChartData: PeriodChartPoint[] = [],
-  prevYearChartData: PeriodChartPoint[] = []
+  prevYearChartData: PeriodChartPoint[] = [],
+  chartMetric: ChartMetric = "amount"
 ): string {
   const tableTitle = activeTab === "products" ? "商品別集計" : activeTab === "customers" ? "得意先別集計" : "担当別集計";
   const baseRows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
@@ -212,41 +234,51 @@ export function renderSalesAnalytics(
 
   // チャートデータの優先順位: ドリルダウン > 期間フィルタ > 全体月別
   const PERIOD_CHART_LABELS: Record<AnalyticsPeriod, string> = {
-    all: "月別売上", yearly: "月別推移", monthly: "日別推移", weekly: "日別推移", daily: "当日"
+    all: "月別", yearly: "月別推移", monthly: "日別推移", weekly: "日別推移", daily: "当日"
   };
+  const metricLabel = CHART_METRIC_LABELS[chartMetric];
+  const metricPick = (p: PeriodChartPoint) => chartMetric === "quantity" ? p.quantity : chartMetric === "volume" ? p.volumeMl : p.amount;
+  const metricFmt = (v: number) => chartMetric === "quantity" ? `${v.toLocaleString()}本` : chartMetric === "volume" ? fmtVol(v) : formatCurrency(v);
+
   let chartPoints: { month: string; amount: number }[];
   let chartPrevPoints: { month: string; amount: number }[] = [];
   let chartTitle: string;
   let chartCaption: string;
   let chartColor: string;
 
-  // 期間チャートの合計サマリー
-  const periodTotalAmt = periodChartData.reduce((s, p) => s + p.amount, 0);
-  const periodTotalQty = periodChartData.reduce((s, p) => s + p.quantity, 0);
-  const periodTotalVol = periodChartData.reduce((s, p) => s + p.volumeMl, 0);
-  const prevTotalAmt = prevYearChartData.reduce((s, p) => s + p.amount, 0);
-  const prevTotalQty = prevYearChartData.reduce((s, p) => s + p.quantity, 0);
-  const yoyDeltaPct = prevTotalAmt > 0 ? ((periodTotalAmt - prevTotalAmt) / prevTotalAmt * 100) : 0;
-  const yoySign = yoyDeltaPct > 0 ? "+" : "";
-
   if (drilldown && drilldown.monthlySales.length > 0) {
-    chartPoints = drilldown.monthlySales.slice(-24);
-    chartTitle = `${drilldown.name} の月別売上推移`;
+    chartPoints = drilldown.monthlySales.slice(-24).map(p => ({ month: p.month, amount: metricPick(p) }));
+    chartTitle = `${drilldown.name} の月別${metricLabel}`;
     chartCaption = `${drilldown.tab === "customers" ? "得意先" : "商品"}: ${drilldown.code}`;
     chartColor = "#0968e5";
   } else if (periodChartData.length > 0 && activePeriod !== "all") {
-    chartPoints = periodChartData;
-    chartPrevPoints = prevYearChartData;
-    chartTitle = `${PERIOD_CHART_LABELS[activePeriod]}（${periodFilter}）`;
-    const yoyText = prevTotalAmt > 0 ? ` / 前年比 ${yoySign}${yoyDeltaPct.toFixed(1)}%` : "";
-    chartCaption = `${formatCurrency(periodTotalAmt)} / ${periodTotalQty.toLocaleString()}本 / ${fmtVol(periodTotalVol)}${yoyText}`;
+    chartPoints = periodChartData.map(p => ({ month: p.month, amount: metricPick(p) }));
+    chartPrevPoints = prevYearChartData.map(p => ({ month: p.month, amount: metricPick(p) }));
+    const currTotal = chartPoints.reduce((s, p) => s + p.amount, 0);
+    const prevTotal = chartPrevPoints.reduce((s, p) => s + p.amount, 0);
+    const yoyPct = prevTotal > 0 ? ((currTotal - prevTotal) / prevTotal * 100) : 0;
+    const yoySign = yoyPct > 0 ? "+" : "";
+    chartTitle = `${PERIOD_CHART_LABELS[activePeriod]} ${metricLabel}（${periodFilter}）`;
+    chartCaption = `${metricFmt(currTotal)}${prevTotal > 0 ? ` / 前年比 ${yoySign}${yoyPct.toFixed(1)}%` : ""}`;
     chartColor = "#2f855a";
   } else {
-    chartPoints = summary.monthlySales;
-    chartTitle = "月別売上";
-    chartCaption = "直近月の売上推移";
+    // 全期間: 直近12ヶ月 + 前年比較を monthlySales から生成
+    const yoy = splitYoY(summary.monthlySales, chartMetric);
+    chartPoints = yoy.curr;
+    chartPrevPoints = yoy.prev;
+    const currTotal = chartPoints.reduce((s, p) => s + p.amount, 0);
+    const prevTotal = chartPrevPoints.reduce((s, p) => s + p.amount, 0);
+    const yoyPct = prevTotal > 0 ? ((currTotal - prevTotal) / prevTotal * 100) : 0;
+    const yoySign = yoyPct > 0 ? "+" : "";
+    chartTitle = `月別${metricLabel}（直近12ヶ月）`;
+    chartCaption = `${metricFmt(currTotal)}${prevTotal > 0 ? ` / 前年同期比 ${yoySign}${yoyPct.toFixed(1)}%` : ""}`;
     chartColor = "#0F5B8D";
   }
+
+  // チャートメトリック切替タブ
+  const chartMetricTabs = (["amount", "quantity", "volume"] as ChartMetric[])
+    .map(m => `<button class="tab-button ${m === chartMetric ? "active" : ""}" data-chart-metric="${m}">${CHART_METRIC_LABELS[m]}</button>`)
+    .join("");
 
   const periodButtons = (["all", "yearly", "monthly", "weekly", "daily"] as AnalyticsPeriod[])
     .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-analytics-period="${p}">${PERIOD_LABELS[p]}</button>`)
@@ -363,12 +395,16 @@ export function renderSalesAnalytics(
 
     <section class="analytics-grid">
       <article class="panel">
-        <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
           <div>
             <h2>${chartTitle}</h2>
             <p class="panel-caption">${chartCaption}</p>
           </div>
-          ${drilldown ? `<button class="button secondary small" data-action="close-analytics-drilldown">← 全体に戻す</button>` : ""}
+          <div style="display:flex;gap:8px;align-items:center;">
+            <div class="tab-group">${chartMetricTabs}</div>
+            ${drilldown ? `<button class="button secondary small" data-action="close-analytics-drilldown">← 全体に戻す</button>` : ""}
+        </div>
+          </div>
         </div>
         <div class="chart-scroll">
           ${buildBars(chartPoints, chartColor, chartPrevPoints)}

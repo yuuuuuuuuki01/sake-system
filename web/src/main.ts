@@ -853,6 +853,7 @@ const state: AppState = {
   analyticsPeriodRows: [] as import("./api").AnalyticsBreakdownRow[],
   analyticsPeriodChartData: [] as import("./api").PeriodChartPoint[],
   analyticsPrevYearChartData: [] as import("./api").PeriodChartPoint[],
+  analyticsChartMetric: "amount" as import("./components/SalesAnalytics").ChartMetric,
   analyticsPeriodOptions: [] as string[],
   analyticsStaffFilter: "",
   analyticsTagFilter: "",
@@ -1967,7 +1968,7 @@ function renderView(): string {
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown, state.analyticsPeriodChartData, state.analyticsPrevYearChartData);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown, state.analyticsPeriodChartData, state.analyticsPrevYearChartData, state.analyticsChartMetric);
     case "/":
     default:
       return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
@@ -3287,6 +3288,7 @@ function bindEvents(root: HTMLElement): void {
       state.analyticsStaffDrilldown = null;
       state.analyticsDrilldown = null;
       state.analyticsPeriodChartData = [];
+      state.analyticsPrevYearChartData = [];
       if (state.analyticsTab === "staff") {
         // staffタブは独自期間状態を維持、products/customers期間は触らない
       } else if (state.analyticsPeriod !== "all") {
@@ -3342,6 +3344,14 @@ function bindEvents(root: HTMLElement): void {
     state.analyticsPeriodChartData = chart;
     state.analyticsPrevYearChartData = prevChart;
     renderApp();
+  });
+
+  // ── チャートメトリック切替（売上額/出荷本数/移出量）──
+  root.querySelectorAll<HTMLButtonElement>("[data-chart-metric]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.analyticsChartMetric = btn.dataset.chartMetric as import("./components/SalesAnalytics").ChartMetric;
+      renderApp();
+    });
   });
 
   // ── 商品/得意先ドリルダウン ─────────────────────────

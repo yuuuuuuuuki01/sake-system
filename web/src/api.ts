@@ -237,6 +237,8 @@ export interface CustomerLedger {
 export interface AnalyticsMonthlyPoint {
   month: string;
   amount: number;
+  quantity: number;
+  volumeMl: number;
 }
 
 export interface AnalyticsBreakdownRow {
@@ -962,9 +964,11 @@ export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
   if (monthlyRows.length > 0) {
     return {
       generatedAt: new Date().toISOString(),
-      monthlySales: monthlyRows.slice(-12).map((r) => ({
+      monthlySales: monthlyRows.map((r) => ({
         month: getString(r, ["month"], ""),
-        amount: getNumber(r, ["amount"], 0)
+        amount: getNumber(r, ["amount"], 0),
+        quantity: getNumber(r, ["quantity"], 0),
+        volumeMl: getNumber(r, ["volume_ml"], 0)
       })),
       productTotals: productRows.map((r) => ({
         code: getString(r, ["code"], ""),
