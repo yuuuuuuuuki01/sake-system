@@ -51,7 +51,8 @@ const PERIOD_LABELS: Record<AnalyticsPeriod, string> = {
 function buildBars(
   points: { month: string; amount: number }[],
   color = "#0F5B8D",
-  prevPoints: { month: string; amount: number }[] = []
+  prevPoints: { month: string; amount: number }[] = [],
+  metric: ChartMetric = "amount"
 ): string {
   if (points.length === 0) {
     return `<div class="chart-empty">データなし</div>`;
@@ -60,20 +61,37 @@ function buildBars(
   const hasPrev = prevPoints.length > 0 && prevPoints.some(p => p.amount > 0);
   const width = 760;
   const height = 280;
-  const padding = { top: 16, right: 24, bottom: 36, left: 64 };
+  const padding = { top: 16, right: 24, bottom: 36, left: metric === "amount" ? 64 : 56 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const allAmounts = [...points.map(p => p.amount), ...prevPoints.map(p => p.amount)];
   const maxValue = Math.max(...allAmounts, 1);
   const step = plotWidth / points.length;
 
+  function axisLabel(value: number): string {
+    if (metric === "quantity") {
+      return value >= 10000 ? `${(value / 10000).toFixed(1)}万本` : `${Math.round(value).toLocaleString()}本`;
+    }
+    if (metric === "volume") {
+      const liters = value / 1000;
+      return liters >= 10000 ? `${(liters / 1000).toFixed(0)}kL` : `${Math.round(liters).toLocaleString()} L`;
+    }
+    return `${Math.round(value / 10000).toLocaleString("ja-JP")}万円`;
+  }
+
+  function tooltipLabel(value: number): string {
+    if (metric === "quantity") return `${value.toLocaleString()}本`;
+    if (metric === "volume") return fmtVol(value);
+    return formatCurrency(value);
+  }
+
   const axes = [0, 0.25, 0.5, 0.75, 1]
     .map((ratio) => {
       const y = padding.top + plotHeight - plotHeight * ratio;
-      const label = `${Math.round((maxValue * ratio) / 10000).toLocaleString("ja-JP")}万円`;
+      const label = axisLabel(maxValue * ratio);
       return `<g>
         <line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" class="chart-grid" />
-        <text x="8" y="${y + 4}" class="chart-axis">${label}</text>
+        <text x="4" y="${y + 4}" class="chart-axis">${label}</text>
       </g>`;
     }).join("");
 
@@ -89,14 +107,14 @@ function buildBars(
     const prevH = (prevAmt / maxValue) * plotHeight;
     const prevY = padding.top + plotHeight - prevH;
     const prevBar = hasPrev
-      ? `<rect x="${x}" y="${prevY}" width="${barWidth}" height="${prevH}" rx="4" fill="#ccc" opacity="0.6"><title>前年 ${formatCurrency(prevAmt)}</title></rect>`
+      ? `<rect x="${x}" y="${prevY}" width="${barWidth}" height="${prevH}" rx="4" fill="#ccc" opacity="0.6"><title>前年 ${tooltipLabel(prevAmt)}</title></rect>`
       : "";
 
     // 当年バー
     const currX = hasPrev ? x + barWidth + gap : x;
     return `<g>
       ${prevBar}
-      <rect x="${currX}" y="${barY}" width="${barWidth}" height="${barH}" rx="4" fill="${color}" opacity="${0.6 + (index / points.length) * 0.35}"><title>${formatCurrency(point.amount)}</title></rect>
+      <rect x="${currX}" y="${barY}" width="${barWidth}" height="${barH}" rx="4" fill="${color}" opacity="${0.6 + (index / points.length) * 0.35}"><title>${tooltipLabel(point.amount)}</title></rect>
       <text x="${padding.left + index * step + step / 2}" y="${height - 8}" class="chart-axis centered-axis">${formatMonth(point.month)}</text>
     </g>`;
   }).join("");
@@ -397,7 +415,7 @@ export function renderSalesAnalytics(
           </div>
         </div>
         <div class="chart-scroll">
-          ${buildBars(chartPoints, chartColor, chartPrevPoints)}
+          ${buildBars(chartPoints, chartColor, chartPrevPoints, chartMetric)}
         </div>
       </article>
 
