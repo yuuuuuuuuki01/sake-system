@@ -16,22 +16,16 @@ export type AnalyticsDrilldown = {
   breakdownRows: DrilldownBreakdownRow[];
 } | null;
 
-/** 月別データから直近12ヶ月 + 前年12ヶ月を分離するヘルパー */
-function splitYoY(all: AnalyticsMonthlyPoint[], metric: ChartMetric): { curr: { month: string; amount: number }[]; prev: { month: string; amount: number }[] } {
+/** 月別データから年別に集約して全年比較チャートを生成 */
+function buildYearlyFromMonthly(all: AnalyticsMonthlyPoint[], metric: ChartMetric): { curr: { month: string; amount: number }[] } {
   const getValue = (p: AnalyticsMonthlyPoint) => metric === "quantity" ? p.quantity : metric === "volume" ? p.volumeMl : p.amount;
-  const last12 = all.slice(-12);
-  if (last12.length === 0) return { curr: [], prev: [] };
-  const prevMonths = new Map<string, number>();
-  // 各月の前年同月を探す
-  for (const m of last12) {
-    const prevMonth = m.month.replace(/^\d{4}/, (y) => String(Number(y) - 1));
-    const found = all.find((p) => p.month === prevMonth);
-    if (found) prevMonths.set(m.month, getValue(found));
+  const yearMap = new Map<string, number>();
+  for (const p of all) {
+    const year = p.month.slice(0, 4);
+    yearMap.set(year, (yearMap.get(year) ?? 0) + getValue(p));
   }
-  return {
-    curr: last12.map((p) => ({ month: p.month, amount: getValue(p) })),
-    prev: last12.map((p) => ({ month: p.month, amount: prevMonths.get(p.month) ?? 0 }))
-  };
+  const years = [...yearMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  return { curr: years.map(([y, v]) => ({ month: y, amount: v })) };
 }
 
 function formatCurrency(amount: number): string {
@@ -262,16 +256,13 @@ export function renderSalesAnalytics(
     chartCaption = `${metricFmt(currTotal)}${prevTotal > 0 ? ` / 前年比 ${yoySign}${yoyPct.toFixed(1)}%` : ""}`;
     chartColor = "#2f855a";
   } else {
-    // 全期間: 直近12ヶ月 + 前年比較を monthlySales から生成
-    const yoy = splitYoY(summary.monthlySales, chartMetric);
-    chartPoints = yoy.curr;
-    chartPrevPoints = yoy.prev;
-    const currTotal = chartPoints.reduce((s, p) => s + p.amount, 0);
-    const prevTotal = chartPrevPoints.reduce((s, p) => s + p.amount, 0);
-    const yoyPct = prevTotal > 0 ? ((currTotal - prevTotal) / prevTotal * 100) : 0;
-    const yoySign = yoyPct > 0 ? "+" : "";
-    chartTitle = `月別${metricLabel}（直近12ヶ月）`;
-    chartCaption = `${metricFmt(currTotal)}${prevTotal > 0 ? ` / 前年同期比 ${yoySign}${yoyPct.toFixed(1)}%` : ""}`;
+    // 全期間: 年別バーチャート
+    const yearly = buildYearlyFromMonthly(summary.monthlySales, chartMetric);
+    chartPoints = yearly.curr;
+    chartPrevPoints = [];
+    const total = chartPoints.reduce((s, p) => s + p.amount, 0);
+    chartTitle = `年別${metricLabel}`;
+    chartCaption = `累計 ${metricFmt(total)}（${chartPoints.length}年間）`;
     chartColor = "#0F5B8D";
   }
 
