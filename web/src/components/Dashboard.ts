@@ -189,6 +189,12 @@ export interface DashboardExtras {
   masterCounts?: { customers: number; products: number; suppliers: number; specialPrices: number };
   deliveries?: DeliveryCalendarEntry[];
   deliveryCalendarMonth?: string;
+  churnSummary?: {
+    atRiskCount: number;
+    dormantCount: number;
+    decliningCount: number;
+    totalImpact: number;
+  };
 }
 
 export function renderDashboard(
@@ -463,16 +469,25 @@ export function renderDashboard(
 }
 
 function renderExtraWidgets(extras: DashboardExtras): string {
-  // 新規営業パイプライン
-  const pipelineTotal = extras.prospects.reduce((s, p) => s + (p.expectedAmount * p.probability) / 100, 0);
-  const hotProspects = extras.prospects.filter((p) => p.stage === "hot" || p.stage === "negotiating").length;
-  // 今日/直近の予定
   const today = new Date().toISOString().slice(0, 10);
   const upcoming = extras.upcomingEvents
     .filter((e) => e.startsAt.slice(0, 10) >= today)
     .slice(0, 5);
-  // 未対応 見学問合せ
   const newTourInquiries = extras.tourInquiries.filter((i) => i.status === "new").length;
+  const churn = extras.churnSummary;
+  const totalChurn = churn ? churn.atRiskCount + churn.dormantCount + churn.decliningCount : null;
+
+  const churnCard = churn
+    ? `<article class="panel kpi-card ${churn.atRiskCount > 0 ? "kpi-alert" : ""}" style="cursor:pointer;" data-link="/churn-alert">
+        <p class="panel-title">🔴 要対応顧客</p>
+        <p class="kpi-value">${totalChurn}社</p>
+        <p class="kpi-sub">離反${churn.atRiskCount} / 休眠${churn.dormantCount} / 下落${churn.decliningCount}</p>
+      </article>`
+    : `<article class="panel kpi-card" style="cursor:pointer;" data-link="/churn-alert">
+        <p class="panel-title">🔴 既存顧客アラート</p>
+        <p class="kpi-value" style="font-size:1rem;">確認する</p>
+        <p class="kpi-sub">離反・休眠・下落中</p>
+      </article>`;
 
   return `
     <section class="kpi-grid compact">
@@ -481,11 +496,7 @@ function renderExtraWidgets(extras: DashboardExtras): string {
         <p class="kpi-value">${extras.workflowOrdersCount.new + extras.workflowOrdersCount.picking + extras.workflowOrdersCount.packed}件</p>
         <p class="kpi-sub">新規 ${extras.workflowOrdersCount.new} / ピッキング ${extras.workflowOrdersCount.picking} / 梱包 ${extras.workflowOrdersCount.packed}</p>
       </article>
-      <article class="panel kpi-card">
-        <p class="panel-title">新規営業</p>
-        <p class="kpi-value">¥${Math.round(pipelineTotal).toLocaleString("ja-JP")}</p>
-        <p class="kpi-sub">${extras.prospects.length}件 / ホット ${hotProspects}</p>
-      </article>
+      ${churnCard}
       <article class="panel kpi-card ${newTourInquiries > 0 ? "kpi-alert" : ""}">
         <p class="panel-title">未対応問合せ</p>
         <p class="kpi-value">${newTourInquiries}件</p>
@@ -501,24 +512,30 @@ function renderExtraWidgets(extras: DashboardExtras): string {
     <section class="content-grid">
       <article class="panel">
         <div class="panel-header">
-          <div><h2>🎯 営業パイプライン</h2><p class="panel-caption">ステージ別件数</p></div>
-          <button class="button secondary" data-link="/prospects">詳細を見る</button>
+          <div><h2>🚨 既存顧客の状況</h2><p class="panel-caption">離反・休眠・売上下落のリスク顧客</p></div>
+          <button class="button secondary" data-link="/churn-alert">アクション一覧</button>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(100px, 1fr));gap:8px;">
-          ${(["cold", "warm", "hot", "contacted", "negotiating", "won"] as const)
-            .map((stage) => {
-              const count = extras.prospects.filter((p) => p.stage === stage).length;
-              const amount = extras.prospects.filter((p) => p.stage === stage).reduce((s, p) => s + p.expectedAmount, 0);
-              return `
-              <div style="background:${PROSPECT_STAGE_COLORS[stage]};color:white;padding:12px;border-radius:6px;text-align:center;">
-                <div style="font-size:11px;">${PROSPECT_STAGE_LABELS[stage]}</div>
-                <div style="font-size:20px;font-weight:700;margin:4px 0;">${count}</div>
-                <div style="font-size:10px;opacity:0.9;">¥${(amount / 10000).toFixed(0)}万</div>
+        ${churn
+          ? `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+              <div style="background:#fff5f5;border:1px solid #fed7d7;padding:16px;border-radius:8px;text-align:center;">
+                <div style="font-size:11px;color:#c53030;font-weight:600;margin-bottom:4px;">🔴 離反リスク</div>
+                <div style="font-size:32px;font-weight:700;color:#c53030;">${churn.atRiskCount}</div>
+                <div style="font-size:11px;color:#888;">社</div>
               </div>
-            `;
-            })
-            .join("")}
-        </div>
+              <div style="background:#fffaf0;border:1px solid #fbd38d;padding:16px;border-radius:8px;text-align:center;">
+                <div style="font-size:11px;color:#c05621;font-weight:600;margin-bottom:4px;">🟠 休眠</div>
+                <div style="font-size:32px;font-weight:700;color:#c05621;">${churn.dormantCount}</div>
+                <div style="font-size:11px;color:#888;">社</div>
+              </div>
+              <div style="background:#fffff0;border:1px solid #f6e05e;padding:16px;border-radius:8px;text-align:center;">
+                <div style="font-size:11px;color:#975a16;font-weight:600;margin-bottom:4px;">🟡 下落中</div>
+                <div style="font-size:32px;font-weight:700;color:#975a16;">${churn.decliningCount}</div>
+                <div style="font-size:11px;color:#888;">社</div>
+              </div>
+            </div>
+            <p style="margin:12px 0 0;font-size:12px;color:var(--text-secondary);">対象売上合計リスク: <strong>${new Intl.NumberFormat("ja-JP",{style:"currency",currency:"JPY",maximumFractionDigits:0}).format(churn.totalImpact)}</strong></p>`
+          : `<p class="empty-note" style="cursor:pointer;" data-link="/churn-alert">クリックして詳細を確認</p>`
+        }
       </article>
 
       <aside class="panel">

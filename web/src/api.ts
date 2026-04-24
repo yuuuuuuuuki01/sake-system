@@ -1572,14 +1572,20 @@ export interface ChurnAlertRow {
   last_order_date: string;
   days_since_order: number;
   amount_12m: number;
+  amount_3m: number;
+  amount_this_month: number;
+  amount_last_year_same_month: number;
+  annual_revenue: number;
   is_dormant: boolean;
   is_at_risk: boolean;
 }
 
 export async function fetchChurnAlerts(): Promise<ChurnAlertRow[]> {
+  // 全アクティブ顧客を取得（離反・休眠・下落中の判定をクライアントで行う）
   const rows = await supabaseQueryAll<LooseRow>("customer_sales_summary", {
-    select: "customer_code,customer_name,business_type,area_code,phone,last_order_date,days_since_order,amount_12m,is_dormant,is_at_risk",
-    or: "(is_dormant.eq.true,is_at_risk.eq.true)"
+    select: "customer_code,customer_name,business_type,area_code,phone,last_order_date,days_since_order,amount_12m,amount_3m,amount_this_month,amount_last_year_same_month,annual_revenue,is_dormant,is_at_risk",
+    amount_12m: "gt.0",
+    order: "amount_12m.desc"
   });
   if (rows.length > 0) {
     return rows.map((r) => ({
@@ -1591,6 +1597,10 @@ export async function fetchChurnAlerts(): Promise<ChurnAlertRow[]> {
       last_order_date: getString(r, ["last_order_date"], ""),
       days_since_order: getNumber(r, ["days_since_order"], 0),
       amount_12m: getNumber(r, ["amount_12m"], 0),
+      amount_3m: getNumber(r, ["amount_3m"], 0),
+      amount_this_month: getNumber(r, ["amount_this_month"], 0),
+      amount_last_year_same_month: getNumber(r, ["amount_last_year_same_month"], 0),
+      annual_revenue: getNumber(r, ["annual_revenue"], 0),
       is_dormant: getBoolean(r, ["is_dormant"], false),
       is_at_risk: getBoolean(r, ["is_at_risk"], false)
     }));

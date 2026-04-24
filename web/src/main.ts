@@ -179,7 +179,7 @@ import {
 import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./components/RawBrowser";
 import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromSchedule, renderDeliveryCalendarWidget, defaultDemandForecastState, type DemandForecastState, type DeliveryCalendarEntry, type ProductionSegment } from "./components/DemandForecast";
 import { renderDemandPlanning, type DemandTab } from "./components/DemandPlanning";
-import { renderChurnAlert, buildChurnAlertData, type ChurnAlertData } from "./components/ChurnAlert";
+import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { renderSeasonalCalendar, buildSeasonalData, type SeasonalCalendarState } from "./components/SeasonalCalendar";
 import { renderShipmentCalendar } from "./components/ShipmentCalendar";
 import { renderVisitPlanner, buildVisitPlan, type VisitPlannerState } from "./components/VisitPlanner";
@@ -1353,35 +1353,9 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       case "/churn-alert":
         if (!state.churnAlert) {
-          // DB集計テーブルから読み取り → なければフォールバック
           const { fetchChurnAlerts } = await import("./api");
           const dbAlerts = await fetchChurnAlerts();
-          if (dbAlerts.length > 0) {
-            const dormant = dbAlerts.filter(a => a.is_dormant).map(a => ({
-              code: a.customer_code, name: a.customer_name, businessType: a.business_type,
-              areaCode: a.area_code, phone: a.phone, lastOrderDate: a.last_order_date,
-              daysSinceLastOrder: a.days_since_order, totalAmountLast12m: a.amount_12m, status: "dormant" as const
-            }));
-            const atRisk = dbAlerts.filter(a => a.is_at_risk).map(a => ({
-              code: a.customer_code, name: a.customer_name, businessType: a.business_type,
-              areaCode: a.area_code, phone: a.phone, lastOrderDate: a.last_order_date,
-              daysSinceLastOrder: a.days_since_order, totalAmountLast12m: a.amount_12m, status: "at-risk" as const
-            }));
-            state.churnAlert = { dormantCustomers: dormant, atRiskCustomers: atRisk };
-          } else {
-            // フォールバック: クライアント計算
-            const { supabaseQueryAll } = await import("./supabase");
-            const [headers, customers] = await Promise.all([
-              supabaseQueryAll<{sales_date: string; legacy_customer_code: string; customer_name: string; total_amount: number | string}>("sales_document_headers", {
-                select: "sales_date,legacy_customer_code,customer_name,total_amount"
-              }),
-              state.masterStats ? Promise.resolve(state.masterStats.customers) : fetchMasterStats().then(m => m.customers)
-            ]);
-            state.churnAlert = buildChurnAlertData(
-              headers.map(h => ({ sales_date: h.sales_date || "", legacy_customer_code: h.legacy_customer_code || "", customer_name: h.customer_name || "", total_amount: Number(h.total_amount) || 0 })),
-              (state.masterStats?.customers ?? customers).map(c => ({ code: c.code, name: c.name, businessType: c.businessType, areaCode: c.areaCode, phone: c.phone }))
-            );
-          }
+          state.churnAlert = buildChurnAlertFromRows(dbAlerts);
         }
         break;
       case "/seasonal-calendar":
@@ -1990,6 +1964,13 @@ function renderView(): string {
           products: state.masterStats.summary.productCount,
           suppliers: state.syncDashboard?.tables.find((t) => t.tableName === "suppliers")?.rowCount ?? 0,
           specialPrices: state.syncDashboard?.tables.find((t) => t.tableName === "customer_product_prices")?.rowCount ?? 0
+        } : undefined,
+        churnSummary: state.churnAlert ? {
+          atRiskCount: state.churnAlert.atRiskCustomers.length,
+          dormantCount: state.churnAlert.dormantCustomers.length,
+          decliningCount: state.churnAlert.decliningCustomers.length,
+          totalImpact: [...state.churnAlert.atRiskCustomers, ...state.churnAlert.dormantCustomers, ...state.churnAlert.decliningCustomers]
+            .reduce((s, c) => s + c.totalAmountLast12m, 0)
         } : undefined
       }, state.salesPeriod, state.customRange, state.dashboardSortState);
   }
@@ -2076,13 +2057,18 @@ function renderShell(): string {
     ],
     crm: [
       {
-        label: "営業ツール",
+        label: "既存顧客ケア",
         items: [
-          { path: "/churn-alert", label: "離反アラート", kicker: "Churn" },
-          { path: "/seasonal-calendar", label: "季節提案", kicker: "Season" },
+          { path: "/churn-alert", label: "営業アクション", kicker: "Action" },
           { path: "/visit-planner", label: "訪問計画", kicker: "Visit" },
-          { path: "/prospects", label: "新規営業", kicker: "Prospects" },
+          { path: "/seasonal-calendar", label: "季節提案", kicker: "Season" },
           { path: "/map", label: "取引先マップ", kicker: "Map" },
+        ]
+      },
+      {
+        label: "新規開拓",
+        items: [
+          { path: "/prospects", label: "新規営業", kicker: "Prospects" },
           { path: "/list-builder", label: "リスト取得", kicker: "ListBuild" },
           { path: "/calls", label: "通話履歴", kicker: "Calls" },
           { path: "/email", label: "メール配信", kicker: "Mail" }
@@ -2153,7 +2139,7 @@ function renderShell(): string {
     { category: "dashboard", path: "/", label: "ダッシュボード" },
     { category: "sales", path: "/invoice-entry", label: "販売" },
     { category: "analytics", path: "/analytics", label: "分析" },
-    { category: "crm", path: "/prospects", label: "営業" },
+    { category: "crm", path: "/churn-alert", label: "営業" },
     { category: "orders", path: "/purchase", label: "仕入" },
     { category: "brewery", path: "/jikomi", label: "製造" },
     { category: "master", path: "/master", label: "マスタ" },
