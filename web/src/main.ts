@@ -859,6 +859,7 @@ const state: AppState = {
   analyticsStaffPeriodOptions: [] as string[],
   analyticsStaffTotals: [] as import("./api").AnalyticsBreakdownRow[],
   analyticsStaffDrilldown: null as { code: string; name: string; breakdownTab: "customers" | "products"; customerRows: import("./api").StaffBreakdownRow[]; productRows: import("./api").StaffBreakdownRow[] } | null,
+  analyticsDrilldown: null as import("./components/SalesAnalytics").AnalyticsDrilldown,
   emailAudienceMode: defaultEmailState.mode,
   emailRegion: defaultEmailState.region,
   emailHistorySegment: defaultEmailState.historySegment,
@@ -1964,7 +1965,7 @@ function renderView(): string {
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown);
     case "/":
     default:
       return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
@@ -3282,6 +3283,7 @@ function bindEvents(root: HTMLElement): void {
     button.addEventListener("click", async () => {
       state.analyticsTab = button.dataset.analyticsTab as AnalyticsTab;
       state.analyticsStaffDrilldown = null;
+      state.analyticsDrilldown = null;
       if (state.analyticsTab === "staff") {
         // staffタブは独自期間状態を維持、products/customers期間は触らない
       } else if (state.analyticsPeriod !== "all") {
@@ -3316,6 +3318,36 @@ function bindEvents(root: HTMLElement): void {
     const { fetchAnalyticsByPeriod } = await import("./api");
     state.analyticsPeriodFilter = (e.target as HTMLSelectElement).value;
     state.analyticsPeriodRows = await fetchAnalyticsByPeriod(state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter);
+    renderApp();
+  });
+
+  // ── 商品/得意先ドリルダウン ─────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-analytics-drilldown]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const code = button.dataset.analyticsDrilldown ?? "";
+      const name = button.dataset.drilldownName ?? code;
+      const tab = state.analyticsTab as "products" | "customers";
+      const {
+        fetchCustomerProductBreakdown,
+        fetchProductCustomerBreakdown,
+        fetchEntityMonthlySales,
+        periodToDateRange
+      } = await import("./api");
+      const range = state.analyticsPeriod !== "all" && state.analyticsPeriodFilter
+        ? periodToDateRange(state.analyticsPeriod, state.analyticsPeriodFilter) : null;
+      const [monthlySales, breakdownRows] = await Promise.all([
+        fetchEntityMonthlySales(code, tab === "customers" ? "customer" : "product"),
+        tab === "customers"
+          ? fetchCustomerProductBreakdown(code, range?.from, range?.to)
+          : fetchProductCustomerBreakdown(code, range?.from, range?.to)
+      ]);
+      state.analyticsDrilldown = { tab, code, name, monthlySales, breakdownRows };
+      renderApp();
+    });
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='close-analytics-drilldown']")?.addEventListener("click", () => {
+    state.analyticsDrilldown = null;
     renderApp();
   });
 

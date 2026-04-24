@@ -1,9 +1,17 @@
-import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow } from "../api";
+import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow, DrilldownBreakdownRow } from "../api";
 import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 
 const ANALYTICS_COL_MAP: Record<string, keyof AnalyticsBreakdownRow> = {
   code: "code", name: "name", amount: "amount", quantity: "quantity", documents: "documents"
 };
+
+export type AnalyticsDrilldown = {
+  tab: "products" | "customers";
+  code: string;
+  name: string;
+  monthlySales: { month: string; amount: number }[];
+  breakdownRows: DrilldownBreakdownRow[];
+} | null;
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", {
@@ -25,7 +33,7 @@ const PERIOD_LABELS: Record<AnalyticsPeriod, string> = {
   daily: "日次"
 };
 
-function buildBars(points: SalesAnalytics["monthlySales"]): string {
+function buildBars(points: { month: string; amount: number }[], color = "#0F5B8D"): string {
   if (points.length === 0) {
     return `<div class="chart-empty">データなし</div>`;
   }
@@ -59,7 +67,7 @@ function buildBars(points: SalesAnalytics["monthlySales"]): string {
       const y = padding.top + plotHeight - barHeight;
       return `
         <g>
-          <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="6" class="analytics-bar" />
+          <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="6" fill="${color}" opacity="${0.58 + (index / points.length) * 0.34}" />
           <text x="${x + barWidth / 2}" y="${height - 10}" class="chart-axis centered-axis">${formatMonth(point.month)}</text>
         </g>
       `;
@@ -74,9 +82,9 @@ function buildBars(points: SalesAnalytics["monthlySales"]): string {
   `;
 }
 
-function renderBreakdownRows(rows: AnalyticsBreakdownRow[]): string {
+function renderBreakdownRows(rows: AnalyticsBreakdownRow[], showDrilldownButton = false): string {
   if (rows.length === 0) {
-    return `<tr><td colspan="5" class="empty-row">データなし</td></tr>`;
+    return `<tr><td colspan="${showDrilldownButton ? 6 : 5}" class="empty-row">データなし</td></tr>`;
   }
   return rows.map((row) => `
     <tr>
@@ -85,6 +93,23 @@ function renderBreakdownRows(rows: AnalyticsBreakdownRow[]): string {
       <td class="numeric">${formatCurrency(row.amount)}</td>
       <td class="numeric">${row.quantity.toLocaleString("ja-JP")}</td>
       <td class="numeric">${row.documents.toLocaleString("ja-JP")}</td>
+      ${showDrilldownButton ? `<td><button class="button secondary small" data-analytics-drilldown="${row.code}" data-drilldown-name="${row.name}">詳細</button></td>` : ""}
+    </tr>
+  `).join("");
+}
+
+function renderDrilldownBreakdownRows(rows: DrilldownBreakdownRow[]): string {
+  if (rows.length === 0) {
+    return `<tr><td colspan="6" class="empty-row">データなし</td></tr>`;
+  }
+  return rows.map((r) => `
+    <tr>
+      <td class="mono">${r.code || "―"}</td>
+      <td>${r.name || "不明"}</td>
+      <td class="mono">${r.tag || "―"}</td>
+      <td class="numeric">${formatCurrency(r.amount)}</td>
+      <td class="numeric">${r.quantity.toLocaleString("ja-JP")}</td>
+      <td class="numeric">${r.documents.toLocaleString("ja-JP")}</td>
     </tr>
   `).join("");
 }
@@ -146,7 +171,8 @@ export function renderSalesAnalytics(
   staffPeriodFilter: string = "",
   staffPeriodOptions: string[] = [],
   staffPeriodTotals: AnalyticsBreakdownRow[] = [],
-  sortState: SortState = []
+  sortState: SortState = [],
+  drilldown: AnalyticsDrilldown = null
 ): string {
   const tableTitle = activeTab === "products" ? "商品別集計" : activeTab === "customers" ? "得意先別集計" : "担当別集計";
   const baseRows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
@@ -154,6 +180,18 @@ export function renderSalesAnalytics(
   // ソートを適用
   const rawRows = showPeriodData ? periodRows : baseRows;
   const rows = applySortToRows(rawRows as Record<string, unknown>[], sortState, ANALYTICS_COL_MAP) as AnalyticsBreakdownRow[];
+
+  // ドリルダウン中のチャートデータ
+  const chartPoints = drilldown && drilldown.monthlySales.length > 0
+    ? drilldown.monthlySales.slice(-24)
+    : summary.monthlySales;
+  const chartTitle = drilldown
+    ? `${drilldown.name} の月別売上推移`
+    : "月別売上";
+  const chartCaption = drilldown
+    ? `${drilldown.tab === "customers" ? "得意先" : "商品"}: ${drilldown.code}`
+    : "直近月の売上推移";
+  const chartColor = drilldown ? "#0968e5" : "#0F5B8D";
 
   const periodButtons = (["all", "yearly", "monthly", "weekly", "daily"] as AnalyticsPeriod[])
     .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-analytics-period="${p}">${PERIOD_LABELS[p]}</button>`)
@@ -270,14 +308,15 @@ export function renderSalesAnalytics(
 
     <section class="analytics-grid">
       <article class="panel">
-        <div class="panel-header">
+        <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;">
           <div>
-            <h2>月別売上</h2>
-            <p class="panel-caption">直近月の売上推移</p>
+            <h2>${chartTitle}</h2>
+            <p class="panel-caption">${chartCaption}</p>
           </div>
+          ${drilldown ? `<button class="button secondary small" data-action="close-analytics-drilldown">← 全体に戻す</button>` : ""}
         </div>
         <div class="chart-scroll">
-          ${buildBars(summary.monthlySales)}
+          ${buildBars(chartPoints, chartColor)}
         </div>
       </article>
 
@@ -309,14 +348,45 @@ export function renderSalesAnalytics(
                   ${makeSortableHeader("amount",    "売上額", sortState, "numeric")}
                   ${makeSortableHeader("quantity",  "数量",   sortState, "numeric")}
                   ${makeSortableHeader("documents", "伝票数", sortState, "numeric")}
+                  <th></th>
                 </tr>
               </thead>
-              <tbody>${renderBreakdownRows(rows)}</tbody>
+              <tbody>${renderBreakdownRows(rows, true)}</tbody>
             </table>
           </div>
         ` : staffTableHtml}
       </article>
     </section>
+
+    ${drilldown ? `
+    <section class="analytics-grid" style="margin-top:0;">
+      <article class="panel">
+        <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <h2>${drilldown.name} の${drilldown.tab === "customers" ? "商品別" : "得意先別"}内訳</h2>
+            <p class="panel-caption">${drilldown.tab === "customers" ? "この得意先が購入した商品" : "この商品を購入した得意先"}</p>
+          </div>
+          <button class="button secondary small" data-action="close-analytics-drilldown">閉じる</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>コード</th>
+                <th>${drilldown.tab === "customers" ? "商品名" : "得意先名"}</th>
+                <th>タグ</th>
+                <th class="numeric">売上額</th>
+                <th class="numeric">数量</th>
+                <th class="numeric">伝票数</th>
+              </tr>
+            </thead>
+            <tbody>${renderDrilldownBreakdownRows(drilldown.breakdownRows)}</tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+    ` : ""}
+
     ${drilldownHtml}
   `;
 }

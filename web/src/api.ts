@@ -1146,6 +1146,60 @@ export async function fetchStaffProductBreakdown(
   return mapStaffRows(result);
 }
 
+// ─── 分析ドリルダウン ─────────────────────────────────────────────────────────
+
+export interface DrilldownBreakdownRow {
+  code: string;
+  name: string;
+  tag: string;
+  amount: number;
+  quantity: number;
+  documents: number;
+}
+
+export async function fetchCustomerProductBreakdown(
+  customerCode: string, dateFrom?: string, dateTo?: string
+): Promise<DrilldownBreakdownRow[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_customer_product_breakdown", {
+    p_customer_code: customerCode,
+    p_date_from: dateFrom ?? null, p_date_to: dateTo ?? null
+  });
+  if (!result) return [];
+  return result.map(r => ({
+    code: getString(r, ["code"], ""), name: getString(r, ["name"], ""),
+    tag: getString(r, ["tag"], ""), amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0), documents: getNumber(r, ["documents"], 0)
+  }));
+}
+
+export async function fetchProductCustomerBreakdown(
+  productCode: string, dateFrom?: string, dateTo?: string
+): Promise<DrilldownBreakdownRow[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_product_customer_breakdown", {
+    p_product_code: productCode,
+    p_date_from: dateFrom ?? null, p_date_to: dateTo ?? null
+  });
+  if (!result) return [];
+  return result.map(r => ({
+    code: getString(r, ["code"], ""), name: getString(r, ["name"], ""),
+    tag: getString(r, ["tag"], ""), amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0), documents: getNumber(r, ["documents"], 0)
+  }));
+}
+
+export async function fetchEntityMonthlySales(
+  code: string, type: "customer" | "product"
+): Promise<{ month: string; amount: number }[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_entity_monthly_sales", {
+    p_code: code, p_type: type
+  });
+  if (!result) return [];
+  return result.map(r => ({
+    month: getString(r, ["month"], ""),
+    amount: getNumber(r, ["amount"], 0)
+  }));
+}
+
 // ─── 伝票入力 ────────────────────────────────────────────────────────────────
 
 export type InvoiceType = "sales" | "return" | "export_return";
