@@ -185,6 +185,7 @@ import {
 import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./components/RawBrowser";
 import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromSchedule, renderDeliveryCalendarWidget, defaultDemandForecastState, type DemandForecastState, type DeliveryCalendarEntry, type ProductionSegment } from "./components/DemandForecast";
 import { renderDemandPlanning, type DemandTab } from "./components/DemandPlanning";
+import { renderBrewingPlan } from "./components/BrewingPlan";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { renderSeasonalCalendar, buildSeasonalData, type SeasonalCalendarState } from "./components/SeasonalCalendar";
 import { renderShipmentCalendar } from "./components/ShipmentCalendar";
@@ -253,7 +254,8 @@ type RoutePath =
   | "/seasonal-calendar"
   | "/visit-planner"
   | "/demand"
-  | "/shipment-calendar";
+  | "/shipment-calendar"
+  | "/brewing-plan";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
 
@@ -325,7 +327,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/seasonal-calendar",
   "/visit-planner",
   "/demand",
-  "/shipment-calendar"
+  "/shipment-calendar",
+  "/brewing-plan"
 ];
 
 let EMAIL_RECIPIENTS: EmailRecipientRecord[] = [];
@@ -392,7 +395,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/seasonal-calendar", title: "季節提案カレンダー" },
   { path: "/visit-planner", title: "訪問計画・ルート最適化" },
   { path: "/demand", title: "需要分析・安全在庫・生産計画" },
-  { path: "/shipment-calendar", title: "出荷カレンダー" }
+  { path: "/shipment-calendar", title: "出荷カレンダー" },
+  { path: "/brewing-plan", title: "醸造計画" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -588,6 +592,9 @@ interface AppState {
   demandPlanYearMonth: string;
   demandYearsBack: number;
   demandPlanTypeFilter: string;
+  brewingPlanData: import("./api").BrewingPlanRow[];
+  brewingMonthlyTrend: import("./api").BrewingMonthlyTrend[];
+  brewingPlanFY: number;
   globalSearchOpen: boolean;
   globalQuery: string;
   authSkipped: boolean;
@@ -650,6 +657,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/materials":
     case "/tax":
     case "/demand":
+    case "/brewing-plan":
       return "brewery";
     case "/master":
     case "/calendar":
@@ -886,6 +894,9 @@ const state: AppState = {
   demandPlanYearMonth: new Date().toISOString().slice(0, 7),
   demandYearsBack: 3,
   demandPlanTypeFilter: "monthly",
+  brewingPlanData: [] as import("./api").BrewingPlanRow[],
+  brewingMonthlyTrend: [] as import("./api").BrewingMonthlyTrend[],
+  brewingPlanFY: (() => { const now = new Date(); return now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1; })(),
   globalSearchOpen: false,
   globalQuery: "",
   authSkipped: false,
@@ -1515,6 +1526,19 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         }
         break;
       }
+      case "/brewing-plan": {
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend } = await import("./api");
+        const fy = state.brewingPlanFY;
+        const fyStart = `${fy}-10-01`;
+        const fyEnd = `${fy + 1}-09-30`;
+        const [summary, trend] = await Promise.all([
+          fetchBrewingPlanSummary(fyStart, fyEnd),
+          fetchBrewingMonthlyTrend(fyStart, fyEnd)
+        ]);
+        state.brewingPlanData = summary;
+        state.brewingMonthlyTrend = trend;
+        break;
+      }
       case "/jikomi":
         if (state.jikomiList.length === 0) {
           state.jikomiList = await fetchJikomiList();
@@ -1801,6 +1825,8 @@ function renderView(): string {
         state.demandYearsBack,
         state.demandPlanTypeFilter
       );
+    case "/brewing-plan":
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert)
@@ -2127,7 +2153,8 @@ function renderShell(): string {
           { path: "/kentei", label: "検定管理", kicker: "Kentei" },
           { path: "/materials", label: "資材管理", kicker: "Material" },
           { path: "/tax", label: "酒税申告", kicker: "Tax" },
-          { path: "/demand", label: "需要・生産計画", kicker: "Demand" }
+          { path: "/demand", label: "需要・生産計画", kicker: "Demand" },
+          { path: "/brewing-plan", label: "醸造計画", kicker: "Brew" }
         ]
       }
     ],
@@ -5070,6 +5097,33 @@ function bindEvents(root: HTMLElement): void {
     if (!ok) return;
     // 請求データをリロード（締め処理はDB側で実装が必要）
     showToast("締め処理はデータベース側の設定が必要です", "info");
+  });
+
+  // ── 醸造計画 ────────────────────────────────────────
+  root.querySelector<HTMLSelectElement>("#brewing-fy-select")?.addEventListener("change", async (e) => {
+    const fy = parseInt((e.target as HTMLSelectElement).value);
+    state.brewingPlanFY = fy;
+    const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend } = await import("./api");
+    const [summary, trend] = await Promise.all([
+      fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+      fetchBrewingMonthlyTrend(`${fy}-10-01`, `${fy + 1}-09-30`)
+    ]);
+    state.brewingPlanData = summary;
+    state.brewingMonthlyTrend = trend;
+    renderApp();
+  });
+
+  // Toggle sub-category rows in brewing plan table
+  root.querySelectorAll<HTMLTableRowElement>("[data-toggle-cat]").forEach((row) => {
+    row.addEventListener("click", () => {
+      const cat = row.dataset.toggleCat ?? "";
+      const className = `sub-row-${cat.replace(/[^a-zA-Z0-9]/g, "_")}`;
+      const subRows = root.querySelectorAll<HTMLTableRowElement>(`.${className}`);
+      const icon = row.querySelector<HTMLSpanElement>(".toggle-icon");
+      const isOpen = subRows[0]?.style.display !== "none";
+      subRows.forEach((sr) => { sr.style.display = isOpen ? "none" : ""; });
+      if (icon) icon.innerHTML = isOpen ? "&#9654;" : "&#9660;";
+    });
   });
 
   // ── 仕込 ────────────────────────────────────────────

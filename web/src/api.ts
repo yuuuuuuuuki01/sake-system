@@ -1247,6 +1247,56 @@ export async function fetchEntityMonthlySales(
   }));
 }
 
+// ─── 醸造計画 ─────────────────────────────────────────────────────────────────
+
+export interface BrewingPlanRow {
+  brewCategory: string;
+  subCategory: string;
+  productCount: number;
+  totalShipmentQty: number;
+  totalShipmentMl: number;
+  monthlyAvgQty: number;
+  monthlyAvgMl: number;
+  currentStockL: number;
+  monthsRemaining: number;
+}
+
+export interface BrewingMonthlyTrend {
+  month: string;
+  brewCategory: string;
+  shipmentMl: number;
+}
+
+export async function fetchBrewingPlanSummary(fyStart: string, fyEnd: string): Promise<BrewingPlanRow[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_brewing_plan_summary", {
+    p_fy_start: fyStart, p_fy_end: fyEnd
+  });
+  if (!result) return [];
+  return result.map(r => ({
+    brewCategory: getString(r, ["brew_category"], ""),
+    subCategory: getString(r, ["sub_category"], ""),
+    productCount: getNumber(r, ["product_count"], 0),
+    totalShipmentQty: getNumber(r, ["total_shipment_qty"], 0),
+    totalShipmentMl: getNumber(r, ["total_shipment_ml"], 0),
+    monthlyAvgQty: getNumber(r, ["monthly_avg_qty"], 0),
+    monthlyAvgMl: getNumber(r, ["monthly_avg_ml"], 0),
+    currentStockL: getNumber(r, ["current_stock_l"], 0),
+    monthsRemaining: getNumber(r, ["months_remaining"], 0)
+  }));
+}
+
+export async function fetchBrewingMonthlyTrend(fyStart: string, fyEnd: string): Promise<BrewingMonthlyTrend[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_brewing_monthly_trend", {
+    p_fy_start: fyStart, p_fy_end: fyEnd
+  });
+  if (!result) return [];
+  return result.map(r => ({
+    month: getString(r, ["month"], ""),
+    brewCategory: getString(r, ["brew_category"], ""),
+    shipmentMl: getNumber(r, ["shipment_ml"], 0)
+  }));
+}
+
 // ─── 伝票入力 ────────────────────────────────────────────────────────────────
 
 export type InvoiceType = "sales" | "return" | "export_return";
