@@ -851,6 +851,7 @@ const state: AppState = {
   analyticsPeriod: "all" as import("./api").AnalyticsPeriod,
   analyticsPeriodFilter: "",
   analyticsPeriodRows: [] as import("./api").AnalyticsBreakdownRow[],
+  analyticsPeriodChartData: [] as { month: string; amount: number }[],
   analyticsPeriodOptions: [] as string[],
   analyticsStaffFilter: "",
   analyticsTagFilter: "",
@@ -1965,7 +1966,7 @@ function renderView(): string {
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown, state.analyticsPeriodChartData);
     case "/":
     default:
       return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
@@ -3284,6 +3285,7 @@ function bindEvents(root: HTMLElement): void {
       state.analyticsTab = button.dataset.analyticsTab as AnalyticsTab;
       state.analyticsStaffDrilldown = null;
       state.analyticsDrilldown = null;
+      state.analyticsPeriodChartData = [];
       if (state.analyticsTab === "staff") {
         // staffタブは独自期間状態を維持、products/customers期間は触らない
       } else if (state.analyticsPeriod !== "all") {
@@ -3298,26 +3300,39 @@ function bindEvents(root: HTMLElement): void {
 
   root.querySelectorAll<HTMLButtonElement>("[data-analytics-period]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const { fetchAnalyticsByPeriod, fetchAvailablePeriods } = await import("./api");
+      const { fetchAnalyticsByPeriod, fetchAvailablePeriods, fetchPeriodChartData } = await import("./api");
       const period = button.dataset.analyticsPeriod as import("./api").AnalyticsPeriod;
       state.analyticsPeriod = period;
+      state.analyticsDrilldown = null;
       if (period === "all") {
         state.analyticsPeriodRows = [];
         state.analyticsPeriodOptions = [];
         state.analyticsPeriodFilter = "";
+        state.analyticsPeriodChartData = [];
       } else {
         state.analyticsPeriodOptions = await fetchAvailablePeriods(state.analyticsTab, period);
         state.analyticsPeriodFilter = state.analyticsPeriodOptions[0] ?? "";
-        state.analyticsPeriodRows = await fetchAnalyticsByPeriod(state.analyticsTab, period, state.analyticsPeriodFilter);
+        const [rows, chart] = await Promise.all([
+          fetchAnalyticsByPeriod(state.analyticsTab, period, state.analyticsPeriodFilter),
+          fetchPeriodChartData(period, state.analyticsPeriodFilter)
+        ]);
+        state.analyticsPeriodRows = rows;
+        state.analyticsPeriodChartData = chart;
       }
       renderApp();
     });
   });
 
   root.querySelector<HTMLSelectElement>("#analytics-period-select")?.addEventListener("change", async (e) => {
-    const { fetchAnalyticsByPeriod } = await import("./api");
+    const { fetchAnalyticsByPeriod, fetchPeriodChartData } = await import("./api");
     state.analyticsPeriodFilter = (e.target as HTMLSelectElement).value;
-    state.analyticsPeriodRows = await fetchAnalyticsByPeriod(state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter);
+    state.analyticsDrilldown = null;
+    const [rows, chart] = await Promise.all([
+      fetchAnalyticsByPeriod(state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter),
+      fetchPeriodChartData(state.analyticsPeriod, state.analyticsPeriodFilter)
+    ]);
+    state.analyticsPeriodRows = rows;
+    state.analyticsPeriodChartData = chart;
     renderApp();
   });
 

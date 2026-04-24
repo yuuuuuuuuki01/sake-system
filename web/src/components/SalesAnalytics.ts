@@ -172,7 +172,8 @@ export function renderSalesAnalytics(
   staffPeriodOptions: string[] = [],
   staffPeriodTotals: AnalyticsBreakdownRow[] = [],
   sortState: SortState = [],
-  drilldown: AnalyticsDrilldown = null
+  drilldown: AnalyticsDrilldown = null,
+  periodChartData: { month: string; amount: number }[] = []
 ): string {
   const tableTitle = activeTab === "products" ? "商品別集計" : activeTab === "customers" ? "得意先別集計" : "担当別集計";
   const baseRows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
@@ -181,17 +182,31 @@ export function renderSalesAnalytics(
   const rawRows = showPeriodData ? periodRows : baseRows;
   const rows = applySortToRows(rawRows as Record<string, unknown>[], sortState, ANALYTICS_COL_MAP) as AnalyticsBreakdownRow[];
 
-  // ドリルダウン中のチャートデータ
-  const chartPoints = drilldown && drilldown.monthlySales.length > 0
-    ? drilldown.monthlySales.slice(-24)
-    : summary.monthlySales;
-  const chartTitle = drilldown
-    ? `${drilldown.name} の月別売上推移`
-    : "月別売上";
-  const chartCaption = drilldown
-    ? `${drilldown.tab === "customers" ? "得意先" : "商品"}: ${drilldown.code}`
-    : "直近月の売上推移";
-  const chartColor = drilldown ? "#0968e5" : "#0F5B8D";
+  // チャートデータの優先順位: ドリルダウン > 期間フィルタ > 全体月別
+  const PERIOD_CHART_LABELS: Record<AnalyticsPeriod, string> = {
+    all: "月別売上", yearly: "月別推移", monthly: "日別推移", weekly: "日別推移", daily: "当日"
+  };
+  let chartPoints: { month: string; amount: number }[];
+  let chartTitle: string;
+  let chartCaption: string;
+  let chartColor: string;
+
+  if (drilldown && drilldown.monthlySales.length > 0) {
+    chartPoints = drilldown.monthlySales.slice(-24);
+    chartTitle = `${drilldown.name} の月別売上推移`;
+    chartCaption = `${drilldown.tab === "customers" ? "得意先" : "商品"}: ${drilldown.code}`;
+    chartColor = "#0968e5";
+  } else if (periodChartData.length > 0 && activePeriod !== "all") {
+    chartPoints = periodChartData;
+    chartTitle = `${PERIOD_CHART_LABELS[activePeriod]}（${periodFilter}）`;
+    chartCaption = activePeriod === "yearly" ? "年内の月別推移" : activePeriod === "monthly" ? "月内の日別推移" : activePeriod === "weekly" ? "週内の日別推移" : "当日の出荷高";
+    chartColor = "#2f855a";
+  } else {
+    chartPoints = summary.monthlySales;
+    chartTitle = "月別売上";
+    chartCaption = "直近月の売上推移";
+    chartColor = "#0F5B8D";
+  }
 
   const periodButtons = (["all", "yearly", "monthly", "weekly", "daily"] as AnalyticsPeriod[])
     .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-analytics-period="${p}">${PERIOD_LABELS[p]}</button>`)

@@ -1146,6 +1146,24 @@ export async function fetchStaffProductBreakdown(
   return mapStaffRows(result);
 }
 
+// ─── 期間別チャートデータ ──────────────────────────────────────────────────────
+
+export async function fetchPeriodChartData(
+  period: AnalyticsPeriod,
+  periodFilter: string
+): Promise<{ month: string; amount: number }[]> {
+  if (period === "all" || !periodFilter) return [];
+  const result = await supabaseRpc<LooseRow[]>("get_period_chart_data", {
+    p_period: period,
+    p_filter: periodFilter
+  });
+  if (!result) return [];
+  return result.map(r => ({
+    month: getString(r, ["label"], ""),
+    amount: getNumber(r, ["amount"], 0)
+  }));
+}
+
 // ─── 分析ドリルダウン ─────────────────────────────────────────────────────────
 
 export interface DrilldownBreakdownRow {
