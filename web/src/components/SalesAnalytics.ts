@@ -1,15 +1,15 @@
-import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow, DrilldownBreakdownRow } from "../api";
+import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow, DrilldownBreakdownRow, PeriodChartPoint } from "../api";
 import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 
 const ANALYTICS_COL_MAP: Record<string, keyof AnalyticsBreakdownRow> = {
-  code: "code", name: "name", amount: "amount", quantity: "quantity", documents: "documents"
+  code: "code", name: "name", amount: "amount", quantity: "quantity", documents: "documents", volumeMl: "volumeMl"
 };
 
 export type AnalyticsDrilldown = {
   tab: "products" | "customers";
   code: string;
   name: string;
-  monthlySales: { month: string; amount: number }[];
+  monthlySales: PeriodChartPoint[];
   breakdownRows: DrilldownBreakdownRow[];
 } | null;
 
@@ -33,58 +33,83 @@ const PERIOD_LABELS: Record<AnalyticsPeriod, string> = {
   daily: "日次"
 };
 
-function buildBars(points: { month: string; amount: number }[], color = "#0F5B8D"): string {
+function buildBars(
+  points: { month: string; amount: number }[],
+  color = "#0F5B8D",
+  prevPoints: { month: string; amount: number }[] = []
+): string {
   if (points.length === 0) {
     return `<div class="chart-empty">データなし</div>`;
   }
 
+  const hasPrev = prevPoints.length > 0;
+  const prevMap = new Map(prevPoints.map(p => [p.month, p.amount]));
   const width = 760;
   const height = 280;
   const padding = { top: 16, right: 24, bottom: 36, left: 64 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
-  const maxValue = Math.max(...points.map((point) => point.amount), 1);
+  const allAmounts = [...points.map(p => p.amount), ...prevPoints.map(p => p.amount)];
+  const maxValue = Math.max(...allAmounts, 1);
   const step = plotWidth / points.length;
 
   const axes = [0, 0.25, 0.5, 0.75, 1]
     .map((ratio) => {
       const y = padding.top + plotHeight - plotHeight * ratio;
       const label = `${Math.round((maxValue * ratio) / 10000).toLocaleString("ja-JP")}万円`;
-      return `
-        <g>
-          <line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" class="chart-grid" />
-          <text x="8" y="${y + 4}" class="chart-axis">${label}</text>
-        </g>
-      `;
-    })
-    .join("");
+      return `<g>
+        <line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" class="chart-grid" />
+        <text x="8" y="${y + 4}" class="chart-axis">${label}</text>
+      </g>`;
+    }).join("");
 
-  const bars = points
-    .map((point, index) => {
-      const barHeight = (point.amount / maxValue) * plotHeight;
-      const barWidth = Math.max(step - 18, 24);
-      const x = padding.left + index * step + (step - barWidth) / 2;
-      const y = padding.top + plotHeight - barHeight;
-      return `
-        <g>
-          <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="6" fill="${color}" opacity="${0.58 + (index / points.length) * 0.34}" />
-          <text x="${x + barWidth / 2}" y="${height - 10}" class="chart-axis centered-axis">${formatMonth(point.month)}</text>
-        </g>
-      `;
-    })
-    .join("");
+  const bars = points.map((point, index) => {
+    const barWidth = hasPrev ? Math.max((step - 18) / 2, 10) : Math.max(step - 18, 24);
+    const gap = hasPrev ? 2 : 0;
+    const x = padding.left + index * step + (step - (hasPrev ? barWidth * 2 + gap : barWidth)) / 2;
+    const barH = (point.amount / maxValue) * plotHeight;
+    const barY = padding.top + plotHeight - barH;
+
+    // 前年バー（薄い灰色）
+    const prevAmt = prevMap.get(point.month) ?? 0;
+    const prevH = (prevAmt / maxValue) * plotHeight;
+    const prevY = padding.top + plotHeight - prevH;
+    const prevBar = hasPrev
+      ? `<rect x="${x}" y="${prevY}" width="${barWidth}" height="${prevH}" rx="4" fill="#ccc" opacity="0.6"><title>前年 ${formatCurrency(prevAmt)}</title></rect>`
+      : "";
+
+    // 当年バー
+    const currX = hasPrev ? x + barWidth + gap : x;
+    return `<g>
+      ${prevBar}
+      <rect x="${currX}" y="${barY}" width="${barWidth}" height="${barH}" rx="4" fill="${color}" opacity="${0.6 + (index / points.length) * 0.35}"><title>${formatCurrency(point.amount)}</title></rect>
+      <text x="${padding.left + index * step + step / 2}" y="${height - 8}" class="chart-axis centered-axis">${formatMonth(point.month)}</text>
+    </g>`;
+  }).join("");
+
+  const legend = hasPrev ? `
+    <g transform="translate(${width - 160}, 8)">
+      <rect width="10" height="10" fill="#ccc" rx="2" opacity="0.6" />
+      <text x="14" y="9" class="chart-axis" style="font-size:9px;">前年</text>
+      <rect x="48" width="10" height="10" fill="${color}" rx="2" />
+      <text x="62" y="9" class="chart-axis" style="font-size:9px;">当年</text>
+    </g>` : "";
 
   return `
-    <svg viewBox="0 0 ${width} ${height}" class="sales-chart" role="img" aria-label="月別売上分析">
-      ${axes}
-      ${bars}
+    <svg viewBox="0 0 ${width} ${height}" class="sales-chart" role="img" aria-label="売上分析チャート">
+      ${axes}${bars}${legend}
     </svg>
   `;
 }
 
+function fmtVol(ml: number): string {
+  return ml >= 1000 ? `${(ml / 1000).toLocaleString("ja-JP", { maximumFractionDigits: 1 })} L` : `${ml.toLocaleString("ja-JP")} ml`;
+}
+
 function renderBreakdownRows(rows: AnalyticsBreakdownRow[], showDrilldownButton = false): string {
+  const cols = showDrilldownButton ? 8 : 7;
   if (rows.length === 0) {
-    return `<tr><td colspan="${showDrilldownButton ? 6 : 5}" class="empty-row">データなし</td></tr>`;
+    return `<tr><td colspan="${cols}" class="empty-row">データなし</td></tr>`;
   }
   return rows.map((row) => `
     <tr>
@@ -92,6 +117,7 @@ function renderBreakdownRows(rows: AnalyticsBreakdownRow[], showDrilldownButton 
       <td>${row.name}</td>
       <td class="numeric">${formatCurrency(row.amount)}</td>
       <td class="numeric">${row.quantity.toLocaleString("ja-JP")}</td>
+      <td class="numeric">${fmtVol(row.volumeMl)}</td>
       <td class="numeric">${row.documents.toLocaleString("ja-JP")}</td>
       ${showDrilldownButton ? `<td><button class="button secondary small" data-analytics-drilldown="${row.code}" data-drilldown-name="${row.name}">詳細</button></td>` : ""}
     </tr>
@@ -100,7 +126,7 @@ function renderBreakdownRows(rows: AnalyticsBreakdownRow[], showDrilldownButton 
 
 function renderDrilldownBreakdownRows(rows: DrilldownBreakdownRow[]): string {
   if (rows.length === 0) {
-    return `<tr><td colspan="6" class="empty-row">データなし</td></tr>`;
+    return `<tr><td colspan="7" class="empty-row">データなし</td></tr>`;
   }
   return rows.map((r) => `
     <tr>
@@ -109,6 +135,7 @@ function renderDrilldownBreakdownRows(rows: DrilldownBreakdownRow[]): string {
       <td class="mono">${r.tag || "―"}</td>
       <td class="numeric">${formatCurrency(r.amount)}</td>
       <td class="numeric">${r.quantity.toLocaleString("ja-JP")}</td>
+      <td class="numeric">${fmtVol(r.volumeMl)}</td>
       <td class="numeric">${r.documents.toLocaleString("ja-JP")}</td>
     </tr>
   `).join("");
@@ -173,7 +200,8 @@ export function renderSalesAnalytics(
   staffPeriodTotals: AnalyticsBreakdownRow[] = [],
   sortState: SortState = [],
   drilldown: AnalyticsDrilldown = null,
-  periodChartData: { month: string; amount: number }[] = []
+  periodChartData: PeriodChartPoint[] = [],
+  prevYearChartData: PeriodChartPoint[] = []
 ): string {
   const tableTitle = activeTab === "products" ? "商品別集計" : activeTab === "customers" ? "得意先別集計" : "担当別集計";
   const baseRows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
@@ -187,9 +215,19 @@ export function renderSalesAnalytics(
     all: "月別売上", yearly: "月別推移", monthly: "日別推移", weekly: "日別推移", daily: "当日"
   };
   let chartPoints: { month: string; amount: number }[];
+  let chartPrevPoints: { month: string; amount: number }[] = [];
   let chartTitle: string;
   let chartCaption: string;
   let chartColor: string;
+
+  // 期間チャートの合計サマリー
+  const periodTotalAmt = periodChartData.reduce((s, p) => s + p.amount, 0);
+  const periodTotalQty = periodChartData.reduce((s, p) => s + p.quantity, 0);
+  const periodTotalVol = periodChartData.reduce((s, p) => s + p.volumeMl, 0);
+  const prevTotalAmt = prevYearChartData.reduce((s, p) => s + p.amount, 0);
+  const prevTotalQty = prevYearChartData.reduce((s, p) => s + p.quantity, 0);
+  const yoyDeltaPct = prevTotalAmt > 0 ? ((periodTotalAmt - prevTotalAmt) / prevTotalAmt * 100) : 0;
+  const yoySign = yoyDeltaPct > 0 ? "+" : "";
 
   if (drilldown && drilldown.monthlySales.length > 0) {
     chartPoints = drilldown.monthlySales.slice(-24);
@@ -198,8 +236,10 @@ export function renderSalesAnalytics(
     chartColor = "#0968e5";
   } else if (periodChartData.length > 0 && activePeriod !== "all") {
     chartPoints = periodChartData;
+    chartPrevPoints = prevYearChartData;
     chartTitle = `${PERIOD_CHART_LABELS[activePeriod]}（${periodFilter}）`;
-    chartCaption = activePeriod === "yearly" ? "年内の月別推移" : activePeriod === "monthly" ? "月内の日別推移" : activePeriod === "weekly" ? "週内の日別推移" : "当日の出荷高";
+    const yoyText = prevTotalAmt > 0 ? ` / 前年比 ${yoySign}${yoyDeltaPct.toFixed(1)}%` : "";
+    chartCaption = `${formatCurrency(periodTotalAmt)} / ${periodTotalQty.toLocaleString()}本 / ${fmtVol(periodTotalVol)}${yoyText}`;
     chartColor = "#2f855a";
   } else {
     chartPoints = summary.monthlySales;
@@ -331,7 +371,7 @@ export function renderSalesAnalytics(
           ${drilldown ? `<button class="button secondary small" data-action="close-analytics-drilldown">← 全体に戻す</button>` : ""}
         </div>
         <div class="chart-scroll">
-          ${buildBars(chartPoints, chartColor)}
+          ${buildBars(chartPoints, chartColor, chartPrevPoints)}
         </div>
       </article>
 
@@ -361,7 +401,8 @@ export function renderSalesAnalytics(
                   ${makeSortableHeader("code",      "コード", sortState, "mono")}
                   ${makeSortableHeader("name",      "名称",   sortState)}
                   ${makeSortableHeader("amount",    "売上額", sortState, "numeric")}
-                  ${makeSortableHeader("quantity",  "数量",   sortState, "numeric")}
+                  ${makeSortableHeader("quantity",  "本数",   sortState, "numeric")}
+                  ${makeSortableHeader("volumeMl",  "移出量", sortState, "numeric")}
                   ${makeSortableHeader("documents", "伝票数", sortState, "numeric")}
                   <th></th>
                 </tr>
@@ -391,7 +432,8 @@ export function renderSalesAnalytics(
                 <th>${drilldown.tab === "customers" ? "商品名" : "得意先名"}</th>
                 <th>タグ</th>
                 <th class="numeric">売上額</th>
-                <th class="numeric">数量</th>
+                <th class="numeric">本数</th>
+                <th class="numeric">移出量</th>
                 <th class="numeric">伝票数</th>
               </tr>
             </thead>

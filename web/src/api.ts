@@ -245,6 +245,7 @@ export interface AnalyticsBreakdownRow {
   amount: number;
   quantity: number;
   documents: number;
+  volumeMl: number;
 }
 
 export interface SalesAnalytics {
@@ -970,21 +971,24 @@ export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
         name: getString(r, ["name"], ""),
         amount: getNumber(r, ["amount"], 0),
         quantity: getNumber(r, ["quantity"], 0),
-        documents: getNumber(r, ["documents"], 0)
+        documents: getNumber(r, ["documents"], 0),
+        volumeMl: getNumber(r, ["volume_ml"], 0)
       })),
       customerTotals: customerRows.map((r) => ({
         code: getString(r, ["code"], ""),
         name: getString(r, ["name"], ""),
         amount: getNumber(r, ["amount"], 0),
         quantity: getNumber(r, ["quantity"], 0),
-        documents: getNumber(r, ["documents"], 0)
+        documents: getNumber(r, ["documents"], 0),
+        volumeMl: getNumber(r, ["volume_ml"], 0)
       })),
       staffTotals: staffRows.map((r) => ({
         code: getString(r, ["code"], ""),
         name: getString(r, ["name"], ""),
         amount: getNumber(r, ["amount"], 0),
         quantity: getNumber(r, ["quantity"], 0),
-        documents: getNumber(r, ["documents"], 0)
+        documents: getNumber(r, ["documents"], 0),
+        volumeMl: 0
       }))
     };
   }
@@ -1022,7 +1026,8 @@ export async function fetchAnalyticsByPeriod(
     name:      getString(r, ["name"],      ""),
     amount:    getNumber(r, ["amount"],    0),
     quantity:  getNumber(r, ["quantity"],  0),
-    documents: getNumber(r, ["documents"], 0)
+    documents: getNumber(r, ["documents"], 0),
+    volumeMl:  getNumber(r, ["volume_ml"], 0)
   }));
 }
 
@@ -1148,10 +1153,17 @@ export async function fetchStaffProductBreakdown(
 
 // ─── 期間別チャートデータ ──────────────────────────────────────────────────────
 
+export interface PeriodChartPoint {
+  month: string;
+  amount: number;
+  quantity: number;
+  volumeMl: number;
+}
+
 export async function fetchPeriodChartData(
   period: AnalyticsPeriod,
   periodFilter: string
-): Promise<{ month: string; amount: number }[]> {
+): Promise<PeriodChartPoint[]> {
   if (period === "all" || !periodFilter) return [];
   const result = await supabaseRpc<LooseRow[]>("get_period_chart_data", {
     p_period: period,
@@ -1160,8 +1172,16 @@ export async function fetchPeriodChartData(
   if (!result) return [];
   return result.map(r => ({
     month: getString(r, ["label"], ""),
-    amount: getNumber(r, ["amount"], 0)
+    amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0),
+    volumeMl: getNumber(r, ["volume_ml"], 0)
   }));
+}
+
+/** 前年のフィルタ文字列を算出 */
+export function prevYearFilter(periodFilter: string): string {
+  // "2026" → "2025", "2026-04" → "2025-04", "2026-W17" → "2025-W17", "2026-04-24" → "2025-04-24"
+  return periodFilter.replace(/^\d{4}/, (y) => String(Number(y) - 1));
 }
 
 // ─── 分析ドリルダウン ─────────────────────────────────────────────────────────
@@ -1173,6 +1193,7 @@ export interface DrilldownBreakdownRow {
   amount: number;
   quantity: number;
   documents: number;
+  volumeMl: number;
 }
 
 export async function fetchCustomerProductBreakdown(
@@ -1186,7 +1207,8 @@ export async function fetchCustomerProductBreakdown(
   return result.map(r => ({
     code: getString(r, ["code"], ""), name: getString(r, ["name"], ""),
     tag: getString(r, ["tag"], ""), amount: getNumber(r, ["amount"], 0),
-    quantity: getNumber(r, ["quantity"], 0), documents: getNumber(r, ["documents"], 0)
+    quantity: getNumber(r, ["quantity"], 0), documents: getNumber(r, ["documents"], 0),
+    volumeMl: getNumber(r, ["volume_ml"], 0)
   }));
 }
 
@@ -1201,20 +1223,23 @@ export async function fetchProductCustomerBreakdown(
   return result.map(r => ({
     code: getString(r, ["code"], ""), name: getString(r, ["name"], ""),
     tag: getString(r, ["tag"], ""), amount: getNumber(r, ["amount"], 0),
-    quantity: getNumber(r, ["quantity"], 0), documents: getNumber(r, ["documents"], 0)
+    quantity: getNumber(r, ["quantity"], 0), documents: getNumber(r, ["documents"], 0),
+    volumeMl: getNumber(r, ["volume_ml"], 0)
   }));
 }
 
 export async function fetchEntityMonthlySales(
   code: string, type: "customer" | "product"
-): Promise<{ month: string; amount: number }[]> {
+): Promise<PeriodChartPoint[]> {
   const result = await supabaseRpc<LooseRow[]>("get_entity_monthly_sales", {
     p_code: code, p_type: type
   });
   if (!result) return [];
   return result.map(r => ({
     month: getString(r, ["month"], ""),
-    amount: getNumber(r, ["amount"], 0)
+    amount: getNumber(r, ["amount"], 0),
+    quantity: getNumber(r, ["quantity"], 0),
+    volumeMl: getNumber(r, ["volume_ml"], 0)
   }));
 }
 
