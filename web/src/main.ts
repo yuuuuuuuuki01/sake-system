@@ -1317,9 +1317,19 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           state.quoteListLoading = false;
         }
         break;
+      case "/invoice":
+        if (state.invoiceRecords.length === 0) {
+          state.invoiceRecords = await fetchInvoices(state.invoiceFilter);
+        }
+        break;
+      case "/analytics":
+        if (!state.salesAnalytics || state.salesAnalytics.monthlySales.length === 0) {
+          state.salesAnalytics = await fetchSalesAnalytics();
+        }
+        break;
       case "/delivery":
         if (!state.deliveryNote) {
-          state.deliveryNote = await fetchDeliveryNote(state.deliverySearchDocNo || "D240122");
+          state.deliveryNote = await fetchDeliveryNote(state.deliverySearchDocNo);
         }
         break;
       case "/shipment-calendar": {
@@ -1678,7 +1688,8 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
     }
   } catch (err) {
-    console.warn("Route data load error", err);
+    console.error("Route data load error:", route, err);
+    showToast(`データ読み込みエラー: ${(err as Error).message ?? "不明"}`, "error");
   } finally {
     state.actionLoading = false;
     renderApp();
@@ -1772,11 +1783,6 @@ function renderView(): string {
     case "/customer-analysis":
       return state.customerAnalysis
         ? renderCustomerAnalysis(state.customerAnalysis)
-        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
-    case "/product-power":
-    case "/customer-efficiency":
-      return state.productABC
-        ? renderProductABC(state.productABC)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/demand-forecast":
       return renderDemandForecast(state.demandForecast);
@@ -4893,6 +4899,48 @@ function bindEvents(root: HTMLElement): void {
         renderApp();
       } else showToast("削除失敗", "error");
     });
+  });
+
+  // ── 汎用印刷ハンドラ（納品書・請求書・酒税申告）──────────
+  root.querySelector<HTMLButtonElement>("[data-action='delivery-print']")?.addEventListener("click", () => {
+    window.print();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='billing-print']")?.addEventListener("click", () => {
+    window.print();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='tax-print']")?.addEventListener("click", () => {
+    window.print();
+  });
+
+  // ── 需要計画 CSV エクスポート ──────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='demand-csv-export']")?.addEventListener("click", () => {
+    if (!state.demandAnalysis) { showToast("データなし", "error"); return; }
+    const analysis = state.demandAnalysis;
+    const rows = Object.entries(analysis.matrix).map(([code, months]) => {
+      const r: Record<string, unknown> = { productCode: code };
+      analysis.months.forEach(m => { r[m] = months[m] ?? 0; });
+      return r;
+    });
+    const columns: import("./utils/csv").CSVColumn[] = [
+      { key: "productCode", label: "商品コード" },
+      ...analysis.months.map(m => ({ key: m, label: m }))
+    ];
+    downloadCSV("demand-analysis.csv", rows, columns);
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='plan-csv-export']")?.addEventListener("click", () => {
+    if (state.productionPlan.length === 0) { showToast("データなし", "error"); return; }
+    const rows = state.productionPlan.map(p => ({ ...p }));
+    const columns: import("./utils/csv").CSVColumn[] = [
+      { key: "productCode", label: "商品コード" },
+      { key: "productName", label: "商品名" },
+      { key: "demandForecast", label: "需要予測" },
+      { key: "safetyStockTarget", label: "安全在庫" },
+      { key: "requiredProduction", label: "必要生産量" },
+      { key: "plannedQty", label: "計画数量" },
+      { key: "actualQty", label: "実績" },
+      { key: "status", label: "ステータス" }
+    ];
+    downloadCSV("production-plan.csv", rows, columns);
   });
 
   // ── 出荷カレンダー ────────────────────────────────
