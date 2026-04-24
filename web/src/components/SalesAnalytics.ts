@@ -57,8 +57,7 @@ function buildBars(
     return `<div class="chart-empty">データなし</div>`;
   }
 
-  const hasPrev = prevPoints.length > 0;
-  const prevMap = new Map(prevPoints.map(p => [p.month, p.amount]));
+  const hasPrev = prevPoints.length > 0 && prevPoints.some(p => p.amount > 0);
   const width = 760;
   const height = 280;
   const padding = { top: 16, right: 24, bottom: 36, left: 64 };
@@ -85,8 +84,8 @@ function buildBars(
     const barH = (point.amount / maxValue) * plotHeight;
     const barY = padding.top + plotHeight - barH;
 
-    // 前年バー（薄い灰色）
-    const prevAmt = prevMap.get(point.month) ?? 0;
+    // 前年バー（位置ベースで照合 — ラベルが年違いでも正しく対応）
+    const prevAmt = prevPoints[index]?.amount ?? 0;
     const prevH = (prevAmt / maxValue) * plotHeight;
     const prevY = padding.top + plotHeight - prevH;
     const prevBar = hasPrev
