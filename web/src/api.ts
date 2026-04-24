@@ -1000,58 +1000,42 @@ export interface PeriodBreakdownRow {
   documents: number;
 }
 
-const PERIOD_VIEW_MAP: Record<AnalyticsPeriod, { products: string; customers: string; staff: string }> = {
-  all: { products: "mv_product_sales_totals", customers: "mv_customer_sales_totals", staff: "mv_staff_sales_totals" },
-  yearly: { products: "mv_product_sales_yearly", customers: "mv_customer_sales_yearly", staff: "mv_staff_sales_totals" },
-  monthly: { products: "mv_product_sales_monthly", customers: "mv_customer_sales_monthly", staff: "mv_staff_sales_totals" },
-  weekly: { products: "mv_product_sales_weekly", customers: "mv_customer_sales_weekly", staff: "mv_staff_sales_totals" },
-  daily: { products: "mv_product_sales_daily", customers: "mv_customer_sales_daily", staff: "mv_staff_sales_totals" }
-};
-
+// 期間フィルタ付き商品・得意先集計 — RPC ベースに統一（ビュー不要）
 export async function fetchAnalyticsByPeriod(
   tab: AnalyticsTab,
   period: AnalyticsPeriod,
   periodFilter?: string
-): Promise<PeriodBreakdownRow[]> {
-  const view = PERIOD_VIEW_MAP[period][tab];
-  const params: Record<string, string> = { order: "amount.desc", limit: "200" };
-  if (periodFilter && period !== "all") {
-    params["period"] = `eq.${periodFilter}`;
-  }
-  const rows = await supabaseQuery<LooseRow>(view, params);
-  return rows.map((r) => ({
-    code: getString(r, ["code"], ""),
-    name: getString(r, ["name"], ""),
-    period: getString(r, ["period"], ""),
-    amount: getNumber(r, ["amount"], 0),
-    quantity: getNumber(r, ["quantity"], 0),
+): Promise<AnalyticsBreakdownRow[]> {
+  if (period === "all") return [];
+  const range = periodFilter ? periodToDateRange(period, periodFilter) : null;
+  const rpcName = tab === "customers"
+    ? "get_customer_totals_by_period"
+    : "get_product_totals_by_period";
+  const result = await supabaseRpc<LooseRow[]>(rpcName, {
+    p_date_from: range?.from ?? null,
+    p_date_to:   range?.to   ?? null
+  });
+  if (!result) return [];
+  return result.map((r) => ({
+    code:      getString(r, ["code"],      ""),
+    name:      getString(r, ["name"],      ""),
+    amount:    getNumber(r, ["amount"],    0),
+    quantity:  getNumber(r, ["quantity"],  0),
     documents: getNumber(r, ["documents"], 0)
   }));
 }
 
 export async function fetchAvailablePeriods(
-  tab: AnalyticsTab,
+  _tab: AnalyticsTab,
   period: AnalyticsPeriod
 ): Promise<string[]> {
   if (period === "all") return [];
-  // staffタブは専用期間ビューがないのでcustomersビューで代用
-  const effectiveTab: AnalyticsTab = tab === "staff" ? "customers" : tab;
-  const view = PERIOD_VIEW_MAP[period][effectiveTab];
-  // RPC経由でDISTINCT periodを取得（マテビューは大量行あるため）
-  const result = await supabaseRpc<{ period: string }[]>("get_distinct_periods", {
-    view_name: view
+  // get_available_periods RPC: daily_sales_fact から期間一覧を返す
+  const result = await supabaseRpc<{ period_val: string }[]>("get_available_periods", {
+    p_type: period
   });
-  if (result && result.length > 0) {
-    return result.map((r) => r.period).filter(Boolean).sort().reverse();
-  }
-  // フォールバック: 直接クエリ（上位のみ）
-  const rows = await supabaseQuery<LooseRow>(view, {
-    select: "period",
-    order: "period.desc",
-    limit: "1000"
-  });
-  const unique = [...new Set(rows.map((r) => getString(r, ["period"], "")))].filter(Boolean);
-  return unique.sort().reverse();
+  if (!result || result.length === 0) return [];
+  return result.map((r) => r.period_val).filter(Boolean);
 }
 
 /** 期間文字列 → 日付範囲に変換 */

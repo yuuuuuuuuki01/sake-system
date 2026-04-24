@@ -1,4 +1,9 @@
-import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, PeriodBreakdownRow, SalesAnalytics, StaffBreakdownRow } from "../api";
+import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow } from "../api";
+import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
+
+const ANALYTICS_COL_MAP: Record<string, keyof AnalyticsBreakdownRow> = {
+  code: "code", name: "name", amount: "amount", quantity: "quantity", documents: "documents"
+};
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("ja-JP", {
@@ -73,41 +78,15 @@ function renderBreakdownRows(rows: AnalyticsBreakdownRow[]): string {
   if (rows.length === 0) {
     return `<tr><td colspan="5" class="empty-row">データなし</td></tr>`;
   }
-
-  return rows
-    .map(
-      (row) => `
-        <tr>
-          <td class="mono">${row.code}</td>
-          <td>${row.name}</td>
-          <td class="numeric">${formatCurrency(row.amount)}</td>
-          <td class="numeric">${row.quantity.toLocaleString("ja-JP")}</td>
-          <td class="numeric">${row.documents.toLocaleString("ja-JP")}</td>
-        </tr>
-      `
-    )
-    .join("");
-}
-
-function renderPeriodRows(rows: PeriodBreakdownRow[]): string {
-  if (rows.length === 0) {
-    return `<tr><td colspan="6" class="empty-row">データなし</td></tr>`;
-  }
-
-  return rows
-    .map(
-      (row) => `
-        <tr>
-          <td class="mono">${row.code}</td>
-          <td>${row.name}</td>
-          <td class="mono">${row.period}</td>
-          <td class="numeric">${formatCurrency(row.amount)}</td>
-          <td class="numeric">${row.quantity.toLocaleString("ja-JP")}</td>
-          <td class="numeric">${row.documents.toLocaleString("ja-JP")}</td>
-        </tr>
-      `
-    )
-    .join("");
+  return rows.map((row) => `
+    <tr>
+      <td class="mono">${row.code}</td>
+      <td>${row.name}</td>
+      <td class="numeric">${formatCurrency(row.amount)}</td>
+      <td class="numeric">${row.quantity.toLocaleString("ja-JP")}</td>
+      <td class="numeric">${row.documents.toLocaleString("ja-JP")}</td>
+    </tr>
+  `).join("");
 }
 
 type StaffDrilldown = {
@@ -158,7 +137,7 @@ export function renderSalesAnalytics(
   activeTab: AnalyticsTab,
   activePeriod: AnalyticsPeriod = "all",
   periodFilter: string = "",
-  periodRows: PeriodBreakdownRow[] = [],
+  periodRows: AnalyticsBreakdownRow[] = [],
   periodOptions: string[] = [],
   staffFilter: string = "",
   tagFilter: string = "",
@@ -166,11 +145,15 @@ export function renderSalesAnalytics(
   staffPeriod: AnalyticsPeriod = "all",
   staffPeriodFilter: string = "",
   staffPeriodOptions: string[] = [],
-  staffPeriodTotals: AnalyticsBreakdownRow[] = []
+  staffPeriodTotals: AnalyticsBreakdownRow[] = [],
+  sortState: SortState = []
 ): string {
   const tableTitle = activeTab === "products" ? "商品別集計" : activeTab === "customers" ? "得意先別集計" : "担当別集計";
-  const rows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
+  const baseRows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
   const showPeriodData = activePeriod !== "all" && periodRows.length > 0 && activeTab !== "staff";
+  // ソートを適用
+  const rawRows = showPeriodData ? periodRows : baseRows;
+  const rows = applySortToRows(rawRows as Record<string, unknown>[], sortState, ANALYTICS_COL_MAP) as AnalyticsBreakdownRow[];
 
   const periodButtons = (["all", "yearly", "monthly", "weekly", "daily"] as AnalyticsPeriod[])
     .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-analytics-period="${p}">${PERIOD_LABELS[p]}</button>`)
@@ -321,15 +304,14 @@ export function renderSalesAnalytics(
             <table>
               <thead>
                 <tr>
-                  <th>コード</th>
-                  <th>名称</th>
-                  ${showPeriodData ? "<th>期間</th>" : ""}
-                  <th class="numeric">売上額</th>
-                  <th class="numeric">数量</th>
-                  <th class="numeric">伝票数</th>
+                  ${makeSortableHeader("code",      "コード", sortState, "mono")}
+                  ${makeSortableHeader("name",      "名称",   sortState)}
+                  ${makeSortableHeader("amount",    "売上額", sortState, "numeric")}
+                  ${makeSortableHeader("quantity",  "数量",   sortState, "numeric")}
+                  ${makeSortableHeader("documents", "伝票数", sortState, "numeric")}
                 </tr>
               </thead>
-              <tbody>${showPeriodData ? renderPeriodRows(periodRows) : renderBreakdownRows(rows)}</tbody>
+              <tbody>${renderBreakdownRows(rows)}</tbody>
             </table>
           </div>
         ` : staffTableHtml}

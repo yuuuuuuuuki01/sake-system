@@ -560,7 +560,7 @@ interface AppState {
   analyticsTab: AnalyticsTab;
   analyticsPeriod: import("./api").AnalyticsPeriod;
   analyticsPeriodFilter: string;
-  analyticsPeriodRows: import("./api").PeriodBreakdownRow[];
+  analyticsPeriodRows: import("./api").AnalyticsBreakdownRow[];
   analyticsPeriodOptions: string[];
   analyticsStaffFilter: string;
   analyticsTagFilter: string;
@@ -843,13 +843,14 @@ const state: AppState = {
   customerSortState: [] as SortState,
   dashboardSortState: [] as SortState,
   masterSortState: [] as SortState,
+  analyticsSortState: [] as SortState,
   customerEfficiency: [],
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
   analyticsPeriod: "all" as import("./api").AnalyticsPeriod,
   analyticsPeriodFilter: "",
-  analyticsPeriodRows: [] as import("./api").PeriodBreakdownRow[],
+  analyticsPeriodRows: [] as import("./api").AnalyticsBreakdownRow[],
   analyticsPeriodOptions: [] as string[],
   analyticsStaffFilter: "",
   analyticsTagFilter: "",
@@ -1957,7 +1958,7 @@ function renderView(): string {
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState);
     case "/":
     default:
       return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
@@ -3137,6 +3138,8 @@ function bindEvents(root: HTMLElement): void {
         state.dashboardSortState = toggleSort(state.dashboardSortState, col, multi);
       } else if (state.route === "/master") {
         state.masterSortState = toggleSort(state.masterSortState, col, multi);
+      } else if (state.route === "/analytics") {
+        state.analyticsSortState = toggleSort(state.analyticsSortState, col, multi);
       }
       renderApp();
     });
