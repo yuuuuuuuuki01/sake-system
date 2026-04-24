@@ -3676,6 +3676,44 @@ export async function deleteMaterial(id: string): Promise<boolean> {
 
 // ─── 納品先 (delivery_locations) ────────────────────────────────────────
 
+// ── 取引先マップ ──────────────────────────────────────────
+export interface MapCustomer {
+  customerCode: string;
+  name: string;
+  phone: string;
+  areaCode: string;
+  businessType: string;
+  businessTypeName: string;
+  address1: string;
+  lat: number;
+  lng: number;
+  isAtRisk: boolean;
+  isDormant: boolean;
+  amount12m: number;
+  daysSinceOrder: number | null;
+}
+
+export async function fetchMapCustomers(): Promise<MapCustomer[]> {
+  const rows = await supabaseQueryAll<LooseRow>("v_customer_map");
+  return rows
+    .filter((r) => r["lat"] && r["lng"])
+    .map((r) => ({
+      customerCode: getString(r, ["customer_code"], ""),
+      name: getString(r, ["name"], ""),
+      phone: getString(r, ["phone"], ""),
+      areaCode: getString(r, ["area_code"], ""),
+      businessType: getString(r, ["business_type"], ""),
+      businessTypeName: getString(r, ["business_type_name"], ""),
+      address1: getString(r, ["address1"], ""),
+      lat: Number(r["lat"]),
+      lng: Number(r["lng"]),
+      isAtRisk: getBoolean(r, ["is_at_risk"], false),
+      isDormant: getBoolean(r, ["is_dormant"], false),
+      amount12m: getNumber(r, ["amount_12m"], 0),
+      daysSinceOrder: r["days_since_order"] != null ? Number(r["days_since_order"]) : null
+    }));
+}
+
 export interface DeliveryLocation {
   id: string;
   customerCode?: string;

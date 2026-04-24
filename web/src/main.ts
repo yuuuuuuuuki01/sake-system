@@ -88,6 +88,7 @@ import {
   type SlackNotificationRule,
   type SlackNotificationLog,
   type DeliveryLocation,
+  type MapCustomer,
   type CallLog,
   type LeadList,
   type LeadItem,
@@ -136,7 +137,7 @@ import { renderSalesTable } from "./components/SalesTable";
 import { renderStorePOS } from "./components/StorePOS";
 import { renderDataImport } from "./components/DataImport";
 import { collectFieldPositions, renderFormDesigner } from "./components/FormDesigner";
-import { renderCustomerMap, type GeoCustomer } from "./components/CustomerMap";
+import { renderCustomerMap } from "./components/CustomerMap";
 import { renderOrderWorkflow, type WorkflowOrder } from "./components/OrderWorkflow";
 import { renderMobileOrder, type MobileOrderState } from "./components/MobileOrder";
 import {
@@ -158,6 +159,7 @@ import { renderSlackSettings } from "./components/SlackSettings";
 import { renderMaterialEditModal } from "./components/Materials";
 import { renderCallLogs } from "./components/CallLogs";
 import type { MapFilters } from "./components/CustomerMap";
+
 import { renderListBuilder, type ListBuilderState } from "./components/ListBuilder";
 import { renderPrintCenter } from "./components/PrintCenter";
 import {
@@ -509,6 +511,7 @@ interface AppState {
   materialEditing: MaterialRecord | null;
   materialEditingIsNew: boolean;
   deliveryLocations: DeliveryLocation[];
+  mapCustomers: MapCustomer[];
   callLogs: CallLog[];
   mapFilters: MapFilters;
   leadLists: LeadList[];
@@ -749,13 +752,12 @@ const state: AppState = {
   materialEditing: null,
   materialEditingIsNew: false,
   deliveryLocations: [],
+  mapCustomers: [],
   callLogs: [],
   mapFilters: {
-    showCustomers: true,
-    showProspects: true,
-    showDelivery: true,
-    filterRegion: "",
-    filterBusinessType: ""
+    filterStatus: "all",
+    filterArea: "",
+    filterBiz: ""
   },
   leadLists: [],
   leadItems: [],
@@ -1592,10 +1594,13 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       case "/map":
         {
-          const { fetchProspects, fetchDeliveryLocations, fetchIntegrationSettings } = await import("./api");
-          state.prospects = await fetchProspects();
-          state.deliveryLocations = await fetchDeliveryLocations();
-          if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
+          const { fetchMapCustomers, fetchDeliveryLocations } = await import("./api");
+          const [mapCustomers, deliveries] = await Promise.all([
+            fetchMapCustomers(),
+            fetchDeliveryLocations()
+          ]);
+          state.mapCustomers = mapCustomers;
+          state.deliveryLocations = deliveries;
         }
         break;
       case "/calls":
@@ -1813,29 +1818,11 @@ function renderView(): string {
       return renderPrintCenter(state.printTemplate, state.printOptions, state.printCompany, state.printData);
     case "/form-designer":
       return renderFormDesigner(state.printData, state.printCompany, state.printOptions, state.fdSavedPositions, state.fdDesignMode);
-    case "/map": {
-      // DBの実座標を優先、未設定の場合のみ仮配置
-      const mapCustomers: GeoCustomer[] = (state.masterStats?.customers ?? []).slice(0, 200).map((c, i) => {
-        const existing = c as unknown as { lat?: number; lng?: number; address1?: string; businessType?: string };
-        return {
-          ...c,
-          lat: existing.lat ?? 35.37 + (i % 12) * 0.05 + (Math.random() - 0.5) * 0.02,
-          lng: existing.lng ?? 139.29 + Math.floor(i / 12) * 0.05 + (Math.random() - 0.5) * 0.02,
-          address1: existing.address1 ?? "",
-          businessType: existing.businessType ?? "",
-          lastOrderAmount: 0
-        };
-      });
-      const gmKey = state.integrations.find((i) => i.provider === "google_maps")?.config["api_key"];
-      const useGoogleMaps = Boolean(gmKey);
-      return renderCustomerMap(
-        mapCustomers,
-        state.prospects,
-        state.deliveryLocations,
-        state.mapFilters,
-        useGoogleMaps
-      );
-    }
+    case "/map":
+      if (state.mapCustomers.length === 0) {
+        return `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">マップデータを読み込み中…</p></div></section>`;
+      }
+      return renderCustomerMap(state.mapCustomers, state.deliveryLocations, state.mapFilters);
     case "/workflow":
       return renderOrderWorkflow(state.workflowOrders);
     case "/mobile-order":
@@ -3884,11 +3871,6 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // ── 取引先マップ (Leaflet) ──────────────────────────
-  const mapEl = root.querySelector<HTMLElement>("#customer-map");
-  if (mapEl && state.route === "/map") {
-    initCustomerMap(mapEl);
-  }
 
   // ── 受注ワークフロー (カンバン) ────────────────────
   root.querySelectorAll<HTMLElement>(".wf-card").forEach((card) => {
@@ -5385,79 +5367,9 @@ try {
   });
 })();
 
-// Leaflet customer map initialization
-declare const L: {
-  map: (id: HTMLElement) => unknown;
-  tileLayer: (url: string, opts?: Record<string, unknown>) => unknown;
-  marker: (latlng: [number, number]) => unknown;
-};
-
-// Google Maps instance (managed internally by initCustomerMap)
-function initCustomerMap(container: HTMLElement) {
-  const gm = (window as unknown as { google?: { maps: typeof google.maps } }).google?.maps;
-  if (!gm) {
-    container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-secondary);">Google Maps 読込中…</div>';
-    setTimeout(() => initCustomerMap(container), 500);
-    return;
-  }
-
-  container.innerHTML = "";
-  const map = new gm.Map(container, {
-    center: { lat: 35.45, lng: 139.4 },
-    zoom: 10,
-    mapId: "sake-system-map",
-    gestureHandling: "greedy"
-  });
-
-  const infoWindow = new gm.InfoWindow();
-
-  function addMarker(lat: number, lng: number, color: string, label: string, popupHtml: string) {
-    const marker = new gm.marker.AdvancedMarkerElement({
-      map,
-      position: { lat, lng },
-      content: (() => {
-        const el = document.createElement("div");
-        el.style.cssText = `background:${color};color:white;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);font-weight:700;font-size:11px;cursor:pointer;`;
-        el.textContent = label;
-        return el;
-      })()
-    });
-    marker.addListener("click", () => {
-      infoWindow.setContent(popupHtml);
-      infoWindow.open({ anchor: marker, map });
-    });
-  }
-
-  // 既存取引先 (青)
-  if (state.mapFilters.showCustomers) {
-    const customers = state.masterStats?.customers ?? [];
-    customers.forEach((c) => {
-      if (!c.lat || !c.lng) return;
-      if (state.mapFilters.filterBusinessType && c.businessType !== state.mapFilters.filterBusinessType) return;
-      addMarker(c.lat, c.lng, "#2196F3", "既",
-        `<div style="min-width:180px;"><strong>${c.name}</strong><br/><span style="color:#666;font-size:11px;">${c.code}</span><br/>既存取引先<br/>締日${c.closingDay}日 / 支払日${c.paymentDay}日${c.address1 ? `<br/>${c.address1}` : ""}</div>`);
-    });
-  }
-
-  // 新規見込客 (緑)
-  if (state.mapFilters.showProspects) {
-    state.prospects.forEach((p) => {
-      if (!p.lat || !p.lng) return;
-      if (state.mapFilters.filterBusinessType && p.businessType !== state.mapFilters.filterBusinessType) return;
-      const color = p.stage === "hot" || p.stage === "negotiating" ? "#EF5350" : p.stage === "won" ? "#66BB6A" : "#4CAF50";
-      addMarker(p.lat, p.lng, color, "新",
-        `<div style="min-width:200px;"><strong>${p.companyName}</strong><br/><span style="color:#666;font-size:11px;">${p.contactName ?? ""}</span><br/>新規見込客 (${p.stage})<br/>想定 ¥${p.expectedAmount.toLocaleString("ja-JP")} / 確度 ${p.probability}%${p.nextAction ? `<br/>${p.nextAction}` : ""}</div>`);
-    });
-  }
-
-  // 納品先 (オレンジ)
-  if (state.mapFilters.showDelivery) {
-    state.deliveryLocations.forEach((d) => {
-      if (!d.lat || !d.lng) return;
-      addMarker(d.lat, d.lng, "#FF9800", "納",
-        `<div style="min-width:180px;"><strong>${d.name}</strong><br/>納品先${d.customerCode ? ` (${d.customerCode})` : ""}<br/>${d.address ?? ""}${d.contactName ? `<br/>${d.contactName}` : ""}${d.deliveryNote ? `<br/>${d.deliveryNote}` : ""}</div>`);
-    });
-  }
+// Map is now rendered via Leaflet inline script in CustomerMap.ts
+function initCustomerMap(_container: HTMLElement) {
+  // no-op: kept for TypeScript reference
 }
 
 void loadData();
