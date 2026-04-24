@@ -4449,23 +4449,46 @@ export async function fetchProductionPlan(yearMonth: string): Promise<Production
   }));
 }
 
-export async function saveSafetyStockParams(params: SafetyStockParams): Promise<boolean> {
-  const { supabaseUpsert } = await import("./supabase");
-  const result = await supabaseUpsert("product_safety_stock_params", {
-    product_code: params.productCode,
-    product_name: params.productName,
-    unit: params.unit,
-    avg_monthly_demand: params.avgMonthlyDemand,
-    demand_std_dev: params.demandStdDev,
-    lead_time_days: params.leadTimeDays,
-    service_level: params.serviceLevel,
-    safety_stock_qty: params.safetyStockQty,
-    reorder_point: params.reorderPoint,
-    memo: params.memo,
-    last_calc_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  });
-  return result !== null;
+export async function saveSafetyStockParamsBulk(paramsList: SafetyStockParams[]): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY || paramsList.length === 0) return false;
+  try {
+    const body = paramsList.map((p) => ({
+      product_code: p.productCode,
+      product_name: p.productName,
+      unit: p.unit,
+      avg_monthly_demand: p.avgMonthlyDemand,
+      demand_std_dev: p.demandStdDev,
+      lead_time_days: p.leadTimeDays,
+      service_level: p.serviceLevel,
+      safety_stock_qty: p.safetyStockQty,
+      reorder_point: p.reorderPoint,
+      production_type: p.productionType,
+      memo: p.memo,
+      last_calc_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }));
+    const url = new URL(`/rest/v1/product_safety_stock_params`, SUPABASE_URL);
+    const resp = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal,resolution=merge-duplicates"
+      },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      console.error("saveSafetyStockParamsBulk failed:", resp.status, text);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("saveSafetyStockParamsBulk error:", err);
+    return false;
+  }
 }
 
 export async function saveProductionPlan(row: ProductionPlanRow): Promise<boolean> {

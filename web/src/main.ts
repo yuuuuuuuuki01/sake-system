@@ -2860,11 +2860,16 @@ function bindEvents(root: HTMLElement): void {
   });
 
   // Demand planning: 安全在庫 保存ボタン
-  root.querySelector<HTMLButtonElement>("[data-action='ss-save-all']")?.addEventListener("click", async () => {
+  root.querySelector<HTMLButtonElement>("[data-action='ss-save-all']")?.addEventListener("click", async (e) => {
     if (state.safetyStockParams.length === 0) return;
-    const { saveSafetyStockParams } = await import("./api");
-    await Promise.all(state.safetyStockParams.map((p) => saveSafetyStockParams(p)));
-    renderApp();
+    const btn = e.currentTarget as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "保存中…";
+    const { saveSafetyStockParamsBulk } = await import("./api");
+    const ok = await saveSafetyStockParamsBulk(state.safetyStockParams);
+    btn.disabled = false;
+    btn.textContent = ok ? "✓ 保存しました" : "✗ 保存失敗";
+    setTimeout(() => { btn.textContent = "安全在庫を保存"; }, 2500);
   });
 
   // Demand planning: 安全在庫 一括適用
@@ -5046,7 +5051,13 @@ function bindEvents(root: HTMLElement): void {
 function renderApp(): void {
   const app = document.querySelector<HTMLElement>("#app");
   if (!app) return;
-  app.innerHTML = renderShell();
+  try {
+    app.innerHTML = renderShell();
+  } catch (err) {
+    console.error("[renderApp] render error:", err);
+    app.innerHTML = `<div style="padding:32px;color:red;font-family:monospace;white-space:pre-wrap;">[描画エラー] ${String(err)}\n\n${(err as Error)?.stack ?? ""}</div>`;
+    return;
+  }
   bindEvents(app);
   if (state.pickerMode) {
     app.querySelector<HTMLInputElement>("#modal-search")?.focus();
