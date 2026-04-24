@@ -854,6 +854,7 @@ const state: AppState = {
   analyticsPeriodChartData: [] as import("./api").PeriodChartPoint[],
   analyticsPrevYearChartData: [] as import("./api").PeriodChartPoint[],
   analyticsChartMetric: "amount" as import("./components/SalesAnalytics").ChartMetric,
+  analyticsFiscalMode: "calendar" as import("./components/SalesAnalytics").FiscalMode,
   analyticsPeriodOptions: [] as string[],
   analyticsStaffFilter: "",
   analyticsTagFilter: "",
@@ -1968,7 +1969,7 @@ function renderView(): string {
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown, state.analyticsPeriodChartData, state.analyticsPrevYearChartData, state.analyticsChartMetric);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown, state.analyticsPeriodChartData, state.analyticsPrevYearChartData, state.analyticsChartMetric, state.analyticsFiscalMode);
     case "/":
     default:
       return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
@@ -3335,15 +3336,64 @@ function bindEvents(root: HTMLElement): void {
     state.analyticsPeriodFilter = (e.target as HTMLSelectElement).value;
     state.analyticsDrilldown = null;
     const pf = state.analyticsPeriodFilter;
-    const [rows, chart, prevChart] = await Promise.all([
-      fetchAnalyticsByPeriod(state.analyticsTab, state.analyticsPeriod, pf),
-      fetchPeriodChartData(state.analyticsPeriod, pf),
-      fetchPeriodChartData(state.analyticsPeriod, prevYearFilter(pf))
-    ]);
-    state.analyticsPeriodRows = rows;
-    state.analyticsPeriodChartData = chart;
-    state.analyticsPrevYearChartData = prevChart;
+    const isFiscalYearly = state.analyticsFiscalMode === "fiscal" && state.analyticsPeriod === "yearly";
+
+    if (isFiscalYearly) {
+      // 決算年度: 日付範囲に変換してRPC呼び出し
+      const { fiscalYearToDateRange } = await import("./components/SalesAnalytics");
+      const fy = parseInt(pf);
+      const range = fiscalYearToDateRange(fy);
+      const prevRange = fiscalYearToDateRange(fy - 1);
+      const rpcName = state.analyticsTab === "customers" ? "get_customer_totals_by_period" : "get_product_totals_by_period";
+      const { supabaseRpc } = await import("./supabase");
+      const [rpcResult, chart, prevChart] = await Promise.all([
+        supabaseRpc<Record<string, unknown>[]>(rpcName, { p_date_from: range.from, p_date_to: range.to }),
+        fetchPeriodChartData("yearly", pf),
+        fetchPeriodChartData("yearly", String(fy - 1))
+      ]);
+      state.analyticsPeriodRows = (rpcResult ?? []).map(r => ({
+        code: String(r.code ?? ""), name: String(r.name ?? ""),
+        amount: Number(r.amount ?? 0), quantity: Number(r.quantity ?? 0),
+        documents: Number(r.documents ?? 0), volumeMl: Number(r.volume_ml ?? 0)
+      }));
+      state.analyticsPeriodChartData = (chart ?? []).map(p => ({ ...p }));
+      state.analyticsPrevYearChartData = (prevChart ?? []).map(p => ({ ...p }));
+    } else {
+      const [rows, chart, prevChart] = await Promise.all([
+        fetchAnalyticsByPeriod(state.analyticsTab, state.analyticsPeriod, pf),
+        fetchPeriodChartData(state.analyticsPeriod, pf),
+        fetchPeriodChartData(state.analyticsPeriod, prevYearFilter(pf))
+      ]);
+      state.analyticsPeriodRows = rows;
+      state.analyticsPeriodChartData = chart;
+      state.analyticsPrevYearChartData = prevChart;
+    }
     renderApp();
+  });
+
+  // ── 暦年/決算期 切替 ─────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-fiscal-mode]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      state.analyticsFiscalMode = btn.dataset.fiscalMode as import("./components/SalesAnalytics").FiscalMode;
+      // 年次期間中ならデータをリセットして再取得を促す
+      if (state.analyticsPeriod === "yearly") {
+        state.analyticsPeriodRows = [];
+        state.analyticsPeriodChartData = [];
+        state.analyticsPrevYearChartData = [];
+        state.analyticsPeriodFilter = "";
+        // 決算モードなら決算年度オプションを生成
+        if (state.analyticsFiscalMode === "fiscal") {
+          const { monthToFiscalYear } = await import("./components/SalesAnalytics");
+          const fySet = new Set<number>();
+          for (const m of state.salesAnalytics.monthlySales) fySet.add(monthToFiscalYear(m.month));
+          state.analyticsPeriodOptions = [...fySet].sort((a, b) => b - a).map(String);
+        } else {
+          const { fetchAvailablePeriods } = await import("./api");
+          state.analyticsPeriodOptions = await fetchAvailablePeriods(state.analyticsTab, "yearly");
+        }
+      }
+      renderApp();
+    });
   });
 
   // ── チャートメトリック切替（売上額/出荷本数/移出量）──

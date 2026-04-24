@@ -6,7 +6,25 @@ const ANALYTICS_COL_MAP: Record<string, keyof AnalyticsBreakdownRow> = {
 };
 
 export type ChartMetric = "amount" | "quantity" | "volume";
+export type FiscalMode = "calendar" | "fiscal";
 const CHART_METRIC_LABELS: Record<ChartMetric, string> = { amount: "売上額", quantity: "出荷本数", volume: "移出量" };
+const FISCAL_START_MONTH = 10; // 決算期: 10月始まり
+
+/** 月→決算年度に変換 (2026-01 → 2025, 2025-10 → 2025, 2025-09 → 2024) */
+export function monthToFiscalYear(ym: string): number {
+  const [y, m] = ym.split("-").map(Number);
+  return m >= FISCAL_START_MONTH ? y : y - 1;
+}
+
+/** 決算年度→日付範囲 (2025 → 2025-10-01 ~ 2026-09-30) */
+export function fiscalYearToDateRange(fy: number): { from: string; to: string } {
+  const endMonth = FISCAL_START_MONTH - 1;
+  const lastDay = new Date(fy + 1, endMonth, 0).getDate();
+  return {
+    from: `${fy}-${String(FISCAL_START_MONTH).padStart(2, "0")}-01`,
+    to: `${fy + 1}-${String(endMonth).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`
+  };
+}
 
 export type AnalyticsDrilldown = {
   tab: "products" | "customers";
@@ -16,16 +34,25 @@ export type AnalyticsDrilldown = {
   breakdownRows: DrilldownBreakdownRow[];
 } | null;
 
-/** 月別データから年別に集約して全年比較チャートを生成 */
-function buildYearlyFromMonthly(all: AnalyticsMonthlyPoint[], metric: ChartMetric): { curr: { month: string; amount: number }[] } {
+/** 月別データから年別に集約して全年チャートを生成 */
+function buildYearlyFromMonthly(all: AnalyticsMonthlyPoint[], metric: ChartMetric, fiscal: FiscalMode): { curr: { month: string; amount: number }[] } {
   const getValue = (p: AnalyticsMonthlyPoint) => metric === "quantity" ? p.quantity : metric === "volume" ? p.volumeMl : p.amount;
   const yearMap = new Map<string, number>();
   for (const p of all) {
-    const year = p.month.slice(0, 4);
-    yearMap.set(year, (yearMap.get(year) ?? 0) + getValue(p));
+    const key = fiscal === "fiscal"
+      ? `${monthToFiscalYear(p.month)}年度`
+      : p.month.slice(0, 4);
+    yearMap.set(key, (yearMap.get(key) ?? 0) + getValue(p));
   }
   const years = [...yearMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   return { curr: years.map(([y, v]) => ({ month: y, amount: v })) };
+}
+
+/** 月別データから決算年度の選択肢を生成 */
+function buildFiscalYearOptions(all: AnalyticsMonthlyPoint[]): string[] {
+  const fySet = new Set<number>();
+  for (const p of all) fySet.add(monthToFiscalYear(p.month));
+  return [...fySet].sort((a, b) => b - a).map(String);
 }
 
 function formatCurrency(amount: number): string {
@@ -234,7 +261,8 @@ export function renderSalesAnalytics(
   drilldown: AnalyticsDrilldown = null,
   periodChartData: PeriodChartPoint[] = [],
   prevYearChartData: PeriodChartPoint[] = [],
-  chartMetric: ChartMetric = "amount"
+  chartMetric: ChartMetric = "amount",
+  fiscalMode: FiscalMode = "calendar"
 ): string {
   const tableTitle = activeTab === "products" ? "商品別集計" : activeTab === "customers" ? "得意先別集計" : "担当別集計";
   const baseRows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
@@ -273,13 +301,14 @@ export function renderSalesAnalytics(
     chartCaption = `${metricFmt(currTotal)}${prevTotal > 0 ? ` / 前年比 ${yoySign}${yoyPct.toFixed(1)}%` : ""}`;
     chartColor = "#2f855a";
   } else {
-    // 全期間: 年別バーチャート
-    const yearly = buildYearlyFromMonthly(summary.monthlySales, chartMetric);
+    // 全期間: 年別バーチャート（暦年 or 決算年度）
+    const yearly = buildYearlyFromMonthly(summary.monthlySales, chartMetric, fiscalMode);
     chartPoints = yearly.curr;
     chartPrevPoints = [];
     const total = chartPoints.reduce((s, p) => s + p.amount, 0);
-    chartTitle = `年別${metricLabel}`;
-    chartCaption = `累計 ${metricFmt(total)}（${chartPoints.length}年間）`;
+    const yearLabel = fiscalMode === "fiscal" ? "決算年度別" : "暦年別";
+    chartTitle = `${yearLabel}${metricLabel}`;
+    chartCaption = `累計 ${metricFmt(total)}（${chartPoints.length}${fiscalMode === "fiscal" ? "期" : "年"}）`;
     chartColor = "#0F5B8D";
   }
 
@@ -292,9 +321,16 @@ export function renderSalesAnalytics(
     .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-analytics-period="${p}">${PERIOD_LABELS[p]}</button>`)
     .join("");
 
-  const periodSelect = activePeriod !== "all" && periodOptions.length > 0 && activeTab !== "staff"
+  // 決算期+年次のときは決算年度オプションを上書き
+  const effectiveOptions = (fiscalMode === "fiscal" && activePeriod === "yearly")
+    ? buildFiscalYearOptions(summary.monthlySales)
+    : periodOptions;
+  const effectiveFilter = (fiscalMode === "fiscal" && activePeriod === "yearly" && !effectiveOptions.includes(periodFilter))
+    ? effectiveOptions[0] ?? "" : periodFilter;
+
+  const periodSelect = activePeriod !== "all" && effectiveOptions.length > 0 && activeTab !== "staff"
     ? `<select id="analytics-period-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
-        ${periodOptions.map((o) => `<option value="${o}" ${o === periodFilter ? "selected" : ""}>${o}</option>`).join("")}
+        ${effectiveOptions.map((o) => `<option value="${o}" ${o === effectiveFilter ? "selected" : ""}>${fiscalMode === "fiscal" && activePeriod === "yearly" ? o + "年度" : o}</option>`).join("")}
       </select>`
     : "";
 
@@ -398,6 +434,12 @@ export function renderSalesAnalytics(
       <div>
         <p class="eyebrow">売上分析</p>
         <h1>月別・商品別・得意先別分析</h1>
+      </div>
+      <div class="meta-stack">
+        <div class="tab-group" style="font-size:12px;">
+          <button class="tab-button ${fiscalMode === "calendar" ? "active" : ""}" data-fiscal-mode="calendar">暦年（1〜12月）</button>
+          <button class="tab-button ${fiscalMode === "fiscal" ? "active" : ""}" data-fiscal-mode="fiscal">決算期（10〜9月）</button>
+        </div>
       </div>
     </section>
 
