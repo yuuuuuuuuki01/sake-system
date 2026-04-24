@@ -3635,7 +3635,13 @@ function bindEvents(root: HTMLElement): void {
     state.deliveryNote = null;
     state.actionLoading = true;
     renderApp();
-    void fetchDeliveryNote(state.deliverySearchDocNo || "D240122").then((note) => {
+    if (!state.deliverySearchDocNo) {
+      showToast("伝票番号を入力してください", "error");
+      state.actionLoading = false;
+      renderApp();
+      return;
+    }
+    void fetchDeliveryNote(state.deliverySearchDocNo).then((note) => {
       state.deliveryNote = note;
       state.actionLoading = false;
       renderApp();
@@ -5006,6 +5012,124 @@ function bindEvents(root: HTMLElement): void {
       { key: "status", label: "ステータス" }
     ];
     downloadCSV("production-plan.csv", rows, columns);
+  });
+
+  // ── 請求 ────────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='billing-close-all']")?.addEventListener("click", async () => {
+    const ok = await showConfirm("当月の全請求を締め切りますか？");
+    if (!ok) return;
+    // 請求データをリロード（締め処理はDB側で実装が必要）
+    showToast("締め処理はデータベース側の設定が必要です", "info");
+  });
+
+  // ── 仕込 ────────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='jikomi-new']")?.addEventListener("click", () => {
+    showToast("新規仕込の登録はマスタ管理から行ってください", "info");
+  });
+
+  // ── 検定 ────────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='kentei-new']")?.addEventListener("click", () => {
+    showToast("新規検定の登録はマスタ管理から行ってください", "info");
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='kentei-edit']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      showToast("検定の編集はマスタ管理から行ってください", "info");
+    });
+  });
+
+  // ── 仕入 ────────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='purchase-new']")?.addEventListener("click", () => {
+    showToast("新規仕入の登録はマスタ管理から行ってください", "info");
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='payable-pay']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const ok = await showConfirm("この買掛を入金済みにしますか？");
+      if (!ok) return;
+      showToast("入金処理はデータベース側の設定が必要です", "info");
+    });
+  });
+
+  // ── 原材料 ──────────────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-action='bill-detail']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      showToast("請求書詳細は印刷センターから確認してください", "info");
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='bill-new']")?.addEventListener("click", () => {
+    showToast("新規請求書の作成は伝票入力から行ってください", "info");
+  });
+
+  // ── タンク ──────────────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-action='tank-detail']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tankNo = btn.closest("tr")?.querySelector("td")?.textContent ?? "";
+      showToast(`タンク ${tankNo} の詳細: 仕込台帳を参照してください`, "info");
+    });
+  });
+
+  // ── 店舗POS ─────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='order-new']")?.addEventListener("click", () => {
+    showToast("新規注文はモバイル注文画面から行ってください", "info");
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='order-detail']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const orderNo = btn.closest("tr")?.querySelector("td")?.textContent ?? "";
+      showToast(`注文 ${orderNo} の詳細を表示します`, "info");
+    });
+  });
+
+  // ── FAX OCR ─────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='fax-create-invoice']")?.addEventListener("click", () => {
+    showToast("FAXから伝票を起票するには、伝票入力画面をご利用ください", "info");
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='fax-view']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      showToast("FAX詳細の表示は準備中です", "info");
+    });
+  });
+
+  // ── 蔵見学 ──────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='tour-show-form']")?.addEventListener("click", () => {
+    window.open("/tour-form", "_blank");
+  });
+
+  // ── 見込客 ──────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='prospect-convert']")?.addEventListener("click", () => {
+    showToast("得意先化するにはマスタ管理で得意先を作成してください", "info");
+  });
+
+  // ── 季節カレンダー ──────────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-action='create-proposal']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const code = btn.dataset.customer ?? "";
+      showToast(`得意先 ${code} への提案書を作成するには見積作成画面をご利用ください`, "info");
+    });
+  });
+
+  // ── リストビルダー ──────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='lb-new-manual']")?.addEventListener("click", () => {
+    showToast("手動リスト作成は準備中です", "info");
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='lb-delete-list']")?.addEventListener("click", async () => {
+    const id = (root.querySelector<HTMLButtonElement>("[data-action='lb-delete-list']") as HTMLElement)?.dataset.id;
+    if (!id) return;
+    const ok = await showConfirm("このリストを削除しますか？");
+    if (!ok) return;
+    const { supabaseDelete } = await import("./supabase");
+    const deleted = await supabaseDelete("lead_lists", id);
+    if (deleted) {
+      const { fetchLeadLists } = await import("./api");
+      state.leadLists = await fetchLeadLists();
+      showToast("削除しました", "success");
+      renderApp();
+    } else {
+      showToast("削除に失敗しました", "error");
+    }
+  });
+
+  // ── 受注ワークフロー ────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='wf-new-order']")?.addEventListener("click", () => {
+    showToast("新規受注の登録はモバイル注文画面から行ってください", "info");
   });
 
   // ── 出荷カレンダー ────────────────────────────────
