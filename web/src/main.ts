@@ -184,7 +184,7 @@ import {
 } from "./utils/import";
 import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./components/RawBrowser";
 import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromSchedule, renderDeliveryCalendarWidget, defaultDemandForecastState, type DemandForecastState, type DeliveryCalendarEntry, type ProductionSegment } from "./components/DemandForecast";
-import { renderDemandPlanning, type DemandTab } from "./components/DemandPlanning";
+import { renderDemandPlanning, buildDefaultShifts, type DemandTab, type DemandSortState, type DayShift } from "./components/DemandPlanning";
 import { renderBrewingPlan } from "./components/BrewingPlan";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { renderSeasonalCalendar, buildSeasonalData, type SeasonalCalendarState } from "./components/SeasonalCalendar";
@@ -595,6 +595,9 @@ interface AppState {
   brewingPlanData: import("./api").BrewingPlanRow[];
   brewingMonthlyTrend: import("./api").BrewingMonthlyTrend[];
   brewingPlanFY: number;
+  demandSort: DemandSortState;
+  calendarShifts: DayShift[];
+  calendarDefaultHc: number;
   globalSearchOpen: boolean;
   globalQuery: string;
   authSkipped: boolean;
@@ -897,6 +900,9 @@ const state: AppState = {
   brewingPlanData: [] as import("./api").BrewingPlanRow[],
   brewingMonthlyTrend: [] as import("./api").BrewingMonthlyTrend[],
   brewingPlanFY: (() => { const now = new Date(); return now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1; })(),
+  demandSort: null as DemandSortState,
+  calendarShifts: buildDefaultShifts(new Date().toISOString().slice(0, 7), 2),
+  calendarDefaultHc: 2,
   globalSearchOpen: false,
   globalQuery: "",
   authSkipped: false,
@@ -1823,7 +1829,9 @@ function renderView(): string {
         state.demandTab,
         state.demandPlanYearMonth,
         state.demandYearsBack,
-        state.demandPlanTypeFilter
+        state.demandPlanTypeFilter,
+        state.demandSort,
+        state.calendarShifts
       );
     case "/brewing-plan":
       return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY);
@@ -3111,6 +3119,7 @@ function bindEvents(root: HTMLElement): void {
     const ym = (e.target as HTMLSelectElement).value;
     if (!ym) return;
     state.demandPlanYearMonth = ym;
+    state.calendarShifts = buildDefaultShifts(ym, state.calendarDefaultHc);
     const { fetchProductionPlan } = await import("./api");
     const rows = await fetchProductionPlan(ym);
     state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
@@ -3121,6 +3130,21 @@ function bindEvents(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>("[data-action='plan-type-filter']").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.demandPlanTypeFilter = btn.dataset.filter ?? "all";
+      renderApp();
+    });
+  });
+
+  // Demand planning: テーブルソート
+  root.querySelectorAll<HTMLElement>("[data-action='demand-sort']").forEach((th) => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.sortCol ?? "";
+      if (state.demandSort?.column === col) {
+        state.demandSort = state.demandSort.dir === "desc"
+          ? { column: col, dir: "asc" }
+          : null;
+      } else {
+        state.demandSort = { column: col, dir: "desc" };
+      }
       renderApp();
     });
   });
@@ -3145,6 +3169,58 @@ function bindEvents(root: HTMLElement): void {
     // 保存後 state.productionPlan の id を DB から再取得して同期
     const { fetchProductionPlan } = await import("./api");
     state.productionPlan = await fetchProductionPlan(state.demandPlanYearMonth);
+    renderApp();
+  });
+
+  // Production calendar: 個別日シフト変更
+  root.querySelectorAll<HTMLInputElement>("[data-action='cal-shift']").forEach((input) => {
+    input.addEventListener("change", () => {
+      const date = input.dataset.date ?? "";
+      const hc = parseInt(input.value) || 0;
+      const shift = state.calendarShifts.find(s => s.date === date);
+      if (shift) { shift.headcount = hc; }
+      renderApp();
+    });
+  });
+
+  // Production calendar: 年月切り替え
+  root.querySelector<HTMLSelectElement>("[data-action='cal-year-month']")?.addEventListener("change", async (e) => {
+    const ym = (e.target as HTMLSelectElement).value;
+    if (!ym) return;
+    state.demandPlanYearMonth = ym;
+    state.calendarShifts = buildDefaultShifts(ym, state.calendarDefaultHc);
+    // 生産計画もリロード
+    const { fetchProductionPlan } = await import("./api");
+    const rows = await fetchProductionPlan(ym);
+    state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
+    renderApp();
+  });
+
+  // Production calendar: デフォルト人数変更
+  root.querySelector<HTMLSelectElement>("[data-action='cal-default-hc']")?.addEventListener("change", (e) => {
+    const hc = parseInt((e.target as HTMLSelectElement).value) || 2;
+    state.calendarDefaultHc = hc;
+    // 未確定の日だけ更新
+    for (const shift of state.calendarShifts) {
+      if (!shift.confirmed) {
+        const weekend = new Date(shift.date).getDay() === 0 || new Date(shift.date).getDay() === 6;
+        shift.headcount = weekend ? 0 : hc;
+      }
+    }
+    renderApp();
+  });
+
+  // Production calendar: シフトリセット
+  root.querySelector<HTMLButtonElement>("[data-action='cal-reset-shifts']")?.addEventListener("click", () => {
+    state.calendarShifts = buildDefaultShifts(state.demandPlanYearMonth, state.calendarDefaultHc);
+    renderApp();
+  });
+
+  // Production calendar: 全日確定
+  root.querySelector<HTMLButtonElement>("[data-action='cal-confirm-all']")?.addEventListener("click", () => {
+    for (const shift of state.calendarShifts) {
+      shift.confirmed = true;
+    }
     renderApp();
   });
 
