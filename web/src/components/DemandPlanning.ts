@@ -3,19 +3,25 @@ import type { DemandAnalysis, SafetyStockParams, ProductionPlanRow } from "../ap
 export type DemandTab = "demand" | "safety" | "plan" | "calendar";
 export type DemandSortState = { column: string; dir: "asc" | "desc" } | null;
 
-/** 日別シフト: 何人配置するか */
+/** 日別シフト: パートと社員を別々に管理 */
 export interface DayShift {
   date: string;        // "YYYY-MM-DD"
-  headcount: number;   // 配置人数 (0 = 休み)
+  partTimers: number;  // パート人数
+  employees: number;   // 社員人数
   confirmed: boolean;  // 確定フラグ
 }
+
+// パート: 80本/時 × 5h = 400本/人日、社員: 合間作業 80本/時 × 3h = 240本/人日
+export const PART_TIMER_CAPACITY = 400;
+export const EMPLOYEE_CAPACITY = 240;
 
 /** カレンダー上の日別生産割り当て */
 export interface DayProduction {
   date: string;
-  headcount: number;
+  partTimers: number;
+  employees: number;
   confirmed: boolean;
-  capacity: number;    // headcount × LABEL_BOTTLES_PER_PERSON_DAY
+  capacity: number;    // partTimers × 400 + employees × 240
   items: Array<{
     productCode: string;
     productName: string;
@@ -599,8 +605,6 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
 
 // ─── 生産カレンダータブ ───────────────────────────────────────────────────────
 
-const LABEL_BOTTLES_PER_PERSON_DAY_CAL = 640;
-
 /** 月の日付一覧を生成 */
 function daysInMonth(ym: string): string[] {
   const [y, m] = ym.split("-").map(Number);
@@ -621,23 +625,30 @@ function isWeekend(dateStr: string): boolean {
   return dow === 0 || dow === 6;
 }
 
+function shiftCapacity(s: DayShift): number {
+  return s.partTimers * PART_TIMER_CAPACITY + s.employees * EMPLOYEE_CAPACITY;
+}
+
+function shiftTotal(s: DayShift): number {
+  return s.partTimers + s.employees;
+}
+
 /** 月間生産計画を日別に配分する */
 export function allocateProductionToDays(
   plan: ProductionPlanRow[],
   shifts: DayShift[]
 ): DayProduction[] {
-  const shiftMap = new Map(shifts.map(s => [s.date, s]));
-
-  // 稼働日（headcount > 0）を取得
+  // 稼働日（人員 > 0）を取得
   const workingDays = shifts
-    .filter(s => s.headcount > 0)
+    .filter(s => shiftTotal(s) > 0)
     .map(s => s.date)
     .sort();
 
   if (workingDays.length === 0) {
     return shifts.map(s => ({
       date: s.date,
-      headcount: s.headcount,
+      partTimers: s.partTimers,
+      employees: s.employees,
       confirmed: s.confirmed,
       capacity: 0,
       items: [],
@@ -663,23 +674,24 @@ export function allocateProductionToDays(
   // 日別の割り当て結果
   const dayMap = new Map<string, DayProduction>();
   for (const s of shifts) {
+    const cap = shiftCapacity(s);
     dayMap.set(s.date, {
       date: s.date,
-      headcount: s.headcount,
+      partTimers: s.partTimers,
+      employees: s.employees,
       confirmed: s.confirmed,
-      capacity: s.headcount * LABEL_BOTTLES_PER_PERSON_DAY_CAL,
+      capacity: cap,
       items: [],
       totalQty: 0,
       utilization: 0
     });
   }
 
-  // 各アイテムを稼働日に均等配分 → キャパシティ超過分は翌日に繰り越し
+  // 各アイテムを稼働日に配分 → キャパ超過分は翌日に繰り越し
   for (const item of sortedItems) {
     let remaining = item.remaining;
     if (remaining <= 0) continue;
 
-    // この商品を何日に分けるか: キャパから概算
     const totalCapacity = workingDays.reduce((s, d) => {
       const dp = dayMap.get(d)!;
       return s + Math.max(0, dp.capacity - dp.totalQty);
@@ -708,11 +720,12 @@ export function allocateProductionToDays(
   return shifts.map(s => dayMap.get(s.date)!);
 }
 
-/** デフォルトシフト生成: 平日2人、土日0人（全て仮） */
-export function buildDefaultShifts(ym: string, defaultHeadcount: number = 2): DayShift[] {
+/** デフォルトシフト生成: 平日パート1人+社員1人、土日0人（全て仮） */
+export function buildDefaultShifts(ym: string, defaultPart: number = 1, defaultEmp: number = 1): DayShift[] {
   return daysInMonth(ym).map(date => ({
     date,
-    headcount: isWeekend(date) ? 0 : defaultHeadcount,
+    partTimers: isWeekend(date) ? 0 : defaultPart,
+    employees: isWeekend(date) ? 0 : defaultEmp,
     confirmed: false
   }));
 }
@@ -730,14 +743,19 @@ function renderCalendarTab(
   // 月間サマリ
   const totalPlanned = plan.reduce((s, r) => s + (r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock)), 0);
   const totalAllocated = allocation.reduce((s, d) => s + d.totalQty, 0);
-  const workDays = shifts.filter(s => s.headcount > 0).length;
+  const workDays = shifts.filter(s => shiftTotal(s) > 0).length;
   const totalCapacity = allocation.reduce((s, d) => s + d.capacity, 0);
-  const totalHeadcount = shifts.reduce((s, d) => s + d.headcount, 0);
+  const totalPartDays = shifts.reduce((s, d) => s + d.partTimers, 0);
+  const totalEmpDays = shifts.reduce((s, d) => s + d.employees, 0);
 
   // デフォルト人数
-  const defaultHc = shifts.find(s => s.headcount > 0)?.headcount ?? 2;
-  const hcOptions = [1, 2, 3, 4, 5].map(n =>
-    `<option value="${n}" ${n === defaultHc ? "selected" : ""}>${n}人</option>`
+  const defaultPart = shifts.find(s => s.partTimers > 0)?.partTimers ?? 1;
+  const defaultEmp = shifts.find(s => s.employees > 0)?.employees ?? 1;
+  const partOptions = [0, 1, 2, 3, 4, 5].map(n =>
+    `<option value="${n}" ${n === defaultPart ? "selected" : ""}>${n}</option>`
+  ).join("");
+  const empOptions = [0, 1, 2, 3].map(n =>
+    `<option value="${n}" ${n === defaultEmp ? "selected" : ""}>${n}</option>`
   ).join("");
 
   // 年月セレクタ
@@ -760,19 +778,19 @@ function renderCalendarTab(
     const alloc = allocMap.get(date);
     const dow = new Date(date).getDay();
     const dayNum = parseInt(date.split("-")[2]);
-    const hc = alloc?.headcount ?? 0;
+    const pt = alloc?.partTimers ?? 0;
+    const emp = alloc?.employees ?? 0;
+    const hc = pt + emp;
     const total = alloc?.totalQty ?? 0;
     const util = alloc?.utilization ?? 0;
     const selected = date === selectedDate;
 
-    // 稼働率で背景色を決定
     const bg = hc === 0 ? "var(--surface-alt)"
       : util > 0.95 ? "rgba(197,61,61,0.12)"
       : util > 0.7 ? "rgba(183,121,31,0.10)"
       : util > 0 ? "rgba(47,133,90,0.08)"
       : "var(--surface)";
 
-    // 稼働率バーの色
     const barColor = hc === 0 ? "transparent"
       : util > 0.95 ? "#c53d3d"
       : util > 0.7 ? "#b7791f"
@@ -780,15 +798,17 @@ function renderCalendarTab(
       : "var(--border)";
 
     const dayColor = dow === 0 ? "#c53d3d" : dow === 6 ? "#0F5B8D" : "var(--text)";
+    // パ1社1 のような短い表記
+    const staffLabel = hc > 0 ? `<span style="font-size:8px;color:var(--text-secondary);line-height:1;">${pt > 0 ? `パ${pt}` : ""}${emp > 0 ? `社${emp}` : ""}</span>` : "";
 
     calCells.push(`
       <div data-action="cal-select-day" data-date="${date}"
         style="min-height:44px;padding:3px;border:${selected ? "2px solid #0F5B8D" : "1px solid var(--border)"};border-radius:6px;
-          background:${bg};cursor:pointer;position:relative;display:flex;flex-direction:column;
+          background:${bg};cursor:pointer;display:flex;flex-direction:column;
           ${selected ? "box-shadow:0 0 0 2px rgba(15,91,141,0.2);" : ""}">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span style="font-size:12px;font-weight:600;color:${dayColor};line-height:1;">${dayNum}</span>
-          ${hc > 0 ? `<span style="font-size:9px;color:var(--text-secondary);">${hc}人</span>` : ""}
+          ${staffLabel}
         </div>
         ${hc > 0 ? `
           <div style="font-size:10px;font-weight:600;color:var(--text);margin-top:auto;line-height:1;">${total > 0 ? fmtQty(total) : ""}</div>
@@ -817,6 +837,7 @@ function renderCalendarTab(
     const dayNum = parseInt(selectedDate.split("-")[2]);
     const dowLabel = dayOfWeekJa(selectedDate);
     const utilPct = Math.round(d.utilization * 100);
+    const selShift = shifts.find(s => s.date === selectedDate);
 
     const typeColorMap: Record<string, string> = {
       monthly: "#0F5B8D", november: "#B7791F", annual: "#6B46C1", make_to_order: "#999"
@@ -836,21 +857,27 @@ function renderCalendarTab(
       </div>
     `).join("");
 
+    const capBreakdown = `パート${d.partTimers}人×${PART_TIMER_CAPACITY} + 社員${d.employees}人×${EMPLOYEE_CAPACITY} = ${fmtQty(d.capacity)}本`;
+
     return `
       <section class="panel" style="margin-top:12px;border:2px solid #0F5B8D;">
         <div class="panel-header" style="padding-bottom:8px;">
-          <div>
-            <h2>${dayNum}日（${dowLabel}）の生産内訳</h2>
-            <p class="panel-caption">${d.headcount}人配置 ・ キャパ${fmtQty(d.capacity)}本 ・ 稼働率${utilPct}%</p>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <label style="font-size:11px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
-              人数
-              <input type="number" min="0" max="10" value="${d.headcount}"
-                data-action="cal-shift" data-date="${selectedDate}"
-                style="width:44px;height:28px;font-size:13px;text-align:center;border:1px solid var(--border);border-radius:4px;padding:0;" />
-            </label>
-          </div>
+          <h2>${dayNum}日（${dowLabel}）の生産内訳</h2>
+          <p class="panel-caption">${capBreakdown} ・ 稼働率${utilPct}%</p>
+        </div>
+        <div style="display:flex;gap:12px;padding:0 4px 8px;flex-wrap:wrap;">
+          <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+            パート
+            <input type="number" min="0" max="10" value="${selShift?.partTimers ?? 0}"
+              data-action="cal-shift-part" data-date="${selectedDate}"
+              style="width:44px;height:28px;font-size:13px;text-align:center;border:1px solid var(--border);border-radius:4px;padding:0;" />人
+          </label>
+          <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+            社員
+            <input type="number" min="0" max="10" value="${selShift?.employees ?? 0}"
+              data-action="cal-shift-emp" data-date="${selectedDate}"
+              style="width:44px;height:28px;font-size:13px;text-align:center;border:1px solid var(--border);border-radius:4px;padding:0;" />人
+          </label>
         </div>
         ${d.items.length > 0 ? `
           <div style="padding:0 4px;">
@@ -863,9 +890,25 @@ function renderCalendarTab(
         ` : `<p style="color:var(--text-secondary);padding:12px;text-align:center;">生産予定なし</p>`}
       </section>
     `;
-  })() : selectedDate && !selectedAlloc ? `
+  })() : selectedDate ? `
     <section class="panel" style="margin-top:12px;">
-      <p style="color:var(--text-secondary);padding:16px;text-align:center;">${parseInt(selectedDate.split("-")[2])}日（${dayOfWeekJa(selectedDate)}）— 休日</p>
+      <div style="padding:16px;text-align:center;">
+        <p style="color:var(--text-secondary);margin-bottom:8px;">${parseInt(selectedDate.split("-")[2])}日（${dayOfWeekJa(selectedDate)}）— 休日</p>
+        <div style="display:flex;gap:12px;justify-content:center;">
+          <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+            パート
+            <input type="number" min="0" max="10" value="0"
+              data-action="cal-shift-part" data-date="${selectedDate}"
+              style="width:44px;height:28px;font-size:13px;text-align:center;border:1px solid var(--border);border-radius:4px;padding:0;" />人
+          </label>
+          <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+            社員
+            <input type="number" min="0" max="10" value="0"
+              data-action="cal-shift-emp" data-date="${selectedDate}"
+              style="width:44px;height:28px;font-size:13px;text-align:center;border:1px solid var(--border);border-radius:4px;padding:0;" />人
+          </label>
+        </div>
+      </div>
     </section>
   ` : "";
 
@@ -886,8 +929,12 @@ function renderCalendarTab(
         <select data-action="cal-year-month" style="width:130px;">${monthOptions}</select>
       </label>
       <label class="field" style="margin:0;flex-shrink:0;">
-        <span>人数</span>
-        <select data-action="cal-default-hc" style="width:68px;">${hcOptions}</select>
+        <span>パート</span>
+        <select data-action="cal-default-part" style="width:54px;">${partOptions}</select>
+      </label>
+      <label class="field" style="margin:0;flex-shrink:0;">
+        <span>社員</span>
+        <select data-action="cal-default-emp" style="width:54px;">${empOptions}</select>
       </label>
       <button class="button secondary" type="button" data-action="cal-reset-shifts"
         style="margin-top:auto;padding:6px 10px;font-size:12px;">リセット</button>
@@ -895,11 +942,15 @@ function renderCalendarTab(
         style="margin-top:auto;padding:6px 10px;font-size:12px;">全日確定</button>
     </div>
 
-    <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;font-size:12px;">
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;font-size:12px;">
       <span><strong>${fmtQty(Math.round(totalPlanned))}</strong>本予定</span>
       <span><strong>${fmtQty(Math.round(totalAllocated))}</strong>本配分${totalPlanned > 0 ? `（${Math.round(totalAllocated / totalPlanned * 100)}%）` : ""}</span>
-      <span><strong>${workDays}</strong>日稼働 / <strong>${totalHeadcount}</strong>人日</span>
+      <span><strong>${workDays}</strong>日稼働</span>
+      <span>パ<strong>${totalPartDays}</strong> 社<strong>${totalEmpDays}</strong>人日</span>
       <span>キャパ<strong>${fmtQty(totalCapacity)}</strong>本</span>
+    </div>
+    <div style="font-size:10px;color:var(--text-secondary);margin-bottom:8px;">
+      パート: 80本/時×5h=<strong>${PART_TIMER_CAPACITY}</strong>本/人日　社員: 80本/時×3h=<strong>${EMPLOYEE_CAPACITY}</strong>本/人日
     </div>
 
     <section class="panel" style="padding:8px;">

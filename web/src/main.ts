@@ -597,7 +597,8 @@ interface AppState {
   brewingPlanFY: number;
   demandSort: DemandSortState;
   calendarShifts: DayShift[];
-  calendarDefaultHc: number;
+  calendarDefaultPart: number;
+  calendarDefaultEmp: number;
   calendarSelectedDate: string | null;
   globalSearchOpen: boolean;
   globalQuery: string;
@@ -902,8 +903,9 @@ const state: AppState = {
   brewingMonthlyTrend: [] as import("./api").BrewingMonthlyTrend[],
   brewingPlanFY: (() => { const now = new Date(); return now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1; })(),
   demandSort: null as DemandSortState,
-  calendarShifts: buildDefaultShifts(new Date().toISOString().slice(0, 7), 2),
-  calendarDefaultHc: 2,
+  calendarShifts: buildDefaultShifts(new Date().toISOString().slice(0, 7), 1, 1),
+  calendarDefaultPart: 1,
+  calendarDefaultEmp: 1,
   calendarSelectedDate: null as string | null,
   globalSearchOpen: false,
   globalQuery: "",
@@ -3123,7 +3125,7 @@ function bindEvents(root: HTMLElement): void {
     const ym = (e.target as HTMLSelectElement).value;
     if (!ym) return;
     state.demandPlanYearMonth = ym;
-    state.calendarShifts = buildDefaultShifts(ym, state.calendarDefaultHc);
+    state.calendarShifts = buildDefaultShifts(ym, state.calendarDefaultPart, state.calendarDefaultEmp);
     const { fetchProductionPlan } = await import("./api");
     const rows = await fetchProductionPlan(ym);
     state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
@@ -3185,13 +3187,24 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // Production calendar: 個別日シフト変更
-  root.querySelectorAll<HTMLInputElement>("[data-action='cal-shift']").forEach((input) => {
+  // Production calendar: 詳細パネルからパート人数変更
+  root.querySelectorAll<HTMLInputElement>("[data-action='cal-shift-part']").forEach((input) => {
     input.addEventListener("change", () => {
       const date = input.dataset.date ?? "";
-      const hc = parseInt(input.value) || 0;
+      const val = parseInt(input.value) || 0;
       const shift = state.calendarShifts.find(s => s.date === date);
-      if (shift) { shift.headcount = hc; }
+      if (shift) { shift.partTimers = val; }
+      renderApp();
+    });
+  });
+
+  // Production calendar: 詳細パネルから社員人数変更
+  root.querySelectorAll<HTMLInputElement>("[data-action='cal-shift-emp']").forEach((input) => {
+    input.addEventListener("change", () => {
+      const date = input.dataset.date ?? "";
+      const val = parseInt(input.value) || 0;
+      const shift = state.calendarShifts.find(s => s.date === date);
+      if (shift) { shift.employees = val; }
       renderApp();
     });
   });
@@ -3201,23 +3214,35 @@ function bindEvents(root: HTMLElement): void {
     const ym = (e.target as HTMLSelectElement).value;
     if (!ym) return;
     state.demandPlanYearMonth = ym;
-    state.calendarShifts = buildDefaultShifts(ym, state.calendarDefaultHc);
-    // 生産計画もリロード
+    state.calendarSelectedDate = null;
+    state.calendarShifts = buildDefaultShifts(ym, state.calendarDefaultPart, state.calendarDefaultEmp);
     const { fetchProductionPlan } = await import("./api");
     const rows = await fetchProductionPlan(ym);
     state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
     renderApp();
   });
 
-  // Production calendar: デフォルト人数変更
-  root.querySelector<HTMLSelectElement>("[data-action='cal-default-hc']")?.addEventListener("change", (e) => {
-    const hc = parseInt((e.target as HTMLSelectElement).value) || 2;
-    state.calendarDefaultHc = hc;
-    // 未確定の日だけ更新
+  // Production calendar: デフォルトパート人数変更
+  root.querySelector<HTMLSelectElement>("[data-action='cal-default-part']")?.addEventListener("change", (e) => {
+    const val = parseInt((e.target as HTMLSelectElement).value) || 0;
+    state.calendarDefaultPart = val;
     for (const shift of state.calendarShifts) {
       if (!shift.confirmed) {
         const weekend = new Date(shift.date).getDay() === 0 || new Date(shift.date).getDay() === 6;
-        shift.headcount = weekend ? 0 : hc;
+        shift.partTimers = weekend ? 0 : val;
+      }
+    }
+    renderApp();
+  });
+
+  // Production calendar: デフォルト社員人数変更
+  root.querySelector<HTMLSelectElement>("[data-action='cal-default-emp']")?.addEventListener("change", (e) => {
+    const val = parseInt((e.target as HTMLSelectElement).value) || 0;
+    state.calendarDefaultEmp = val;
+    for (const shift of state.calendarShifts) {
+      if (!shift.confirmed) {
+        const weekend = new Date(shift.date).getDay() === 0 || new Date(shift.date).getDay() === 6;
+        shift.employees = weekend ? 0 : val;
       }
     }
     renderApp();
@@ -3225,7 +3250,7 @@ function bindEvents(root: HTMLElement): void {
 
   // Production calendar: シフトリセット
   root.querySelector<HTMLButtonElement>("[data-action='cal-reset-shifts']")?.addEventListener("click", () => {
-    state.calendarShifts = buildDefaultShifts(state.demandPlanYearMonth, state.calendarDefaultHc);
+    state.calendarShifts = buildDefaultShifts(state.demandPlanYearMonth, state.calendarDefaultPart, state.calendarDefaultEmp);
     renderApp();
   });
 
