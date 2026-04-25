@@ -720,7 +720,8 @@ export function buildDefaultShifts(ym: string, defaultHeadcount: number = 2): Da
 function renderCalendarTab(
   plan: ProductionPlanRow[],
   yearMonth: string,
-  shifts: DayShift[]
+  shifts: DayShift[],
+  selectedDate: string | null = null
 ): string {
   const days = daysInMonth(yearMonth);
   const allocation = allocateProductionToDays(plan, shifts);
@@ -731,7 +732,6 @@ function renderCalendarTab(
   const totalAllocated = allocation.reduce((s, d) => s + d.totalQty, 0);
   const workDays = shifts.filter(s => s.headcount > 0).length;
   const totalCapacity = allocation.reduce((s, d) => s + d.capacity, 0);
-  const confirmedDays = shifts.filter(s => s.confirmed).length;
   const totalHeadcount = shifts.reduce((s, d) => s + d.headcount, 0);
 
   // デフォルト人数
@@ -748,187 +748,175 @@ function renderCalendarTab(
     return `<option value="${ym}" ${ym === yearMonth ? "selected" : ""}>${ym.replace("-", "年")}月</option>`;
   }).join("");
 
-  // カレンダーグリッド
+  // カレンダーグリッド（モバイル対応: コンパクトセル）
   const firstDow = new Date(days[0]).getDay();
   const calCells: string[] = [];
 
-  // 前月の空セル
   for (let i = 0; i < firstDow; i++) {
-    calCells.push(`<div class="cal-cell empty"></div>`);
+    calCells.push(`<div style="min-height:44px;"></div>`);
   }
 
   for (const date of days) {
     const alloc = allocMap.get(date);
     const dow = new Date(date).getDay();
-    const dowLabel = dayOfWeekJa(date);
     const dayNum = parseInt(date.split("-")[2]);
-    const weekend = dow === 0 || dow === 6;
     const hc = alloc?.headcount ?? 0;
-    const cap = alloc?.capacity ?? 0;
     const total = alloc?.totalQty ?? 0;
     const util = alloc?.utilization ?? 0;
-    const confirmed = alloc?.confirmed ?? false;
-    const items = alloc?.items ?? [];
+    const selected = date === selectedDate;
 
-    // 稼働率の色
-    const utilColor = hc === 0 ? "var(--text-disabled)"
+    // 稼働率で背景色を決定
+    const bg = hc === 0 ? "var(--surface-alt)"
+      : util > 0.95 ? "rgba(197,61,61,0.12)"
+      : util > 0.7 ? "rgba(183,121,31,0.10)"
+      : util > 0 ? "rgba(47,133,90,0.08)"
+      : "var(--surface)";
+
+    // 稼働率バーの色
+    const barColor = hc === 0 ? "transparent"
       : util > 0.95 ? "#c53d3d"
       : util > 0.7 ? "#b7791f"
       : util > 0 ? "#2f855a"
-      : "var(--text-secondary)";
+      : "var(--border)";
 
-    const utilBar = hc > 0 ? `
-      <div style="height:4px;background:var(--border);border-radius:2px;margin:4px 0;">
-        <div style="height:100%;width:${Math.min(util * 100, 100)}%;background:${utilColor};border-radius:2px;transition:width 0.2s;"></div>
-      </div>` : "";
-
-    // 上位3商品を表示
-    const topItems = items.slice(0, 3).map(it => {
-      const typeColor = it.productionType === "monthly" ? "#0F5B8D"
-        : it.productionType === "november" ? "#B7791F"
-        : it.productionType === "annual" ? "#6B46C1"
-        : "#999";
-      return `<div style="font-size:10px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-        title="${it.productName}: ${fmtQty(it.qty)}本">
-        <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${typeColor};margin-right:2px;vertical-align:middle;"></span>
-        ${it.qty}
-      </div>`;
-    }).join("");
-    const moreCount = items.length - 3;
+    const dayColor = dow === 0 ? "#c53d3d" : dow === 6 ? "#0F5B8D" : "var(--text)";
 
     calCells.push(`
-      <div class="cal-cell ${weekend ? "weekend" : ""} ${hc === 0 ? "off" : ""}"
-        style="min-height:90px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;
-          background:${hc === 0 ? "var(--surface-alt)" : confirmed ? "var(--surface)" : "rgba(255,248,230,0.5)"};
-          position:relative;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-          <span style="font-size:12px;font-weight:600;color:${dow === 0 ? '#c53d3d' : dow === 6 ? '#0F5B8D' : 'var(--text)'}">${dayNum}<span style="font-size:10px;font-weight:400;margin-left:1px;">${dowLabel}</span></span>
-          <input type="number" min="0" max="10" value="${hc}"
-            data-action="cal-shift" data-date="${date}"
-            style="width:36px;height:20px;font-size:11px;text-align:center;border:1px solid var(--border);border-radius:4px;padding:0;"
-            title="配置人数" />
+      <div data-action="cal-select-day" data-date="${date}"
+        style="min-height:44px;padding:3px;border:${selected ? "2px solid #0F5B8D" : "1px solid var(--border)"};border-radius:6px;
+          background:${bg};cursor:pointer;position:relative;display:flex;flex-direction:column;
+          ${selected ? "box-shadow:0 0 0 2px rgba(15,91,141,0.2);" : ""}">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:12px;font-weight:600;color:${dayColor};line-height:1;">${dayNum}</span>
+          ${hc > 0 ? `<span style="font-size:9px;color:var(--text-secondary);">${hc}人</span>` : ""}
         </div>
         ${hc > 0 ? `
-          <div style="font-size:10px;color:var(--text-secondary);">${fmtQty(total)}/${fmtQty(cap)}本</div>
-          ${utilBar}
-          ${topItems}
-          ${moreCount > 0 ? `<div style="font-size:9px;color:var(--text-secondary);">+${moreCount}件</div>` : ""}
-        ` : `<div style="font-size:10px;color:var(--text-disabled);margin-top:8px;">休</div>`}
-        ${confirmed ? `<div style="position:absolute;top:3px;right:24px;width:6px;height:6px;border-radius:50%;background:#2f855a;" title="確定済"></div>` : ""}
+          <div style="font-size:10px;font-weight:600;color:var(--text);margin-top:auto;line-height:1;">${total > 0 ? fmtQty(total) : ""}</div>
+          <div style="height:3px;background:var(--border);border-radius:2px;margin-top:2px;">
+            <div style="height:100%;width:${Math.min(util * 100, 100)}%;background:${barColor};border-radius:2px;"></div>
+          </div>
+        ` : `<div style="font-size:9px;color:var(--text-disabled);margin-top:auto;">休</div>`}
       </div>
     `);
   }
 
-  // 週末の後の空セル
+  // 末尾の空セル
   const totalCells = calCells.length;
   const remainder = totalCells % 7;
   if (remainder > 0) {
     for (let i = 0; i < 7 - remainder; i++) {
-      calCells.push(`<div class="cal-cell empty"></div>`);
+      calCells.push(`<div style="min-height:44px;"></div>`);
     }
   }
+
+  // 選択日の詳細パネル
+  const selectedAlloc = selectedDate ? allocMap.get(selectedDate) : null;
+  const selectedShift = selectedDate ? shifts.find(s => s.date === selectedDate) : null;
+  const detailPanel = selectedDate && selectedAlloc ? (() => {
+    const d = selectedAlloc;
+    const dayNum = parseInt(selectedDate.split("-")[2]);
+    const dowLabel = dayOfWeekJa(selectedDate);
+    const utilPct = Math.round(d.utilization * 100);
+
+    const typeColorMap: Record<string, string> = {
+      monthly: "#0F5B8D", november: "#B7791F", annual: "#6B46C1", make_to_order: "#999"
+    };
+    const typeLabelMap: Record<string, string> = {
+      monthly: "月次", november: "11月", annual: "年次", make_to_order: "受注"
+    };
+
+    const itemRows = d.items.map(it => `
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+        <span style="width:8px;height:8px;border-radius:50%;background:${typeColorMap[it.productionType] ?? "#999"};flex-shrink:0;"></span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.productName}</div>
+          <div style="font-size:11px;color:var(--text-secondary);">${typeLabelMap[it.productionType] ?? it.productionType}</div>
+        </div>
+        <div style="font-size:14px;font-weight:700;white-space:nowrap;">${fmtQty(it.qty)}<span style="font-size:11px;font-weight:400;">本</span></div>
+      </div>
+    `).join("");
+
+    return `
+      <section class="panel" style="margin-top:12px;border:2px solid #0F5B8D;">
+        <div class="panel-header" style="padding-bottom:8px;">
+          <div>
+            <h2>${dayNum}日（${dowLabel}）の生産内訳</h2>
+            <p class="panel-caption">${d.headcount}人配置 ・ キャパ${fmtQty(d.capacity)}本 ・ 稼働率${utilPct}%</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <label style="font-size:11px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+              人数
+              <input type="number" min="0" max="10" value="${d.headcount}"
+                data-action="cal-shift" data-date="${selectedDate}"
+                style="width:44px;height:28px;font-size:13px;text-align:center;border:1px solid var(--border);border-radius:4px;padding:0;" />
+            </label>
+          </div>
+        </div>
+        ${d.items.length > 0 ? `
+          <div style="padding:0 4px;">
+            ${itemRows}
+            <div style="display:flex;justify-content:space-between;padding:10px 0 4px;font-weight:700;">
+              <span>合計</span>
+              <span>${fmtQty(d.totalQty)}本</span>
+            </div>
+          </div>
+        ` : `<p style="color:var(--text-secondary);padding:12px;text-align:center;">生産予定なし</p>`}
+      </section>
+    `;
+  })() : selectedDate && !selectedAlloc ? `
+    <section class="panel" style="margin-top:12px;">
+      <p style="color:var(--text-secondary);padding:16px;text-align:center;">${parseInt(selectedDate.split("-")[2])}日（${dayOfWeekJa(selectedDate)}）— 休日</p>
+    </section>
+  ` : "";
 
   // 凡例
   const legend = [
     { color: "#0F5B8D", label: "月次" },
-    { color: "#B7791F", label: "11月生産" },
+    { color: "#B7791F", label: "11月" },
     { color: "#6B46C1", label: "年次" },
     { color: "#999", label: "受注" }
-  ].map(l => `<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;margin-right:10px;">
-    <span style="width:8px;height:8px;border-radius:50%;background:${l.color};"></span>${l.label}
-  </span>`).join("");
+  ].map(l => `<span style="display:inline-flex;align-items:center;gap:2px;font-size:10px;">
+    <span style="width:6px;height:6px;border-radius:50%;background:${l.color};"></span>${l.label}
+  </span>`).join(" ");
 
   return `
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
       <label class="field" style="margin:0;flex-shrink:0;">
         <span>対象年月</span>
-        <select data-action="cal-year-month" style="width:140px;">${monthOptions}</select>
+        <select data-action="cal-year-month" style="width:130px;">${monthOptions}</select>
       </label>
       <label class="field" style="margin:0;flex-shrink:0;">
-        <span>デフォルト人数</span>
-        <select data-action="cal-default-hc" style="width:80px;">${hcOptions}</select>
+        <span>人数</span>
+        <select data-action="cal-default-hc" style="width:68px;">${hcOptions}</select>
       </label>
       <button class="button secondary" type="button" data-action="cal-reset-shifts"
-        style="margin-top:auto;">シフトをリセット</button>
+        style="margin-top:auto;padding:6px 10px;font-size:12px;">リセット</button>
       <button class="button primary" type="button" data-action="cal-confirm-all"
-        style="margin-top:auto;">全日確定</button>
+        style="margin-top:auto;padding:6px 10px;font-size:12px;">全日確定</button>
     </div>
 
-    <section class="kpi-grid compact" style="margin-bottom:16px;">
-      <article class="panel kpi-card">
-        <p class="panel-title">月間生産予定</p>
-        <p class="kpi-value">${fmtQty(Math.round(totalPlanned))}<span style="font-size:14px;font-weight:400;margin-left:4px;">本</span></p>
-      </article>
-      <article class="panel kpi-card">
-        <p class="panel-title">配分済</p>
-        <p class="kpi-value">${fmtQty(Math.round(totalAllocated))}<span style="font-size:14px;font-weight:400;margin-left:4px;">本</span></p>
-        <p class="kpi-sub ${totalAllocated < totalPlanned ? "text-danger" : ""}">${totalPlanned > 0 ? Math.round(totalAllocated / totalPlanned * 100) : 0}%</p>
-      </article>
-      <article class="panel kpi-card">
-        <p class="panel-title">稼働日 / 延べ人日</p>
-        <p class="kpi-value">${workDays}<span style="font-size:14px;font-weight:400;">日</span> / ${totalHeadcount}<span style="font-size:14px;font-weight:400;">人日</span></p>
-        <p class="kpi-sub">キャパ ${fmtQty(totalCapacity)}本</p>
-      </article>
-      <article class="panel kpi-card">
-        <p class="panel-title">シフト確定</p>
-        <p class="kpi-value">${confirmedDays}<span style="font-size:14px;font-weight:400;"> / ${days.length}日</span></p>
-        <p class="kpi-sub ${confirmedDays === 0 ? "text-warning" : confirmedDays === days.length ? "text-success" : ""}">${confirmedDays === 0 ? "全て仮予定" : confirmedDays === days.length ? "全日確定" : "一部確定"}</p>
-      </article>
-    </section>
+    <div style="display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;font-size:12px;">
+      <span><strong>${fmtQty(Math.round(totalPlanned))}</strong>本予定</span>
+      <span><strong>${fmtQty(Math.round(totalAllocated))}</strong>本配分${totalPlanned > 0 ? `（${Math.round(totalAllocated / totalPlanned * 100)}%）` : ""}</span>
+      <span><strong>${workDays}</strong>日稼働 / <strong>${totalHeadcount}</strong>人日</span>
+      <span>キャパ<strong>${fmtQty(totalCapacity)}</strong>本</span>
+    </div>
 
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>生産カレンダー — ${yearMonth.replace("-", "年")}月</h2>
-          <p class="panel-caption">人数を変更すると自動で再配分されます。${legend}</p>
-        </div>
+    <section class="panel" style="padding:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;padding:0 2px;">
+        <span style="font-size:13px;font-weight:600;">${yearMonth.replace("-", "年")}月</span>
+        <span>${legend}</span>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;padding:4px;">
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">
         ${["日","月","火","水","木","金","土"].map((d, i) =>
-          `<div style="text-align:center;font-size:11px;font-weight:600;padding:4px;color:${i === 0 ? '#c53d3d' : i === 6 ? '#0F5B8D' : 'var(--text-secondary)'};">${d}</div>`
+          `<div style="text-align:center;font-size:10px;font-weight:600;padding:2px;color:${i === 0 ? '#c53d3d' : i === 6 ? '#0F5B8D' : 'var(--text-secondary)'};">${d}</div>`
         ).join("")}
         ${calCells.join("")}
       </div>
+      <p style="font-size:10px;color:var(--text-secondary);margin:6px 0 0;text-align:center;">日付をタップで詳細表示</p>
     </section>
 
-    <section class="panel" style="margin-top:16px;">
-      <div class="panel-header"><h2>日別詳細</h2></div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>日付</th>
-              <th class="numeric">人数</th>
-              <th class="numeric">キャパ</th>
-              <th class="numeric">配分合計</th>
-              <th class="numeric">稼働率</th>
-              <th>内訳</th>
-              <th>状態</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${allocation.filter(d => d.headcount > 0).map(d => {
-              const utilPct = Math.round(d.utilization * 100);
-              const utilCls = utilPct > 95 ? "text-danger" : utilPct > 70 ? "text-warning" : "text-success";
-              const breakdown = d.items.map(it =>
-                `${it.productName.slice(0, 8)}(${fmtQty(it.qty)})`
-              ).join("、");
-              return `<tr>
-                <td>${d.date.slice(5)} ${dayOfWeekJa(d.date)}</td>
-                <td class="numeric">${d.headcount}人</td>
-                <td class="numeric">${fmtQty(d.capacity)}</td>
-                <td class="numeric"><strong>${fmtQty(d.totalQty)}</strong></td>
-                <td class="numeric ${utilCls}">${utilPct}%</td>
-                <td style="font-size:11px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${breakdown}">${breakdown || "—"}</td>
-                <td>${d.confirmed
-                  ? '<span class="status-pill success">確定</span>'
-                  : '<span class="status-pill neutral">仮予定</span>'}</td>
-              </tr>`;
-            }).join("") || `<tr><td colspan="7" class="empty-row">稼働日なし</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-    </section>
+    ${detailPanel}
   `;
 }
 
@@ -943,7 +931,8 @@ export function renderDemandPlanning(
   yearsBack: number,
   planTypeFilter: string = "all",
   sort: DemandSortState = null,
-  shifts: DayShift[] = []
+  shifts: DayShift[] = [],
+  selectedDate: string | null = null
 ): string {
   const tabDefs: Array<{ key: DemandTab; label: string }> = [
     { key: "demand",   label: "需要実績" },
@@ -968,7 +957,7 @@ export function renderDemandPlanning(
     body = renderPlanTab(productionPlan, planYearMonth, planTypeFilter, sort);
   } else if (tab === "calendar") {
     try {
-      body = renderCalendarTab(productionPlan, planYearMonth, shifts);
+      body = renderCalendarTab(productionPlan, planYearMonth, shifts, selectedDate);
     } catch (err) {
       console.error("[renderCalendarTab] error:", err);
       body = `<section class="panel"><div style="color:red;padding:16px;white-space:pre-wrap;">[カレンダー描画エラー] ${String(err)}\n${(err as Error)?.stack ?? ""}</div></section>`;

@@ -598,6 +598,7 @@ interface AppState {
   demandSort: DemandSortState;
   calendarShifts: DayShift[];
   calendarDefaultHc: number;
+  calendarSelectedDate: string | null;
   globalSearchOpen: boolean;
   globalQuery: string;
   authSkipped: boolean;
@@ -903,6 +904,7 @@ const state: AppState = {
   demandSort: null as DemandSortState,
   calendarShifts: buildDefaultShifts(new Date().toISOString().slice(0, 7), 2),
   calendarDefaultHc: 2,
+  calendarSelectedDate: null as string | null,
   globalSearchOpen: false,
   globalQuery: "",
   authSkipped: false,
@@ -1831,8 +1833,10 @@ function renderView(): string {
         state.demandYearsBack,
         state.demandPlanTypeFilter,
         state.demandSort,
-        state.calendarShifts
+        state.calendarShifts,
+        state.calendarSelectedDate
       );
+
     case "/brewing-plan":
       return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY);
     case "/churn-alert":
@@ -3170,6 +3174,15 @@ function bindEvents(root: HTMLElement): void {
     const { fetchProductionPlan } = await import("./api");
     state.productionPlan = await fetchProductionPlan(state.demandPlanYearMonth);
     renderApp();
+  });
+
+  // Production calendar: 日タップで詳細表示
+  root.querySelectorAll<HTMLElement>("[data-action='cal-select-day']").forEach((el) => {
+    el.addEventListener("click", () => {
+      const date = el.dataset.date ?? "";
+      state.calendarSelectedDate = state.calendarSelectedDate === date ? null : date;
+      renderApp();
+    });
   });
 
   // Production calendar: 個別日シフト変更
