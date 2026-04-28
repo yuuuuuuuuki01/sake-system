@@ -1,4 +1,4 @@
-import { supabaseCount, supabaseInsert, supabaseQuery, supabaseQueryAll, supabaseRpc, supabaseUpdate } from "./supabase";
+import { supabaseCount, supabaseInsert, supabaseQuery, supabaseQueryAll, supabaseRpc, supabaseUpdate, supabaseUpsert } from "./supabase";
 import type { TourInquiry } from "./components/BreweryTour";
 export type { TourInquiry };
 
@@ -1259,6 +1259,7 @@ export interface BrewingPlanRow {
   monthlyAvgMl: number;
   currentStockL: number;
   monthsRemaining: number;
+  costPerL: number;
 }
 
 export interface BrewingMonthlyTrend {
@@ -1281,7 +1282,8 @@ export async function fetchBrewingPlanSummary(fyStart: string, fyEnd: string): P
     monthlyAvgQty: getNumber(r, ["monthly_avg_qty"], 0),
     monthlyAvgMl: getNumber(r, ["monthly_avg_ml"], 0),
     currentStockL: getNumber(r, ["current_stock_l"], 0),
-    monthsRemaining: getNumber(r, ["months_remaining"], 0)
+    monthsRemaining: getNumber(r, ["months_remaining"], 0),
+    costPerL: getNumber(r, ["cost_per_l"], 0)
   }));
 }
 
@@ -1295,6 +1297,62 @@ export async function fetchBrewingMonthlyTrend(fyStart: string, fyEnd: string): 
     brewCategory: getString(r, ["brew_category"], ""),
     shipmentMl: getNumber(r, ["shipment_ml"], 0)
   }));
+}
+
+export interface BrewingScheduleRow {
+  id: string;
+  brewCategory: string;
+  fy: number;
+  brewMonth: number;
+  durationMonths: number;
+  plannedVolumeL: number;
+  notes: string;
+}
+
+export async function fetchBrewingSchedule(fy: number): Promise<BrewingScheduleRow[]> {
+  const rows = await supabaseQuery<LooseRow>("brewing_plan_schedule", {
+    select: "id,brew_category,fy,brew_month,duration_months,planned_volume_l,notes",
+    fy: `eq.${fy}`,
+    order: "brew_category.asc,brew_month.asc"
+  });
+  return (rows ?? []).map(r => ({
+    id: getString(r, ["id"], ""),
+    brewCategory: getString(r, ["brew_category"], ""),
+    fy: getNumber(r, ["fy"], fy),
+    brewMonth: getNumber(r, ["brew_month"], 0),
+    durationMonths: getNumber(r, ["duration_months"], 2),
+    plannedVolumeL: getNumber(r, ["planned_volume_l"], 0),
+    notes: getString(r, ["notes"], "")
+  }));
+}
+
+export async function saveBrewingSchedule(
+  brewCategory: string,
+  fy: number,
+  rows: { brewMonth: number; durationMonths: number; plannedVolumeL: number; notes?: string }[]
+): Promise<boolean> {
+  const result = await supabaseRpc("save_brewing_schedule", {
+    p_brew_category: brewCategory,
+    p_fy: fy,
+    p_rows: rows.map(r => ({
+      brew_month: r.brewMonth,
+      duration_months: r.durationMonths,
+      planned_volume_l: r.plannedVolumeL,
+      notes: r.notes ?? null
+    }))
+  });
+  return result !== null;
+}
+
+export async function upsertBrewingStock(brewCategory: string, stockL: number, costPerL: number, notes?: string): Promise<boolean> {
+  const result = await supabaseUpsert("brewing_stock", {
+    brew_category: brewCategory,
+    stock_l: stockL,
+    cost_per_l: costPerL,
+    notes: notes ?? null,
+    updated_at: new Date().toISOString()
+  });
+  return result !== null;
 }
 
 // ─── 伝票入力 ────────────────────────────────────────────────────────────────
@@ -3848,6 +3906,53 @@ export async function fetchMapCustomers(): Promise<MapCustomer[]> {
       amount12m: getNumber(r, ["amount_12m"], 0),
       daysSinceOrder: r["days_since_order"] != null ? Number(r["days_since_order"]) : null
     }));
+}
+
+// ── 離反理由メモ ──────────────────────────────────────────
+export const CHURN_REASONS = [
+  { value: "price",       label: "価格が高い" },
+  { value: "competitor",  label: "競合に切り替え" },
+  { value: "closed",      label: "廃業・閉店" },
+  { value: "contact",     label: "担当者交代" },
+  { value: "seasonal",    label: "季節要因" },
+  { value: "pause",       label: "一時的な休止" },
+  { value: "complaint",   label: "クレーム・不満" },
+  { value: "unreachable", label: "連絡が取れない" },
+  { value: "other",       label: "その他" },
+] as const;
+
+export type ChurnReasonValue = typeof CHURN_REASONS[number]["value"] | "";
+
+export interface ChurnNote {
+  customerCode: string;
+  reason: ChurnReasonValue;
+  memo: string;
+  actionedAt: string | null;
+  updatedAt: string;
+}
+
+export async function fetchChurnNotes(): Promise<ChurnNote[]> {
+  const rows = await supabaseQueryAll<LooseRow>("customer_churn_notes");
+  return rows.map((r) => ({
+    customerCode: getString(r, ["customer_code"], ""),
+    reason: getString(r, ["reason"], "") as ChurnReasonValue,
+    memo: getString(r, ["memo"], ""),
+    actionedAt: r["actioned_at"] ? String(r["actioned_at"]) : null,
+    updatedAt: getString(r, ["updated_at"], ""),
+  }));
+}
+
+export async function saveChurnNote(
+  note: Pick<ChurnNote, "customerCode" | "reason" | "memo" | "actionedAt">
+): Promise<void> {
+  const { supabaseUpsert } = await import("./supabase");
+  await supabaseUpsert("customer_churn_notes", {
+    customer_code: note.customerCode,
+    reason: note.reason,
+    memo: note.memo,
+    actioned_at: note.actionedAt || null,
+    updated_at: new Date().toISOString(),
+  }, "customer_code");
 }
 
 export interface DeliveryLocation {

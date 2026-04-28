@@ -97,7 +97,8 @@ import {
   type TankRecord,
   type TaxDeclaration,
   fetchAnnouncements,
-  type SystemAnnouncement
+  type SystemAnnouncement,
+  type ChurnNote,
 } from "./api";
 import { REQUIRE_AUTH } from "./config";
 import { renderBilling } from "./components/Billing";
@@ -187,6 +188,9 @@ import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromS
 import { renderDemandPlanning, buildDefaultShifts, type DemandTab, type DemandSortState, type DayShift } from "./components/DemandPlanning";
 import { renderBrewingPlan } from "./components/BrewingPlan";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
+import { CHURN_REASONS } from "./api";
+const CHURN_REASONS_MAP: Record<string, string> = Object.fromEntries(CHURN_REASONS.map((r) => [r.value, r.label]));
+
 import { renderSeasonalCalendar, buildSeasonalData, type SeasonalCalendarState } from "./components/SeasonalCalendar";
 import { renderShipmentCalendar } from "./components/ShipmentCalendar";
 import { renderVisitPlanner, buildVisitPlan, type VisitPlannerState } from "./components/VisitPlanner";
@@ -583,6 +587,7 @@ interface AppState {
   emailSending: boolean;
   demandForecast: DemandForecastState;
   churnAlert: ChurnAlertData | null;
+  churnNotes: ChurnNote[];
   seasonalCalendar: SeasonalCalendarState | null;
   visitPlanner: VisitPlannerState | null;
   demandAnalysis: import("./api").DemandAnalysis | null;
@@ -600,6 +605,7 @@ interface AppState {
   calendarDefaultPart: number;
   calendarDefaultEmp: number;
   calendarSelectedDate: string | null;
+  brewingSchedule: import("./api").BrewingScheduleRow[];
   globalSearchOpen: boolean;
   globalQuery: string;
   authSkipped: boolean;
@@ -890,6 +896,7 @@ const state: AppState = {
   shipmentCalendarYearMonth: new Date().toISOString().slice(0, 7),
   shipmentCalendarSelectedDate: null,
   churnAlert: null,
+  churnNotes: [],
   seasonalCalendar: null,
   visitPlanner: null,
   demandAnalysis: null,
@@ -907,6 +914,7 @@ const state: AppState = {
   calendarDefaultPart: 1,
   calendarDefaultEmp: 1,
   calendarSelectedDate: null as string | null,
+  brewingSchedule: [] as import("./api").BrewingScheduleRow[],
   globalSearchOpen: false,
   globalQuery: "",
   authSkipped: false,
@@ -1410,13 +1418,16 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           state.demandForecast.deliveries = buildDeliveriesFromSchedule(schedule);
         }
         break;
-      case "/churn-alert":
+      case "/churn-alert": {
+        const { fetchChurnAlerts, fetchChurnNotes } = await import("./api");
         if (!state.churnAlert) {
-          const { fetchChurnAlerts } = await import("./api");
           const dbAlerts = await fetchChurnAlerts();
           state.churnAlert = buildChurnAlertFromRows(dbAlerts);
         }
+        // ノートは毎回最新を取得（保存直後に反映させるため）
+        state.churnNotes = await fetchChurnNotes();
         break;
+      }
       case "/seasonal-calendar":
         if (!state.seasonalCalendar) {
           // DB集計テーブルから読み取り → なければフォールバック
@@ -1537,16 +1548,18 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-plan": {
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend] = await Promise.all([
+        const [summary, trend, schedule] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd),
-          fetchBrewingMonthlyTrend(fyStart, fyEnd)
+          fetchBrewingMonthlyTrend(fyStart, fyEnd),
+          fetchBrewingSchedule(fy)
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
+        state.brewingSchedule = schedule;
         break;
       }
       case "/jikomi":
@@ -1840,10 +1853,10 @@ function renderView(): string {
       );
 
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingSchedule);
     case "/churn-alert":
       return state.churnAlert
-        ? renderChurnAlert(state.churnAlert)
+        ? renderChurnAlert(state.churnAlert, state.churnNotes)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">離反データを分析中…</p></div></section>`;
     case "/seasonal-calendar":
       return state.seasonalCalendar
@@ -2308,6 +2321,7 @@ function renderShell(): string {
         </header>
         ${renderAnnouncementBar()}
         <div class="view ${state.actionLoading ? "is-busy" : ""}">${renderView()}</div>
+        <button class="no-print" data-action="print-page" title="印刷" style="position:fixed;bottom:24px;right:24px;z-index:900;width:48px;height:48px;border-radius:50%;background:#1e40af;color:white;border:none;cursor:pointer;font-size:20px;box-shadow:0 2px 8px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;" aria-label="印刷">🖨</button>
       </main>
       ${pickerHtml}
       ${globalSearchHtml}
@@ -2788,12 +2802,39 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 見積プレビューをライブ更新（フォーム入力中にスクロール位置やフォーカスを保持）
+  function refreshQuotePreview() {
+    syncQuoteFormToState(state.quoteState);
+    const scaler = app.querySelector<HTMLElement>("#q-preview-scaler");
+    if (!scaler) return;
+    scaler.innerHTML = renderQuoteBuilder(state.quoteState, state.masterStats?.customers ?? [], state.masterStats?.products ?? [], state.quoteCustomerQuery, state.quoteProductQuery, state.customerPricing, state.quoteCompanySettings);
+    // Re-run scaler after content update
+    const inner = scaler.querySelector<HTMLElement>(".q-preview-doc");
+    const panelWidth = scaler.parentElement?.clientWidth ?? 0;
+    const contentWidth = inner?.offsetWidth ?? 0;
+    if (panelWidth > 0 && contentWidth > 0 && contentWidth > panelWidth - 24) {
+      const scale = (panelWidth - 24) / contentWidth;
+      scaler.style.transform = `scale(${scale})`;
+      scaler.style.transformOrigin = "top left";
+      scaler.style.height = `${((inner?.offsetHeight ?? 0) + 48) * scale}px`;
+    } else {
+      scaler.style.transform = "";
+      scaler.style.height = "";
+    }
+  }
+
+  // テキスト入力のライブプレビュー（フォーカス保持のためrenderApp不要）
+  for (const id of ["q-no", "q-date", "q-valid", "q-subject", "q-payment-terms", "q-delivery-date", "q-delivery-place"]) {
+    root.querySelector<HTMLInputElement>(`#${id}`)?.addEventListener("input", refreshQuotePreview);
+  }
+  root.querySelector<HTMLTextAreaElement>("#q-remarks")?.addEventListener("input", refreshQuotePreview);
+
   // 数量変更
   root.querySelectorAll<HTMLInputElement>(".qty-input").forEach(inp => {
     inp.addEventListener("change", () => {
       const idx = parseInt(inp.dataset.lineIdx ?? "0");
       const line = state.quoteState.lines[idx];
-      if (line) { line.quantity = parseFloat(inp.value) || 0; line.amount = line.quantity * line.unitPrice; renderApp(); }
+      if (line) { line.quantity = parseFloat(inp.value) || 0; line.amount = line.quantity * line.unitPrice; refreshQuotePreview(); }
     });
   });
 
@@ -2802,7 +2843,7 @@ function bindEvents(root: HTMLElement): void {
     inp.addEventListener("change", () => {
       const idx = parseInt(inp.dataset.lineIdx ?? "0");
       const line = state.quoteState.lines[idx];
-      if (line) { line.unitPrice = parseInt(inp.value) || 0; line.amount = line.quantity * line.unitPrice; renderApp(); }
+      if (line) { line.unitPrice = parseInt(inp.value) || 0; line.amount = line.quantity * line.unitPrice; refreshQuotePreview(); }
     });
   });
 
@@ -2811,7 +2852,7 @@ function bindEvents(root: HTMLElement): void {
     inp.addEventListener("change", () => {
       const idx = parseInt(inp.dataset.lineIdx ?? "0");
       const line = state.quoteState.lines[idx];
-      if (line) { line.janCode = inp.value; }
+      if (line) { line.janCode = inp.value; refreshQuotePreview(); }
     });
   });
 
@@ -2820,7 +2861,7 @@ function bindEvents(root: HTMLElement): void {
     inp.addEventListener("change", () => {
       const idx = parseInt(inp.dataset.lineIdx ?? "0");
       const line = state.quoteState.lines[idx];
-      if (line) { line.caseQty = inp.value ? parseInt(inp.value) : null; }
+      if (line) { line.caseQty = inp.value ? parseInt(inp.value) : null; refreshQuotePreview(); }
     });
   });
 
@@ -2829,7 +2870,7 @@ function bindEvents(root: HTMLElement): void {
     inp.addEventListener("change", () => {
       const idx = parseInt(inp.dataset.lineIdx ?? "0");
       const line = state.quoteState.lines[idx];
-      if (line) { line.retailPrice = inp.value ? parseInt(inp.value) : null; }
+      if (line) { line.retailPrice = inp.value ? parseInt(inp.value) : null; refreshQuotePreview(); }
     });
   });
 
@@ -2842,22 +2883,9 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // プレビューモード
-  root.querySelector<HTMLButtonElement>("[data-action='quote-preview-mode']")?.addEventListener("click", () => {
-    syncQuoteFormToState(state.quoteState);
-    state.quoteState.previewMode = true;
-    renderApp();
-  });
-
-  // 編集モードに戻る
-  root.querySelector<HTMLButtonElement>("[data-action='quote-edit-mode']")?.addEventListener("click", () => {
-    state.quoteState.previewMode = false;
-    renderApp();
-  });
-
   // PDF
   root.querySelector<HTMLButtonElement>("[data-action='quote-download-pdf']")?.addEventListener("click", () => {
-    if (!state.quoteState.previewMode) syncQuoteFormToState(state.quoteState);
+    syncQuoteFormToState(state.quoteState);
     generateQuotePdf(state.quoteState, state.quoteCompanySettings);
   });
 
@@ -4605,6 +4633,73 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // ── 離反理由 選択 → 保存 ────────────────────────────
+  root.querySelectorAll<HTMLSelectElement>(".churn-reason-select").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const code   = sel.dataset.churnCode ?? "";
+      const reason = sel.value;
+      try {
+        const { saveChurnNote } = await import("./api");
+        await saveChurnNote({ customerCode: code, reason: reason as import("./api").ChurnReasonValue, memo: "", actionedAt: null });
+        // notesを更新して理由バッジを再描画
+        const existing = state.churnNotes.find((n) => n.customerCode === code);
+        if (existing) {
+          existing.reason = reason as import("./api").ChurnReasonValue;
+        } else {
+          state.churnNotes.push({ customerCode: code, reason: reason as import("./api").ChurnReasonValue, memo: "", actionedAt: null, updatedAt: new Date().toISOString() });
+        }
+        // バッジだけ更新（フルre-render不要）
+        const row = sel.closest<HTMLTableRowElement>("tr");
+        if (row) {
+          const nameCell = row.querySelector("td:nth-child(2)");
+          if (nameCell) {
+            let badge = nameCell.querySelector<HTMLElement>(".reason-badge");
+            if (!badge && reason) {
+              badge = document.createElement("span");
+              badge.className = "status-pill info reason-badge";
+              (badge as HTMLElement).style.fontSize = "0.72rem";
+              nameCell.appendChild(badge);
+            }
+            if (badge) badge.textContent = reason ? (CHURN_REASONS_MAP[reason] ?? "") : "";
+          }
+        }
+        showToast("理由を保存しました");
+      } catch (e) {
+        showToast("保存に失敗しました", "error");
+        console.error(e);
+      }
+    });
+  });
+
+  // ── 離反 対応済みチェック → 保存 ──────────────────
+  root.querySelectorAll<HTMLInputElement>(".churn-actioned-check").forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      const code     = cb.dataset.churnCode ?? "";
+      const actioned = cb.checked;
+      const row      = cb.closest<HTMLTableRowElement>("tr");
+      if (row) {
+        row.style.opacity = actioned ? "0.45" : "";
+        row.setAttribute("data-actioned", actioned ? "1" : "0");
+      }
+      try {
+        const { saveChurnNote } = await import("./api");
+        const existing = state.churnNotes.find((n) => n.customerCode === code);
+        const reason   = (existing?.reason ?? "") as import("./api").ChurnReasonValue;
+        const today    = new Date().toISOString().slice(0, 10);
+        await saveChurnNote({ customerCode: code, reason, memo: "", actionedAt: actioned ? today : null });
+        if (existing) {
+          existing.actionedAt = actioned ? today : null;
+        } else {
+          state.churnNotes.push({ customerCode: code, reason, memo: "", actionedAt: actioned ? today : null, updatedAt: new Date().toISOString() });
+        }
+        showToast(actioned ? "対応済みにしました" : "対応済みを解除しました");
+      } catch (e) {
+        showToast("保存に失敗しました", "error");
+        console.error(e);
+      }
+    });
+  });
+
   // ── IVRy 通話履歴 ──────────────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='ivry-sync']")?.addEventListener("click", async () => {
     const setting = state.integrations.find((i) => i.provider === "ivry");
@@ -5173,6 +5268,11 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>("[data-action='tax-print']")?.addEventListener("click", () => {
     window.print();
   });
+  root.querySelector<HTMLButtonElement>("[data-action='print-page']")?.addEventListener("click", () => {
+    // 折りたたみパネルを全部開いてから印刷
+    root.querySelectorAll<HTMLDetailsElement>("details").forEach(d => { d.open = true; });
+    window.print();
+  });
 
   // ── 需要計画 CSV エクスポート ──────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='demand-csv-export']")?.addEventListener("click", () => {
@@ -5217,14 +5317,102 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLSelectElement>("#brewing-fy-select")?.addEventListener("change", async (e) => {
     const fy = parseInt((e.target as HTMLSelectElement).value);
     state.brewingPlanFY = fy;
-    const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend } = await import("./api");
-    const [summary, trend] = await Promise.all([
+    const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule } = await import("./api");
+    const [summary, trend, schedule] = await Promise.all([
       fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
-      fetchBrewingMonthlyTrend(`${fy}-10-01`, `${fy + 1}-09-30`)
+      fetchBrewingMonthlyTrend(`${fy}-10-01`, `${fy + 1}-09-30`),
+      fetchBrewingSchedule(fy)
     ]);
     state.brewingPlanData = summary;
     state.brewingMonthlyTrend = trend;
+    state.brewingSchedule = schedule;
     renderApp();
+  });
+
+  // 醸造計画: 編集ボタン
+  root.querySelectorAll<HTMLButtonElement>(".btn-edit-stock").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const catId = btn.dataset.catId ?? "";
+      root.querySelector<HTMLElement>(`#stock-display-${catId}`)!.style.display = "none";
+      root.querySelector<HTMLElement>(`#stock-edit-${catId}`)!.style.display = "";
+      btn.style.display = "none";
+    });
+  });
+
+  // 醸造計画: 取消
+  root.querySelectorAll<HTMLButtonElement>(".btn-cancel-stock").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const catId = btn.dataset.catId ?? "";
+      root.querySelector<HTMLElement>(`#stock-display-${catId}`)!.style.display = "";
+      root.querySelector<HTMLElement>(`#stock-edit-${catId}`)!.style.display = "none";
+      root.querySelector<HTMLButtonElement>(`.btn-edit-stock[data-cat-id="${catId}"]`)!.style.display = "";
+    });
+  });
+
+  // 醸造計画: 仕込み行を追加
+  root.querySelectorAll<HTMLButtonElement>(".btn-add-schedule-row").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const catId = btn.dataset.catId ?? "";
+      const container = root.querySelector(`#schedule-rows-${catId}`);
+      if (!container) return;
+      const idx = container.querySelectorAll(".schedule-edit-row").length;
+      const div = document.createElement("div");
+      div.innerHTML = buildScheduleEditRowHTML(catId, idx, 9, 2, 0, "");
+      const row = div.firstElementChild as HTMLElement;
+      container.appendChild(row);
+      // 削除ボタンをワイヤーアップ
+      row.querySelector<HTMLButtonElement>(".btn-remove-schedule-row")?.addEventListener("click", () => row.remove());
+    });
+  });
+
+  // 醸造計画: 既存の仕込み削除ボタン
+  root.querySelectorAll<HTMLButtonElement>(".btn-remove-schedule-row").forEach((btn) => {
+    btn.addEventListener("click", () => btn.closest(".schedule-edit-row")?.remove());
+  });
+
+  // 醸造計画: 保存
+  root.querySelectorAll<HTMLButtonElement>(".btn-save-stock").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const cat = btn.dataset.cat ?? "";
+      const catId = btn.dataset.catId ?? "";
+      const stockInput = root.querySelector<HTMLInputElement>(`#stock-input-${catId}`);
+      const costInput = root.querySelector<HTMLInputElement>(`#cost-input-${catId}`);
+      const stockL = parseFloat(stockInput?.value ?? "");
+      const costPerL = parseFloat(costInput?.value ?? "0") || 0;
+      if (isNaN(stockL) || stockL < 0) { alert("有効な数値を入力してください"); return; }
+
+      // 仕込みスケジュール行を収集
+      const scheduleRows = [...root.querySelectorAll(`#schedule-rows-${catId} .schedule-edit-row`)].map(row => ({
+        brewMonth: parseInt((row.querySelector(".schedule-month") as HTMLSelectElement)?.value ?? "0"),
+        durationMonths: parseInt((row.querySelector(".schedule-duration") as HTMLInputElement)?.value ?? "2"),
+        plannedVolumeL: parseFloat((row.querySelector(".schedule-volume") as HTMLInputElement)?.value ?? "0")
+      })).filter(r => r.brewMonth >= 1 && r.brewMonth <= 12);
+
+      btn.textContent = "保存中...";
+      btn.setAttribute("disabled", "true");
+      try {
+        const { upsertBrewingStock, saveBrewingSchedule, fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule } = await import("./api");
+        const fy = state.brewingPlanFY;
+        await Promise.all([
+          upsertBrewingStock(cat, stockL, costPerL),
+          saveBrewingSchedule(cat, fy, scheduleRows)
+        ]);
+        const [summary, trend, schedule] = await Promise.all([
+          fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+          fetchBrewingMonthlyTrend(`${fy}-10-01`, `${fy + 1}-09-30`),
+          fetchBrewingSchedule(fy)
+        ]);
+        state.brewingPlanData = summary;
+        state.brewingMonthlyTrend = trend;
+        state.brewingSchedule = schedule;
+        renderApp();
+      } catch (err) {
+        console.error("[brewing save]", err);
+        alert(`保存エラー: ${String(err)}`);
+        btn.textContent = "保存";
+        btn.removeAttribute("disabled");
+      }
+    });
   });
 
   // Toggle sub-category rows in brewing plan table
@@ -5691,11 +5879,11 @@ function renderApp(): void {
   if (shouldShowLogin()) {
     app.querySelector<HTMLInputElement>("#auth-email")?.focus();
   }
-  // フォームデザイナー + 印刷プレビューを画面幅に合わせてスケーリング
+  // フォームデザイナー + 印刷プレビュー + 見積プレビューを画面幅に合わせてスケーリング
   requestAnimationFrame(() => {
-    for (const scalerId of ["fd-scaler", "print-scaler"]) {
+    for (const scalerId of ["fd-scaler", "print-scaler", "q-preview-scaler"]) {
       const scaler = app.querySelector<HTMLElement>(`#${scalerId}`);
-      const inner = scaler?.querySelector<HTMLElement>(".fd-canvas, .print-preview");
+      const inner = scaler?.querySelector<HTMLElement>(".fd-canvas, .print-preview, .q-preview-doc");
       const printPage = inner?.querySelector<HTMLElement>(".print-page") ?? inner;
       if (!scaler || !printPage) continue;
       const panelWidth = scaler.parentElement?.clientWidth ?? 0;
