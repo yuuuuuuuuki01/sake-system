@@ -562,7 +562,17 @@ interface AppState {
   quoteEditId: string | null;
   quoteCompanySettings: QuoteCompanySettings;
   productPower: ProductPower[];
+  productFilter: ProductViewFilter;
+  productPeriod: ProductPeriod;
+  productDaily: ProductDailyRow[];
+  productCustomStart: string;
+  productCustomEnd: string;
+  productSortState: SortState;
   customerEfficiency: CustomerEfficiency[];
+  customerSortState: SortState;
+  dashboardSortState: SortState;
+  masterSortState: SortState;
+  analyticsSortState: SortState;
   masterTab: MasterTab;
   masterFilter: MasterFilterState;
   analyticsTab: AnalyticsTab;
@@ -570,6 +580,11 @@ interface AppState {
   analyticsPeriodFilter: string;
   analyticsPeriodRows: import("./api").AnalyticsBreakdownRow[];
   analyticsPeriodOptions: string[];
+  analyticsPeriodChartData: import("./api").PeriodChartPoint[];
+  analyticsPrevYearChartData: import("./api").PeriodChartPoint[];
+  analyticsChartMetric: import("./components/SalesAnalytics").ChartMetric;
+  analyticsFiscalMode: import("./components/SalesAnalytics").FiscalMode;
+  analyticsDrilldown: import("./components/SalesAnalytics").AnalyticsDrilldown | null;
   analyticsStaffFilter: string;
   analyticsTagFilter: string;
   analyticsStaffPeriod: import("./api").AnalyticsPeriod;
@@ -1857,7 +1872,7 @@ function renderView(): string {
       );
 
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingSchedule);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -2820,9 +2835,9 @@ function bindEvents(root: HTMLElement): void {
   // 見積プレビューをライブ更新（フォーム入力中にスクロール位置やフォーカスを保持）
   function refreshQuotePreview() {
     syncQuoteFormToState(state.quoteState);
-    const scaler = app.querySelector<HTMLElement>("#q-preview-scaler");
+    const scaler = root.querySelector<HTMLElement>("#q-preview-scaler");
     if (!scaler) return;
-    scaler.innerHTML = renderQuoteBuilder(state.quoteState, state.masterStats?.customers ?? [], state.masterStats?.products ?? [], state.quoteCustomerQuery, state.quoteProductQuery, state.customerPricing, state.quoteCompanySettings);
+    scaler.innerHTML = renderQuoteBuilder(state.quoteState, state.masterStats?.customers ?? [], state.masterStats?.products ?? [], state.quoteCustomerQuery, state.quoteProductQuery, state.quotePricing, state.quoteCompanySettings);
     // Re-run scaler after content update
     const inner = scaler.querySelector<HTMLElement>(".q-preview-doc");
     const panelWidth = scaler.parentElement?.clientWidth ?? 0;
