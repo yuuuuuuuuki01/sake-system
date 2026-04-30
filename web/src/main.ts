@@ -2777,26 +2777,50 @@ function bindEvents(root: HTMLElement): void {
   });
 
   // 得意先検索
-  root.querySelector<HTMLInputElement>("#q-cust-search")?.addEventListener("input", e => {
-    const inp = e.target as HTMLInputElement;
-    const val = inp.value;
-    const pos = inp.selectionStart ?? val.length;
-    state.quoteCustomerQuery = val;
-    renderApp();
-    const next = root.querySelector<HTMLInputElement>("#q-cust-search");
-    if (next) { next.focus(); next.setSelectionRange(pos, pos); }
-  });
+  (function() {
+    const el = root.querySelector<HTMLInputElement>("#q-cust-search");
+    if (!el) return;
+    el.addEventListener("compositionend", () => {
+      const val = el.value;
+      state.quoteCustomerQuery = val;
+      const pos = el.selectionStart ?? val.length;
+      renderApp();
+      const next = root.querySelector<HTMLInputElement>("#q-cust-search");
+      if (next) { next.focus(); next.setSelectionRange(pos, pos); }
+    });
+    el.addEventListener("input", e => {
+      if ((e as InputEvent).isComposing) return;
+      const val = el.value;
+      const pos = el.selectionStart ?? val.length;
+      state.quoteCustomerQuery = val;
+      renderApp();
+      const next = root.querySelector<HTMLInputElement>("#q-cust-search");
+      if (next) { next.focus(); next.setSelectionRange(pos, pos); }
+    });
+  })();
 
   // 商品検索
-  root.querySelector<HTMLInputElement>("#q-prod-search")?.addEventListener("input", e => {
-    const inp = e.target as HTMLInputElement;
-    const val = inp.value;
-    const pos = inp.selectionStart ?? val.length;
-    state.quoteProductQuery = val;
-    renderApp();
-    const next = root.querySelector<HTMLInputElement>("#q-prod-search");
-    if (next) { next.focus(); next.setSelectionRange(pos, pos); }
-  });
+  (function() {
+    const el = root.querySelector<HTMLInputElement>("#q-prod-search");
+    if (!el) return;
+    el.addEventListener("compositionend", () => {
+      const val = el.value;
+      state.quoteProductQuery = val;
+      const pos = el.selectionStart ?? val.length;
+      renderApp();
+      const next = root.querySelector<HTMLInputElement>("#q-prod-search");
+      if (next) { next.focus(); next.setSelectionRange(pos, pos); }
+    });
+    el.addEventListener("input", e => {
+      if ((e as InputEvent).isComposing) return;
+      const val = el.value;
+      const pos = el.selectionStart ?? val.length;
+      state.quoteProductQuery = val;
+      renderApp();
+      const next = root.querySelector<HTMLInputElement>("#q-prod-search");
+      if (next) { next.focus(); next.setSelectionRange(pos, pos); }
+    });
+  })();
 
   // 得意先選択
   root.querySelectorAll<HTMLButtonElement>("[data-select-customer]").forEach(btn => {
