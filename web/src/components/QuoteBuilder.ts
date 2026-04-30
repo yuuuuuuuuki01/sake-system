@@ -1,6 +1,7 @@
 import type { MasterCustomer, MasterProduct, CustomerPricing } from "../api";
 import { resolveProductPrice } from "../api";
 import type { QuoteCompanySettings } from "./QuoteSettings";
+import { COLOR_PRESETS } from "./QuoteSettings";
 
 export type QuoteTemplateType = "sake" | "standard";
 
@@ -111,7 +112,7 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 .q-title { font-size:20px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
 .q-meta-table { font-size:10px; border-collapse:collapse; }
 .q-meta-table th { text-align:right; padding:1px 6px 1px 0; color:#555; white-space:nowrap; }
-.q-meta-table td { font-weight:600; }
+.q-meta-table td { font-weight:600; text-align:right; }
 .q-parties { display:flex; justify-content:space-between; gap:16px; margin-bottom:14px; }
 .q-customer { flex:1; }
 .q-customer-name { font-size:16px; font-weight:700; border-bottom:1px solid #333; padding-bottom:3px; margin-bottom:3px; }
@@ -188,17 +189,17 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
 
   const sealHtml = settings.sealImageDataUrl ? `
     <div style="position:absolute;right:0;top:0;">
-      <img src="${settings.sealImageDataUrl}" style="width:${settings.sealSize}px;height:${settings.sealSize}px;border-radius:50%;opacity:0.9;" />
+      <img src="${settings.sealImageDataUrl}" style="width:${settings.sealSize}px;height:${settings.sealSize}px;border-radius:0;opacity:0.9;" />
     </div>` : "";
 
   return `
 <div class="q-doc">
   <div class="q-title-row">
-    <h1 class="q-title">${isSake ? "御 見 積 書（酒販用）" : "御 見 積 書"}</h1>
+    <h1 class="q-title">御 見 積 書</h1>
     <table class="q-meta-table">
-      ${quote.quoteNo ? `<tr><th>見積番号</th><td>${esc(quote.quoteNo)}</td></tr>` : ""}
-      <tr><th>見積日</th><td>${fmtDate(quote.quoteDate)}</td></tr>
-      ${quote.validUntil ? `<tr><th>有効期限</th><td>${fmtDate(quote.validUntil)}</td></tr>` : ""}
+      ${quote.quoteNo ? `<tr><th>見積番号</th><td style="text-align:right;">${esc(quote.quoteNo)}</td></tr>` : ""}
+      <tr><th>見積日</th><td style="text-align:right;">${fmtDate(quote.quoteDate)}</td></tr>
+      ${quote.validUntil ? `<tr><th>有効期限</th><td style="text-align:right;">${fmtDate(quote.validUntil)}</td></tr>` : ""}
     </table>
   </div>
 
@@ -336,6 +337,15 @@ export function renderQuoteBuilder(
 
     <section class="panel">
       <div class="panel-header"><h2>基本情報</h2></div>
+      <div class="form-row" style="margin-bottom:12px;">
+        <label>カラーテーマ</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;align-items:center;">
+          ${COLOR_PRESETS.map(p => `
+            <button type="button" data-action="set-accent-color" data-color="${esc(p.value)}" title="${esc(p.label)}"
+              style="width:28px;height:28px;border-radius:4px;border:3px solid ${settings.accentColor === p.value ? "#333" : "transparent"};background:${esc(p.value)};cursor:pointer;"></button>
+          `).join("")}
+        </div>
+      </div>
       <div class="form-grid-2">
         <div class="form-row"><label>テンプレート種別</label>
           <div style="display:flex;gap:12px;margin-top:4px;">
