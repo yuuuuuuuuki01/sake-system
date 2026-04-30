@@ -3,12 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- キャッシュさせない(SPA redirectが古いと困るため) -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     <!-- JS無効時のフォールバック -->
-    <meta http-equiv="refresh" content="0;url=/sake-system/" />
+    <meta http-equiv="refresh" content="0;url=/" />
     <title>syusen-cloud — 読み込み中</title>
     <style>
       html, body {
@@ -21,9 +20,7 @@
         place-items: center;
         color: #1f2933;
       }
-      .loading {
-        text-align: center;
-      }
+      .loading { text-align: center; }
       .spinner {
         width: 48px;
         height: 48px;
@@ -36,26 +33,21 @@
       @keyframes spin { to { transform: rotate(360deg); } }
       h1 { margin: 0 0 8px; font-size: 18px; font-weight: 700; }
       p { margin: 0; font-size: 13px; color: #52606d; }
-      .fallback {
-        margin-top: 24px;
-        font-size: 12px;
-      }
+      .fallback { margin-top: 24px; font-size: 12px; }
       .fallback a { color: #0f5b8d; text-decoration: underline; }
     </style>
     <script>
-      // GitHub Pages SPA redirect — サブルート直アクセス時の復元
-      // サーバーは404を返すが、このページで即座にルートへ飛ばしてSPAに委譲する
+      // SPA redirect — サブルート直アクセス時の復元
+      // Vercel の rewrite で index.html に委譲されるが、万一 404 が返った場合のフォールバック
       (function () {
         try {
-          var base = "/sake-system";
-          // 元のフルパスをセッションに保存 → index.htmlで復元される
           sessionStorage.setItem(
             "spa-redirect",
             location.pathname + location.search + location.hash
           );
-          location.replace(base + "/");
+          location.replace("/");
         } catch (e) {
-          // sessionStorage不可などの例外時はmeta refreshに任せる
+          // sessionStorage 不可時は meta refresh に任せる
         }
       })();
     </script>
@@ -66,7 +58,7 @@
       <h1>読み込み中…</h1>
       <p>ページに移動しています。数秒お待ちください。</p>
       <p class="fallback">
-        自動で移動しない場合は <a href="/sake-system/">こちら</a> をクリック
+        自動で移動しない場合は <a href="/">こちら</a> をクリック
       </p>
     </div>
   </body>
