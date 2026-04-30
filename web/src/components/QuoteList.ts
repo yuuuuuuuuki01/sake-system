@@ -38,7 +38,7 @@ export function renderQuoteList(quotes: QuoteListItem[], loading: boolean): stri
       <div><p class="eyebrow">見積書</p><h1>見積一覧</h1></div>
       <div class="meta-stack">
         <button class="button primary" type="button" data-action="quote-new">＋ 新規作成</button>
-        <a class="button secondary" href="/quote-settings" data-nav="/quote-settings">⚙ 会社設定</a>
+        <a class="button secondary" href="/quote-settings" data-link="/quote-settings">⚙ 会社設定</a>
       </div>
     </section>
 

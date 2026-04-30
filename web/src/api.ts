@@ -66,7 +66,7 @@ export interface SalesDayPoint {
   pricePerLiter: number;
 }
 
-export type SalesPeriod = "today" | "month" | "90days" | "year" | "all" | "custom";
+export type SalesPeriod = "today" | "month" | "90days" | "year" | "all" | "custom" | "future";
 
 export interface SalesRecord {
   id: string;
@@ -4938,4 +4938,21 @@ export async function fetchQuoteWithLines(quoteId: string): Promise<(QuoteListIt
     order: "line_no.asc"
   });
   return { ...rows[0], lines };
+}
+
+export interface OrderHeader {
+  legacy_document_no: string;
+  sales_date: string;
+  customer_name: string;
+  legacy_customer_code: string;
+  total_amount: number;
+}
+
+export async function fetchOrderHeaders(): Promise<OrderHeader[]> {
+  const startOfMonth = new Date().toISOString().slice(0, 7) + "-01";
+  return supabaseQueryAll<OrderHeader>("sales_document_headers", {
+    select: "legacy_document_no,sales_date,customer_name,legacy_customer_code,total_amount",
+    sales_date: `gte.${startOfMonth}`,
+    order: "sales_date.asc"
+  });
 }

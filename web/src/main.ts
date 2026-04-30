@@ -608,6 +608,7 @@ interface AppState {
   brewingSchedule: import("./api").BrewingScheduleRow[];
   globalSearchOpen: boolean;
   globalQuery: string;
+  orderHeaders: import("./api").OrderHeader[];
   authSkipped: boolean;
   authSubmitting: boolean;
   authError: string | null;
@@ -917,6 +918,7 @@ const state: AppState = {
   brewingSchedule: [] as import("./api").BrewingScheduleRow[],
   globalSearchOpen: false,
   globalQuery: "",
+  orderHeaders: [],
   authSkipped: false,
   authSubmitting: false,
   authError: null,
@@ -1727,13 +1729,15 @@ async function loadRouteData(route: RoutePath): Promise<void> {
             fetchProspects,
             fetchCalendarEvents,
             fetchWorkflowOrdersFromDb,
-            fetchTourInquiriesFromDb
+            fetchTourInquiriesFromDb,
+            fetchOrderHeaders
           } = await import("./api");
           if (state.prospects.length === 0) state.prospects = await fetchProspects();
           if (state.calendarEvents.length === 0) state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
           if (state.materialList.length === 0) state.materialList = await fetchMaterialList();
           if (state.workflowOrders.length === 0) state.workflowOrders = await fetchWorkflowOrdersFromDb();
           if (state.tourInquiries.length === 0) state.tourInquiries = await fetchTourInquiriesFromDb();
+          if (state.orderHeaders.length === 0) state.orderHeaders = await fetchOrderHeaders();
         }
         break;
       default:
@@ -2049,7 +2053,8 @@ function renderView(): string {
           decliningCount: state.churnAlert.decliningCustomers.length,
           totalImpact: [...state.churnAlert.atRiskCustomers, ...state.churnAlert.dormantCustomers, ...state.churnAlert.decliningCustomers]
             .reduce((s, c) => s + c.totalAmountLast12m, 0)
-        } : undefined
+        } : undefined,
+        orderHeaders: state.orderHeaders
       }, state.salesPeriod, state.customRange, state.dashboardSortState);
   }
 }
@@ -2758,14 +2763,24 @@ function bindEvents(root: HTMLElement): void {
 
   // 得意先検索
   root.querySelector<HTMLInputElement>("#q-cust-search")?.addEventListener("input", e => {
-    state.quoteCustomerQuery = (e.target as HTMLInputElement).value;
+    const inp = e.target as HTMLInputElement;
+    const val = inp.value;
+    const pos = inp.selectionStart ?? val.length;
+    state.quoteCustomerQuery = val;
     renderApp();
+    const next = root.querySelector<HTMLInputElement>("#q-cust-search");
+    if (next) { next.focus(); next.setSelectionRange(pos, pos); }
   });
 
   // 商品検索
   root.querySelector<HTMLInputElement>("#q-prod-search")?.addEventListener("input", e => {
-    state.quoteProductQuery = (e.target as HTMLInputElement).value;
+    const inp = e.target as HTMLInputElement;
+    const val = inp.value;
+    const pos = inp.selectionStart ?? val.length;
+    state.quoteProductQuery = val;
     renderApp();
+    const next = root.querySelector<HTMLInputElement>("#q-prod-search");
+    if (next) { next.focus(); next.setSelectionRange(pos, pos); }
   });
 
   // 得意先選択
@@ -2970,11 +2985,30 @@ function bindEvents(root: HTMLElement): void {
       billingAddress: g("qs-billing-address"),
       defaultPaymentTerms: g("qs-payment-terms"),
       defaultHeaderNote: g("qs-header-note"),
-      defaultFooterNote: g("qs-footer-note")
+      defaultFooterNote: g("qs-footer-note"),
+      accentColor: (document.getElementById("qs-accent-color") as HTMLInputElement)?.value || state.quoteCompanySettings.accentColor || "#0968e5"
     };
     saveQuoteSettings(newSettings);
     state.quoteCompanySettings = newSettings;
     showToast("設定を保存しました", "success");
+    renderApp();
+  });
+
+  // 設定ページ: カラープリセット
+  root.querySelectorAll<HTMLButtonElement>("[data-action='set-accent-color']").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const color = btn.dataset.color ?? "#0968e5";
+      state.quoteCompanySettings = { ...state.quoteCompanySettings, accentColor: color };
+      saveQuoteSettings(state.quoteCompanySettings);
+      renderApp();
+    });
+  });
+
+  // 設定ページ: カスタムカラーリアルタイムプレビュー
+  root.querySelector<HTMLInputElement>("#qs-accent-color")?.addEventListener("input", e => {
+    const color = (e.target as HTMLInputElement).value;
+    state.quoteCompanySettings = { ...state.quoteCompanySettings, accentColor: color };
+    saveQuoteSettings(state.quoteCompanySettings);
     renderApp();
   });
 

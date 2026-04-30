@@ -15,9 +15,21 @@ export interface QuoteCompanySettings {
   defaultFooterNote: string;
   sealImageDataUrl: string;
   sealSize: number;
+  accentColor: string;
 }
 
 export const QUOTE_SETTINGS_KEY = "kanei-quote-settings";
+
+export const COLOR_PRESETS = [
+  { label: "青（標準）", value: "#0968e5" },
+  { label: "紺",         value: "#1e3a8a" },
+  { label: "藍",         value: "#1d4ed8" },
+  { label: "緑",         value: "#15803d" },
+  { label: "金",         value: "#b45309" },
+  { label: "朱",         value: "#c2410c" },
+  { label: "ワイン",     value: "#881337" },
+  { label: "墨",         value: "#1f2937" },
+];
 
 export const defaultCompanySettings: QuoteCompanySettings = {
   companyName: "金井酒造店",
@@ -35,7 +47,8 @@ export const defaultCompanySettings: QuoteCompanySettings = {
   defaultHeaderNote: "下記のとおりお見積り申し上げます。",
   defaultFooterNote: "",
   sealImageDataUrl: "",
-  sealSize: 72
+  sealSize: 72,
+  accentColor: "#0968e5",
 };
 
 export function loadQuoteSettings(): QuoteCompanySettings {
@@ -72,7 +85,7 @@ export function renderQuoteSettings(s: QuoteCompanySettings): string {
       <div><p class="eyebrow">見積書</p><h1>会社・請求先設定</h1></div>
       <div class="meta-stack">
         <button class="button primary" type="button" data-action="save-quote-settings">保存</button>
-        <a class="button secondary" href="/quote" data-nav="/quote">← 見積一覧</a>
+        <a class="button secondary" href="/quote" data-link="/quote">← 見積一覧</a>
       </div>
     </section>
 
@@ -105,6 +118,33 @@ export function renderQuoteSettings(s: QuoteCompanySettings): string {
         ${field("qs-payment-terms", "支払条件", s.defaultPaymentTerms, "text", "月末締め翌月末払い")}
         ${field("qs-header-note", "書類上部メモ", s.defaultHeaderNote, "text", "下記のとおりお見積り申し上げます。")}
         ${field("qs-footer-note", "書類下部メモ", s.defaultFooterNote)}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header"><h2>カラーテーマ</h2></div>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">見積書のアクセントカラーを設定します。プリセットから選ぶか、カスタムカラーを指定してください。</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+        ${COLOR_PRESETS.map(p => `
+          <button
+            type="button"
+            data-action="set-accent-color"
+            data-color="${esc(p.value)}"
+            title="${esc(p.label)}"
+            style="width:36px;height:36px;border-radius:6px;border:3px solid ${s.accentColor === p.value ? "#333" : "transparent"};background:${esc(p.value)};cursor:pointer;transition:border-color 0.15s;"
+          ></button>
+        `).join("")}
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;">
+          カスタム
+          <input type="color" id="qs-accent-color" value="${esc(s.accentColor || "#0968e5")}" style="width:36px;height:36px;border:none;border-radius:4px;cursor:pointer;padding:2px;" />
+        </label>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span style="font-size:12px;color:var(--text-secondary);">現在の色:</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;">
+          <span style="display:inline-block;width:20px;height:20px;border-radius:4px;background:${esc(s.accentColor || "#0968e5")};border:1px solid rgba(0,0,0,0.15);"></span>
+          <code style="font-size:12px;">${esc(s.accentColor || "#0968e5")}</code>
+        </span>
       </div>
     </section>
 

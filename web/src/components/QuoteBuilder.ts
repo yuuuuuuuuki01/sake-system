@@ -79,6 +79,69 @@ function fmtDate(iso: string): string {
   return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
 }
 
+// ─── Color helpers ────────────────────────────────────────────────────────────
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function toHex(r: number, g: number, b: number): string {
+  return "#" + [r,g,b].map(v => Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,"0")).join("");
+}
+function lighten(hex: string, amount: number): string {
+  const [r,g,b] = hexToRgb(hex);
+  return toHex(r+(255-r)*amount, g+(255-g)*amount, b+(255-b)*amount);
+}
+function darken(hex: string, amount: number): string {
+  const [r,g,b] = hexToRgb(hex);
+  return toHex(r*(1-amount), g*(1-amount), b*(1-amount));
+}
+
+function makeDocCss(accent: string): string {
+  const accentDark    = darken(accent, 0.15);
+  const accentLight   = lighten(accent, 0.88);
+  const accentMidTint = lighten(accent, 0.96);
+  const sellerBg      = lighten(accent, 0.94);
+  const sellerBorder  = lighten(accent, 0.62);
+  return `
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11px; color:#1a1a2e; padding:16mm 18mm; }
+.q-doc { max-width: 720px; margin: 0 auto; }
+.q-title-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; border-bottom:3px solid ${accent}; padding-bottom:8px; }
+.q-title { font-size:20px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
+.q-meta-table { font-size:10px; border-collapse:collapse; }
+.q-meta-table th { text-align:right; padding:1px 6px 1px 0; color:#555; white-space:nowrap; }
+.q-meta-table td { font-weight:600; }
+.q-parties { display:flex; justify-content:space-between; gap:16px; margin-bottom:14px; }
+.q-customer { flex:1; }
+.q-customer-name { font-size:16px; font-weight:700; border-bottom:1px solid #333; padding-bottom:3px; margin-bottom:3px; }
+.q-customer-addr { font-size:10px; color:#555; }
+.q-seller { width:195px; background:${sellerBg}; border:1px solid ${sellerBorder}; border-radius:4px; padding:10px 12px 10px 12px; font-size:10px; min-height:90px; }
+.q-seller-name { font-size:13px; font-weight:700; margin-bottom:4px; }
+.q-seller-sub { color:#444; margin-top:1px; }
+.q-regno { color:#777; font-size:9px; }
+.q-total-banner { display:flex; justify-content:space-between; align-items:center; background:${accent}; color:white; padding:10px 16px; border-radius:4px; margin-bottom:14px; }
+.q-total-label { font-size:12px; }
+.q-total-amount { font-size:20px; font-weight:700; }
+.q-subject { font-size:12px; font-weight:600; margin-bottom:8px; }
+.q-note { font-size:10px; color:#555; margin-bottom:10px; }
+.q-items { width:100%; border-collapse:collapse; margin-bottom:12px; font-size:10px; }
+.q-items th { background:${accent}; color:white; padding:5px 6px; font-weight:600; text-align:center; border:1px solid ${accentDark}; }
+.q-items td { padding:4px 6px; border:1px solid #d0d8e8; }
+.q-items tbody tr:nth-child(even) td { background:${accentMidTint}; }
+.q-items tfoot td { padding:4px 6px; border:1px solid #d0d8e8; }
+.q-total-row td { font-weight:700; font-size:12px; background:${accentLight}; border-top:2px solid ${accent}; }
+.q-conditions { width:55%; border-collapse:collapse; margin-bottom:12px; font-size:10px; }
+.q-conditions th { background:#f0f0f0; padding:4px 8px; text-align:left; border:1px solid #ccc; width:90px; font-weight:600; }
+.q-conditions td { padding:4px 8px; border:1px solid #ccc; }
+.q-remarks { border:1px solid #ddd; padding:8px; font-size:10px; margin-bottom:10px; border-radius:3px; }
+.q-remarks-label { font-weight:700; margin-bottom:3px; }
+.q-footer-note { font-size:9px; color:#777; margin-bottom:8px; }
+.billing-box { border-top:1px solid #e0e0e0; padding-top:8px; font-size:10px; color:#555; line-height:1.6; }
+@media print { body { padding:10mm 12mm; } }
+`;
+}
+
 // ─── freee-style document HTML ────────────────────────────────────────────────
 
 function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): string {
@@ -194,43 +257,6 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
 </div>`;
 }
 
-const DOC_CSS = `
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11px; color:#1a1a2e; padding:16mm 18mm; }
-.q-doc { max-width: 720px; margin: 0 auto; }
-.q-title-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; border-bottom:3px solid #0968e5; padding-bottom:8px; }
-.q-title { font-size:20px; font-weight:700; letter-spacing:0.3em; color:#0968e5; }
-.q-meta-table { font-size:10px; border-collapse:collapse; }
-.q-meta-table th { text-align:right; padding:1px 6px 1px 0; color:#555; white-space:nowrap; }
-.q-meta-table td { font-weight:600; }
-.q-parties { display:flex; justify-content:space-between; gap:16px; margin-bottom:14px; }
-.q-customer { flex:1; }
-.q-customer-name { font-size:16px; font-weight:700; border-bottom:1px solid #333; padding-bottom:3px; margin-bottom:3px; }
-.q-customer-addr { font-size:10px; color:#555; }
-.q-seller { width:195px; background:#f0f6ff; border:1px solid #c0d8f8; border-radius:4px; padding:10px 12px 10px 12px; font-size:10px; min-height:90px; }
-.q-seller-name { font-size:13px; font-weight:700; margin-bottom:4px; }
-.q-seller-sub { color:#444; margin-top:1px; }
-.q-regno { color:#777; font-size:9px; }
-.q-total-banner { display:flex; justify-content:space-between; align-items:center; background:#0968e5; color:white; padding:10px 16px; border-radius:4px; margin-bottom:14px; }
-.q-total-label { font-size:12px; }
-.q-total-amount { font-size:20px; font-weight:700; }
-.q-subject { font-size:12px; font-weight:600; margin-bottom:8px; }
-.q-note { font-size:10px; color:#555; margin-bottom:10px; }
-.q-items { width:100%; border-collapse:collapse; margin-bottom:12px; font-size:10px; }
-.q-items th { background:#0968e5; color:white; padding:5px 6px; font-weight:600; text-align:center; border:1px solid #0756c8; }
-.q-items td { padding:4px 6px; border:1px solid #d0d8e8; }
-.q-items tbody tr:nth-child(even) td { background:#f8faff; }
-.q-items tfoot td { padding:4px 6px; border:1px solid #d0d8e8; }
-.q-total-row td { font-weight:700; font-size:12px; background:#edf4ff; border-top:2px solid #0968e5; }
-.q-conditions { width:55%; border-collapse:collapse; margin-bottom:12px; font-size:10px; }
-.q-conditions th { background:#f0f0f0; padding:4px 8px; text-align:left; border:1px solid #ccc; width:90px; font-weight:600; }
-.q-conditions td { padding:4px 8px; border:1px solid #ccc; }
-.q-remarks { border:1px solid #ddd; padding:8px; font-size:10px; margin-bottom:10px; border-radius:3px; }
-.q-remarks-label { font-weight:700; margin-bottom:3px; }
-.q-footer-note { font-size:9px; color:#777; margin-bottom:8px; }
-.billing-box { border-top:1px solid #e0e0e0; padding-top:8px; font-size:10px; color:#555; line-height:1.6; }
-@media print { body { padding:10mm 12mm; } }
-`;
 
 // ─── Edit-mode renderer ───────────────────────────────────────────────────────
 
@@ -268,40 +294,7 @@ export function renderQuoteBuilder(
       <div style="background:white;border:1px solid #ddd;border-radius:6px;padding:24px;margin-top:8px;">
         ${renderDocHtml(quote, settings)}
       </div>
-      <style>
-        .q-doc { max-width:720px; margin:0 auto; }
-        .q-title-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; border-bottom:3px solid #0968e5; padding-bottom:8px; }
-        .q-title { font-size:20px; font-weight:700; letter-spacing:0.3em; color:#0968e5; }
-        .q-meta-table { font-size:10px; border-collapse:collapse; }
-        .q-meta-table th { text-align:right; padding:1px 6px 1px 0; color:#555; white-space:nowrap; }
-        .q-meta-table td { font-weight:600; }
-        .q-parties { display:flex; justify-content:space-between; gap:16px; margin-bottom:14px; }
-        .q-customer { flex:1; }
-        .q-customer-name { font-size:16px; font-weight:700; border-bottom:1px solid #333; padding-bottom:3px; margin-bottom:3px; }
-        .q-customer-addr { font-size:10px; color:#555; }
-        .q-seller { width:195px; background:#f0f6ff; border:1px solid #c0d8f8; border-radius:4px; padding:10px 12px; font-size:10px; min-height:90px; position:relative; }
-        .q-seller-name { font-size:13px; font-weight:700; margin-bottom:4px; }
-        .q-seller-sub { color:#444; margin-top:1px; }
-        .q-regno { color:#777; font-size:9px; }
-        .q-total-banner { display:flex; justify-content:space-between; align-items:center; background:#0968e5; color:white; padding:10px 16px; border-radius:4px; margin-bottom:14px; }
-        .q-total-label { font-size:12px; }
-        .q-total-amount { font-size:20px; font-weight:700; }
-        .q-subject { font-size:12px; font-weight:600; margin-bottom:8px; }
-        .q-note { font-size:10px; color:#555; margin-bottom:10px; }
-        .q-items { width:100%; border-collapse:collapse; margin-bottom:12px; font-size:10px; }
-        .q-items th { background:#0968e5; color:white; padding:5px 6px; font-weight:600; text-align:center; border:1px solid #0756c8; }
-        .q-items td { padding:4px 6px; border:1px solid #d0d8e8; }
-        .q-items tbody tr:nth-child(even) td { background:#f8faff; }
-        .q-items tfoot td { padding:4px 6px; border:1px solid #d0d8e8; }
-        .q-total-row td { font-weight:700; font-size:12px; background:#edf4ff; border-top:2px solid #0968e5; }
-        .q-conditions { width:55%; border-collapse:collapse; margin-bottom:12px; font-size:10px; }
-        .q-conditions th { background:#f0f0f0; padding:4px 8px; text-align:left; border:1px solid #ccc; width:90px; font-weight:600; }
-        .q-conditions td { padding:4px 8px; border:1px solid #ccc; }
-        .q-remarks { border:1px solid #ddd; padding:8px; font-size:10px; margin-bottom:10px; border-radius:3px; }
-        .q-remarks-label { font-weight:700; margin-bottom:3px; }
-        .q-footer-note { font-size:9px; color:#777; margin-bottom:8px; }
-        .billing-box { border-top:1px solid #e0e0e0; padding-top:8px; font-size:10px; color:#555; line-height:1.6; }
-      </style>
+      <style>${makeDocCss(settings.accentColor || "#0968e5")}</style>
     `;
   }
 
@@ -441,7 +434,7 @@ export function generateQuotePdf(quote: QuoteState, settings: QuoteCompanySettin
   win.document.write(`<!DOCTYPE html>
 <html lang="ja"><head><meta charset="UTF-8" />
 <title>見積書 ${quote.quoteNo || ""}</title>
-<style>${DOC_CSS}</style>
+<style>${makeDocCss(settings.accentColor || "#0968e5")}</style>
 </head><body>${docHtml}
 <script>window.onload=function(){window.print();}<\/script>
 </body></html>`);

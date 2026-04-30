@@ -9,7 +9,8 @@ const PERIOD_LABELS: Record<SalesPeriod, string> = {
   "90days": "90日",
   year: "1年",
   all: "全期間",
-  custom: "指定期間"
+  custom: "指定期間",
+  future: "今月以降"
 };
 
 function shiftYear(isoDate: string, years: number): string {
@@ -29,6 +30,11 @@ function filterByPeriod(allDays: SalesDayPoint[], period: SalesPeriod, customRan
       return allDays.filter((d) => d.date.slice(0, 10) === todayKey);
     case "month":
       return allDays.filter((d) => d.date.slice(0, 7) === todayKey.slice(0, 7));
+    case "future": {
+      // 今月1日以降のデータをすべて表示（来月・再来月の受注済み分を含む）
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      return allDays.filter((d) => d.date.slice(0, 10) >= startOfMonth);
+    }
     case "90days":
       cutoff.setDate(cutoff.getDate() - 90);
       return allDays.filter((d) => d.date >= cutoff.toISOString());
@@ -195,6 +201,7 @@ export interface DashboardExtras {
     decliningCount: number;
     totalImpact: number;
   };
+  orderHeaders?: import("../api").OrderHeader[];
 }
 
 export function renderDashboard(
@@ -223,13 +230,30 @@ export function renderDashboard(
 
   // 当月実績 + 月末見込
   const now = new Date();
-  const monthDays = filterByPeriod(summary.allDailySales, "month");
+  const todayStr = now.toISOString().slice(0, 10);
+  const thisMonthKey = todayStr.slice(0, 7); // "YYYY-MM"
+  // 当月実績は本日以前のみ（CSV等で将来日付が入っている場合に備えて <= today でフィルタ）
+  const monthDays = filterByPeriod(summary.allDailySales, "month").filter(
+    (d) => d.date.slice(0, 10) <= todayStr
+  );
   const mtdAmount = monthDays.reduce((s, d) => s + d.amount, 0);
   const mtdBottles = monthDays.reduce((s, d) => s + d.bottles, 0);
   const dayOfMonth = now.getDate();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const projectedAmount = dayOfMonth > 0 ? Math.round(mtdAmount * daysInMonth / dayOfMonth) : 0;
-  const projectedBottles = dayOfMonth > 0 ? Math.round(mtdBottles * daysInMonth / dayOfMonth) : 0;
+
+  // 当月受注合計（sales_document_headers）
+  const orderHeaders = extras?.orderHeaders ?? [];
+  const thisMonthOrders = orderHeaders.filter((o) => o.sales_date.slice(0, 7) === thisMonthKey);
+  const thisMonthOrderTotal = thisMonthOrders.reduce((s, o) => s + Number(o.total_amount), 0);
+  const thisMonthOrderCount = thisMonthOrders.length;
+
+  // 月末見込 = 当月受注合計（確定済み）/ 日割り外挿（データなし時）
+  const fullMonthDays = filterByPeriod(summary.allDailySales, "month");
+  const projectedBottles = fullMonthDays.reduce((s, d) => s + d.bottles, 0);
+  const projectedAmount = thisMonthOrderTotal > 0
+    ? thisMonthOrderTotal
+    : fullMonthDays.reduce((s, d) => s + d.amount, 0);
+  const projectionSource = thisMonthOrderTotal > 0 ? "orders" : "extrapolation";
 
   // 昨対比較: 同じ期間の前年データを抽出
   const lastYearDays = filteredDays.length > 0
@@ -259,7 +283,7 @@ export function renderDashboard(
     )
     .join("");
 
-  const periodButtons = (["today", "month", "90days", "year", "all"] as SalesPeriod[])
+  const periodButtons = (["today", "month", "future", "90days", "year", "all"] as SalesPeriod[])
     .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-period="${p}">${PERIOD_LABELS[p]}</button>`)
     .join("");
 
@@ -299,9 +323,12 @@ export function renderDashboard(
         <p class="kpi-sub">${dayOfMonth}日経過 / ${monthDays.length}営業日 / 日平均 ${monthDays.length > 0 ? formatCurrency(Math.round(mtdAmount / monthDays.length)) : "―"}</p>
       </article>
       <article class="panel kpi-card" style="border-left:3px solid #0968e5;">
-        <p class="panel-title">月末見込</p>
+        <p class="panel-title">月末受注見込</p>
         <p class="kpi-value">${formatCurrency(projectedAmount)}</p>
-        <p class="kpi-sub">出荷見込 ${projectedBottles.toLocaleString("ja-JP")}本（${daysInMonth}日換算）</p>
+        <p class="kpi-sub">${projectionSource === "orders"
+          ? `受注確定 ${thisMonthOrderCount}件`
+          : `出荷見込 ${projectedBottles.toLocaleString("ja-JP")}本（日割り外挿）`
+        }</p>
       </article>
       <article class="panel kpi-card">
         <p class="panel-title">昨対比</p>
@@ -584,5 +611,73 @@ function renderExtraWidgets(extras: DashboardExtras): string {
     ${extras.deliveries && extras.deliveries.length > 0
       ? renderDeliveryCalendarWidget(extras.deliveries, extras.deliveryCalendarMonth || new Date().toISOString().slice(0, 7))
       : ""}
+
+    ${extras.orderHeaders && extras.orderHeaders.length > 0
+      ? renderOrderHeadersWidget(extras.orderHeaders)
+      : ""}
+  `;
+}
+
+function renderOrderHeadersWidget(orders: import("../api").OrderHeader[]): string {
+  const fmt = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const thisMonth = todayStr.slice(0, 7);
+
+  // 月別集計
+  const byMonth = new Map<string, { count: number; total: number }>();
+  for (const o of orders) {
+    const m = o.sales_date.slice(0, 7);
+    const cur = byMonth.get(m) ?? { count: 0, total: 0 };
+    byMonth.set(m, { count: cur.count + 1, total: cur.total + Number(o.total_amount) });
+  }
+  const months = [...byMonth.keys()].sort();
+  const grandTotal = orders.reduce((s, o) => s + Number(o.total_amount), 0);
+
+  const monthSummary = months.map((m) => {
+    const { count, total } = byMonth.get(m)!;
+    const label = m === thisMonth ? `${m}（当月）` : m;
+    return `<tr>
+      <td class="mono" style="font-weight:700;">${label}</td>
+      <td class="numeric">${count.toLocaleString("ja-JP")}件</td>
+      <td class="numeric" style="font-weight:700;">${fmt.format(total)}</td>
+    </tr>`;
+  }).join("");
+
+  // 直近の個別受注（今日以降のもの、最大30件）
+  const upcoming = orders.filter((o) => o.sales_date >= todayStr).slice(0, 30);
+  const upcomingRows = upcoming.map((o) => `<tr>
+    <td class="mono">${o.sales_date}</td>
+    <td>${o.customer_name || "―"}</td>
+    <td class="numeric">${fmt.format(Number(o.total_amount))}</td>
+  </tr>`).join("");
+
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>受注明細サマリー</h2>
+          <p class="panel-caption">当月以降の受注 ${orders.length}件</p>
+        </div>
+        <span style="font-size:1.2rem;font-weight:700;color:var(--accent);">${fmt.format(grandTotal)}</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>月</th><th class="numeric">件数</th><th class="numeric">受注高</th></tr></thead>
+          <tbody>${monthSummary}</tbody>
+        </table>
+      </div>
+      ${upcoming.length > 0 ? `
+      <div class="panel-header" style="margin-top:16px;">
+        <div><h3 style="font-size:13px;font-weight:600;">本日以降の受注（${upcoming.length}件）</h3></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>受注日</th><th>得意先</th><th class="numeric">金額</th></tr></thead>
+          <tbody>${upcomingRows}</tbody>
+        </table>
+      </div>
+      ` : ""}
+    </section>
   `;
 }
