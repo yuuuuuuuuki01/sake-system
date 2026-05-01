@@ -2787,8 +2787,6 @@ function bindEvents(root: HTMLElement): void {
       div = document.createElement("div");
       div.id = "cust-search-results";
       div.className = "search-results";
-      div.addEventListener("mousedown", e => e.preventDefault());
-      div.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
       formRow.after(div); // form-rowの直後の兄弟要素として挿入
     }
     const all = state.masterStats?.customers ?? [];
@@ -2848,8 +2846,6 @@ function bindEvents(root: HTMLElement): void {
       div = document.createElement("div");
       div.id = "prod-search-results";
       div.className = "search-results";
-      div.addEventListener("mousedown", e => e.preventDefault());
-      div.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
       formRow.after(div); // form-rowの直後の兄弟要素として挿入
     }
     if (!state.masterStats) {
