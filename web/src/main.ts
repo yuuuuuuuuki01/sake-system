@@ -2780,13 +2780,16 @@ function bindEvents(root: HTMLElement): void {
   }
 
   function updateCustSearchResults(query: string) {
-    const section = root.querySelector<HTMLElement>("#q-cust-search")?.closest<HTMLElement>("section.panel");
-    if (!section) return;
-    let div = section.querySelector<HTMLElement>(".search-results");
+    const formRow = root.querySelector<HTMLElement>("#q-cust-search")?.closest<HTMLElement>(".form-row");
+    if (!formRow) return;
+    let div = formRow.querySelector<HTMLElement>(".search-results");
     if (!div) {
       div = document.createElement("div");
       div.className = "search-results";
-      section.querySelector(".form-row")?.after(div);
+      // mousedownでpreventDefaultしblurを防ぐ（タップしても入力フィールドのフォーカスが外れない）
+      div.addEventListener("mousedown", e => e.preventDefault());
+      div.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
+      formRow.appendChild(div);
     }
     const all = state.masterStats?.customers ?? [];
     const q = query.trim().toLowerCase();
@@ -2838,13 +2841,15 @@ function bindEvents(root: HTMLElement): void {
   }
 
   function updateProdSearchResults(query: string) {
-    const section = root.querySelector<HTMLElement>("#q-prod-search")?.closest<HTMLElement>("section.panel");
-    if (!section) return;
-    let div = section.querySelector<HTMLElement>(".search-results");
+    const formRow = root.querySelector<HTMLElement>("#q-prod-search")?.closest<HTMLElement>(".form-row");
+    if (!formRow) return;
+    let div = formRow.querySelector<HTMLElement>(".search-results");
     if (!div) {
       div = document.createElement("div");
       div.className = "search-results";
-      section.querySelector(".form-row")?.after(div);
+      div.addEventListener("mousedown", e => e.preventDefault());
+      div.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
+      formRow.appendChild(div);
     }
     if (!state.masterStats) {
       div.innerHTML = `<p style="padding:10px 12px;color:var(--text-secondary);font-size:13px;">マスタ読込中…</p>`;
@@ -2864,9 +2869,11 @@ function bindEvents(root: HTMLElement): void {
   (function() {
     const el = root.querySelector<HTMLInputElement>("#q-cust-search");
     if (!el) return;
+    let lastComposeEnd = 0;
     // フォーカス時に全件表示
     el.addEventListener("focus", () => updateCustSearchResults(el.value));
     el.addEventListener("compositionend", () => {
+      lastComposeEnd = Date.now();
       state.quoteCustomerQuery = el.value;
       updateCustSearchResults(el.value);
     });
@@ -2876,11 +2883,13 @@ function bindEvents(root: HTMLElement): void {
       updateCustSearchResults(el.value);
     });
     // フォーカスが外れたら一覧を閉じる
+    // IME確定直後(600ms以内)のblurはスキップ（モバイルキーボード確定で閉じない）
     el.addEventListener("blur", () => {
+      const delay = (Date.now() - lastComposeEnd) < 600 ? 800 : 200;
       setTimeout(() => {
-        const section = el.closest<HTMLElement>("section.panel");
-        section?.querySelector(".search-results")?.remove();
-      }, 200);
+        if (document.activeElement === el) return; // フォーカスが戻ってたら閉じない
+        el.closest<HTMLElement>(".form-row")?.querySelector(".search-results")?.remove();
+      }, delay);
     });
     // 既に値が入っていれば初期表示
     if (el.value) updateCustSearchResults(el.value);
@@ -2890,9 +2899,11 @@ function bindEvents(root: HTMLElement): void {
   (function() {
     const el = root.querySelector<HTMLInputElement>("#q-prod-search");
     if (!el) return;
+    let lastComposeEnd = 0;
     // フォーカス時に全件表示
     el.addEventListener("focus", () => updateProdSearchResults(el.value));
     el.addEventListener("compositionend", () => {
+      lastComposeEnd = Date.now();
       state.quoteProductQuery = el.value;
       updateProdSearchResults(el.value);
     });
@@ -2903,10 +2914,11 @@ function bindEvents(root: HTMLElement): void {
     });
     // フォーカスが外れたら一覧を閉じる
     el.addEventListener("blur", () => {
+      const delay = (Date.now() - lastComposeEnd) < 600 ? 800 : 200;
       setTimeout(() => {
-        const section = el.closest<HTMLElement>("section.panel");
-        section?.querySelector(".search-results")?.remove();
-      }, 200);
+        if (document.activeElement === el) return;
+        el.closest<HTMLElement>(".form-row")?.querySelector(".search-results")?.remove();
+      }, delay);
     });
     // 既に値が入っていれば初期表示
     if (el.value) updateProdSearchResults(el.value);

@@ -929,6 +929,7 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  position: relative;
 }
 
 .form-row label {
@@ -4019,15 +4020,21 @@ details.panel[open] > summary::before {
 }
 
 .search-results {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 500;
   display: flex;
   flex-direction: column;
   gap: 0;
   max-height: 360px;
   overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
-  margin-top: 4px;
-  box-shadow: 0 4px 12px rgba(16, 24, 40, 0.08);
+  box-shadow: 0 4px 16px rgba(16, 24, 40, 0.14);
+  background: var(--surface);
 }
 
 .search-item {
@@ -4035,6 +4042,7 @@ details.panel[open] > summary::before {
   flex-direction: column;
   gap: 2px;
   width: 100%;
+  box-sizing: border-box;
   text-align: left;
   padding: 9px 12px;
   border: none;
@@ -4042,9 +4050,10 @@ details.panel[open] > summary::before {
   background: var(--surface);
   cursor: pointer;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.5;
   white-space: normal;
-  word-break: break-all;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .search-item:last-child {
