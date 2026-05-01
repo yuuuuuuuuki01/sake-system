@@ -2776,6 +2776,85 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 検索ボックス用エスケープ
+  function qEsc(v: string): string {
+    return (v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  // 得意先検索結果を直接DOM更新（renderApp不要でフォーカスを保持）
+  function updateCustSearchResults(query: string) {
+    const section = root.querySelector<HTMLElement>("#q-cust-search")?.closest<HTMLElement>("section.panel");
+    if (!section) return;
+    section.querySelector(".search-results")?.remove();
+    if (query.length < 1) return;
+    const customers = state.masterStats?.customers ?? [];
+    const filtered = customers.filter(c => c.name.includes(query) || c.code.includes(query)).slice(0, 8);
+    if (filtered.length === 0) return;
+    const div = document.createElement("div");
+    div.className = "search-results";
+    div.innerHTML = filtered.map(c =>
+      `<button class="search-item" type="button" data-select-customer="${qEsc(c.code)}" data-cust-name="${qEsc(c.name)}" data-cust-addr="${qEsc(c.address1 || "")}">` +
+      `<span class="mono">${qEsc(c.code)}</span> ${qEsc(c.name)}` +
+      `</button>`
+    ).join("");
+    section.querySelector(".form-row")?.after(div);
+    div.querySelectorAll<HTMLButtonElement>("[data-select-customer]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const code = btn.dataset.selectCustomer ?? "";
+        state.quoteState.customerCode = code;
+        state.quoteState.customerName = btn.dataset.custName ?? "";
+        state.quoteState.customerAddress = btn.dataset.custAddr ?? "";
+        state.quoteCustomerQuery = "";
+        state.quotePricing = await fetchCustomerPricing(state.masterStats?.customers ?? [], code);
+        renderApp();
+      });
+    });
+  }
+
+  // 商品検索結果を直接DOM更新
+  function updateProdSearchResults(query: string) {
+    const section = root.querySelector<HTMLElement>("#q-prod-search")?.closest<HTMLElement>("section.panel");
+    if (!section) return;
+    section.querySelector(".search-results")?.remove();
+    if (query.length < 1) return;
+    const products = state.masterStats?.products ?? [];
+    const filtered = products.filter(p => p.name.includes(query) || p.code.includes(query)).slice(0, 8);
+    if (filtered.length === 0) return;
+    const pricing = state.quotePricing;
+    const div = document.createElement("div");
+    div.className = "search-results";
+    div.innerHTML = filtered.map(p => {
+      const resolved = pricing ? resolveProductPrice(p, pricing) : { price: (p as any).salePrice || 0, label: "標準価格" };
+      const isSpecial = resolved.label !== "標準価格";
+      return `<button class="search-item" type="button" data-add-product="${qEsc(p.code)}" data-prod-name="${qEsc(p.name)}" data-prod-price="${resolved.price}" data-prod-jan="${qEsc((p as any).janCode ?? "")}" data-prod-case="${(p as any).caseQty ?? ""}">` +
+        `<span class="mono">${qEsc(p.code)}</span> ${qEsc(p.name)}` +
+        `<span class="numeric"${isSpecial ? ' style="color:#2f855a;font-weight:700;"' : ""}>${resolved.price ? "¥" + resolved.price.toLocaleString("ja-JP") : ""} <small>(${qEsc(resolved.label)})</small></span>` +
+        `</button>`;
+    }).join("");
+    div.querySelectorAll<HTMLButtonElement>("[data-add-product]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const code = btn.dataset.addProduct ?? "";
+        const name = btn.dataset.prodName ?? "";
+        const price = parseInt(btn.dataset.prodPrice ?? "0");
+        const jan = btn.dataset.prodJan ?? "";
+        const caseQtyRaw = btn.dataset.prodCase ?? "";
+        const caseQty = caseQtyRaw ? parseInt(caseQtyRaw) : null;
+        state.quoteState.lines.push({
+          productCode: code, productName: name,
+          janCode: jan, caseQty,
+          quantity: 1, unit: "本",
+          unitPrice: price, retailPrice: null,
+          amount: price
+        });
+        state.quoteProductQuery = "";
+        renderApp();
+      });
+    });
+    const formRow = section.querySelector(".form-row");
+    if (formRow) formRow.after(div);
+    else section.appendChild(div);
+  }
+
   // 得意先検索
   (function() {
     const el = root.querySelector<HTMLInputElement>("#q-cust-search");
@@ -2783,19 +2862,13 @@ function bindEvents(root: HTMLElement): void {
     el.addEventListener("compositionend", () => {
       const val = el.value;
       state.quoteCustomerQuery = val;
-      const pos = el.selectionStart ?? val.length;
-      renderApp();
-      const next = root.querySelector<HTMLInputElement>("#q-cust-search");
-      if (next) { next.focus(); next.setSelectionRange(pos, pos); }
+      updateCustSearchResults(val);
     });
     el.addEventListener("input", e => {
       if ((e as InputEvent).isComposing) return;
       const val = el.value;
-      const pos = el.selectionStart ?? val.length;
       state.quoteCustomerQuery = val;
-      renderApp();
-      const next = root.querySelector<HTMLInputElement>("#q-cust-search");
-      if (next) { next.focus(); next.setSelectionRange(pos, pos); }
+      updateCustSearchResults(val);
     });
   })();
 
@@ -2806,23 +2879,17 @@ function bindEvents(root: HTMLElement): void {
     el.addEventListener("compositionend", () => {
       const val = el.value;
       state.quoteProductQuery = val;
-      const pos = el.selectionStart ?? val.length;
-      renderApp();
-      const next = root.querySelector<HTMLInputElement>("#q-prod-search");
-      if (next) { next.focus(); next.setSelectionRange(pos, pos); }
+      updateProdSearchResults(val);
     });
     el.addEventListener("input", e => {
       if ((e as InputEvent).isComposing) return;
       const val = el.value;
-      const pos = el.selectionStart ?? val.length;
       state.quoteProductQuery = val;
-      renderApp();
-      const next = root.querySelector<HTMLInputElement>("#q-prod-search");
-      if (next) { next.focus(); next.setSelectionRange(pos, pos); }
+      updateProdSearchResults(val);
     });
   })();
 
-  // 得意先選択
+  // 得意先選択（初期レンダリング時にすでに表示されている場合）
   root.querySelectorAll<HTMLButtonElement>("[data-select-customer]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const code = btn.dataset.selectCustomer ?? "";
@@ -2835,7 +2902,7 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // 商品追加
+  // 商品追加（初期レンダリング時にすでに表示されている場合）
   root.querySelectorAll<HTMLButtonElement>("[data-add-product]").forEach(btn => {
     btn.addEventListener("click", () => {
       const code = btn.dataset.addProduct ?? "";
@@ -2935,6 +3002,17 @@ function bindEvents(root: HTMLElement): void {
       state.quoteState.lines.splice(idx, 1);
       renderApp();
     });
+  });
+
+  // プレビューモード切替
+  root.querySelector<HTMLButtonElement>("[data-action='quote-preview-mode']")?.addEventListener("click", () => {
+    syncQuoteFormToState(state.quoteState);
+    state.quoteState.previewMode = true;
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='quote-edit-mode']")?.addEventListener("click", () => {
+    state.quoteState.previewMode = false;
+    renderApp();
   });
 
   // PDF
