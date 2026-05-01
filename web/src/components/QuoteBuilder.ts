@@ -98,6 +98,7 @@ function darken(hex: string, amount: number): string {
   return toHex(r*(1-amount), g*(1-amount), b*(1-amount));
 }
 
+// PDF ウィンドウ用 CSS（グローバルスタイルOK）
 function makeDocCss(accent: string): string {
   const accentDark    = darken(accent, 0.15);
   const accentLight   = lighten(accent, 0.88);
@@ -117,7 +118,7 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 .q-customer { flex:1; }
 .q-customer-name { font-size:16px; font-weight:700; border-bottom:1px solid #333; padding-bottom:3px; margin-bottom:3px; }
 .q-customer-addr { font-size:10px; color:#555; }
-.q-seller { width:195px; background:${sellerBg}; border:1px solid ${sellerBorder}; border-radius:4px; padding:10px 12px 10px 12px; font-size:10px; min-height:90px; }
+.q-seller { width:195px; background:${sellerBg}; border:1px solid ${sellerBorder}; border-radius:4px; padding:10px 12px; font-size:10px; min-height:90px; }
 .q-seller-name { font-size:13px; font-weight:700; margin-bottom:4px; }
 .q-seller-sub { color:#444; margin-top:1px; }
 .q-regno { color:#777; font-size:9px; }
@@ -140,6 +141,67 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 .q-footer-note { font-size:9px; color:#777; margin-bottom:8px; }
 .billing-box { border-top:1px solid #e0e0e0; padding-top:8px; font-size:10px; color:#555; line-height:1.6; }
 @media print { body { padding:10mm 12mm; } }
+`;
+}
+
+// SPA インライン プレビュー用 CSS（.q-doc にスコープ + モバイル対応）
+function makeDocCssSpa(accent: string): string {
+  const accentDark    = darken(accent, 0.15);
+  const accentLight   = lighten(accent, 0.88);
+  const accentMidTint = lighten(accent, 0.96);
+  const sellerBg      = lighten(accent, 0.94);
+  const sellerBorder  = lighten(accent, 0.62);
+  return `
+.q-doc { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:13px; color:#1a1a2e; max-width:720px; margin:0 auto; }
+.q-doc * { box-sizing:border-box; margin:0; padding:0; }
+.q-doc .q-title-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; border-bottom:3px solid ${accent}; padding-bottom:8px; }
+.q-doc .q-title { font-size:22px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
+.q-doc .q-meta-table { font-size:12px; border-collapse:collapse; }
+.q-doc .q-meta-table th { text-align:right; padding:2px 8px 2px 0; color:#555; white-space:nowrap; }
+.q-doc .q-meta-table td { font-weight:600; text-align:right; }
+.q-doc .q-parties { display:flex; justify-content:space-between; gap:16px; margin-bottom:16px; }
+.q-doc .q-customer { flex:1; }
+.q-doc .q-customer-name { font-size:18px; font-weight:700; border-bottom:1px solid #333; padding-bottom:4px; margin-bottom:4px; }
+.q-doc .q-customer-addr { font-size:12px; color:#555; }
+.q-doc .q-seller { width:200px; background:${sellerBg}; border:1px solid ${sellerBorder}; border-radius:4px; padding:12px; font-size:12px; min-height:90px; }
+.q-doc .q-seller-name { font-size:14px; font-weight:700; margin-bottom:4px; }
+.q-doc .q-seller-sub { color:#444; margin-top:2px; }
+.q-doc .q-regno { color:#777; font-size:11px; }
+.q-doc .q-total-banner { display:flex; justify-content:space-between; align-items:center; background:${accent}; color:white; padding:12px 18px; border-radius:6px; margin-bottom:16px; }
+.q-doc .q-total-label { font-size:13px; }
+.q-doc .q-total-amount { font-size:22px; font-weight:700; }
+.q-doc .q-subject { font-size:13px; font-weight:600; margin-bottom:10px; }
+.q-doc .q-note { font-size:12px; color:#555; margin-bottom:12px; }
+.q-doc .q-table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; margin-bottom:14px; }
+.q-doc .q-items { width:100%; border-collapse:collapse; font-size:12px; min-width:460px; }
+.q-doc .q-items th { background:${accent}; color:white; padding:7px 8px; font-weight:600; text-align:center; border:1px solid ${accentDark}; white-space:nowrap; }
+.q-doc .q-items td { padding:6px 8px; border:1px solid #d0d8e8; }
+.q-doc .q-items tbody tr:nth-child(even) td { background:${accentMidTint}; }
+.q-doc .q-items tfoot td { padding:6px 8px; border:1px solid #d0d8e8; }
+.q-doc .q-total-row td { font-weight:700; font-size:13px; background:${accentLight}; border-top:2px solid ${accent}; }
+.q-doc .q-conditions { width:100%; max-width:380px; border-collapse:collapse; margin-bottom:14px; font-size:12px; }
+.q-doc .q-conditions th { background:#f0f0f0; padding:5px 10px; text-align:left; border:1px solid #ccc; width:100px; font-weight:600; white-space:nowrap; }
+.q-doc .q-conditions td { padding:5px 10px; border:1px solid #ccc; }
+.q-doc .q-remarks { border:1px solid #ddd; padding:10px; font-size:12px; margin-bottom:12px; border-radius:4px; line-height:1.6; }
+.q-doc .q-remarks-label { font-weight:700; margin-bottom:4px; }
+.q-doc .q-footer-note { font-size:11px; color:#777; margin-bottom:10px; }
+.q-doc .billing-box { border-top:1px solid #e0e0e0; padding-top:10px; font-size:12px; color:#555; line-height:1.7; }
+@media (max-width:600px) {
+  .q-doc { font-size:13px; }
+  .q-doc .q-title { font-size:18px; letter-spacing:0.15em; }
+  .q-doc .q-title-row { flex-direction:column-reverse; gap:10px; }
+  .q-doc .q-meta-table { width:100%; }
+  .q-doc .q-meta-table th { text-align:left; }
+  .q-doc .q-meta-table td { text-align:left; }
+  .q-doc .q-parties { flex-direction:column; gap:12px; }
+  .q-doc .q-seller { width:100%; min-height:auto; }
+  .q-doc .q-customer-name { font-size:16px; }
+  .q-doc .q-total-banner { padding:10px 14px; }
+  .q-doc .q-total-amount { font-size:20px; }
+  .q-doc .q-conditions { max-width:100%; }
+  .q-doc .q-items { min-width:380px; font-size:11px; }
+  .q-doc .q-items th, .q-doc .q-items td { padding:5px 5px; }
+}
 `;
 }
 
@@ -227,6 +289,7 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
   ${quote.subject ? `<p class="q-subject">件名：${esc(quote.subject)}</p>` : ""}
   ${settings.defaultHeaderNote ? `<p class="q-note">${esc(settings.defaultHeaderNote)}</p>` : ""}
 
+  <div class="q-table-wrap">
   <table class="q-items">
     <thead>
       <tr>
@@ -247,6 +310,7 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
       <tr class="q-total-row"><td colspan="${headColspan - 1}" style="text-align:right;">合計</td><td style="text-align:right;">${fmt(total)}</td></tr>
     </tfoot>
   </table>
+  </div>
 
   ${conditions.length > 0 ? `<table class="q-conditions">${conditions.join("")}</table>` : ""}
 
@@ -283,6 +347,7 @@ export function renderQuoteBuilder(
     : [];
 
   if (quote.previewMode) {
+    const accent = settings.accentColor || "#0968e5";
     return `
       <section class="page-head">
         <div><p class="eyebrow">見積書</p><h1>プレビュー</h1></div>
@@ -292,10 +357,10 @@ export function renderQuoteBuilder(
           <button class="button secondary" type="button" data-action="save-quote">保存</button>
         </div>
       </section>
-      <div style="background:white;border:1px solid #ddd;border-radius:6px;padding:24px;margin-top:8px;">
+      <style>${makeDocCssSpa(accent)}</style>
+      <div style="background:white;border:1px solid #ddd;border-radius:10px;padding:20px 16px;margin-top:8px;overflow-x:hidden;">
         ${renderDocHtml(quote, settings)}
       </div>
-      <style>${makeDocCss(settings.accentColor || "#0968e5")}</style>
     `;
   }
 

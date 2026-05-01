@@ -181,6 +181,7 @@ export interface MasterProduct {
   alcoholDegree: number | null;
   volumeMl: number | null;
   unit: string;
+  caseQty: number | null;
   bottleType: string;
   containerCode: string;
   polishRate: number | null;
@@ -715,14 +716,14 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
 
     const products = productRows.length
       ? productRows.map((row, index) => ({
-          id: getString(row, ["id", "product_id", "code"], `product-${index + 1}`),
-          code: getString(row, ["code", "product_code", "legacy_product_code"], `P${String(index + 1).padStart(5, "0")}`),
+          id: getString(row, ["id", "product_id", "product_code", "legacy_product_code"], `product-${index + 1}`),
+          code: getString(row, ["product_code", "legacy_product_code", "code"], `P${String(index + 1).padStart(5, "0")}`),
           janCode: getString(row, ["jan_code", "jan", "barcode"], ""),
           name: getString(row, ["name", "product_name", "display_name"], `Product ${index + 1}`),
           kanaName: getString(row, ["kana_name"], ""),
           shortName: getString(row, ["short_name"], ""),
-          category: getString(row, ["category", "category_name", "category_code"], "未分類"),
-          taxCategoryCode: getString(row, ["tax_category_code"], ""),
+          category: getString(row, ["category_code", "category", "category_name"], "未分類"),
+          taxCategoryCode: getString(row, ["tax_code", "tax_category_code"], ""),
           isActive: getBoolean(row, ["is_active", "active", "enabled"], true),
           listPrice: getNumber(row, ["list_price"], 0),
           purchasePrice: getNumber(row, ["purchase_price"], 0),
@@ -730,7 +731,8 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
           costPrice: getNumber(row, ["default_cost_price"], 0),
           alcoholDegree: row["alcohol_degree"] != null ? Number(row["alcohol_degree"]) : null,
           volumeMl: row["volume_ml"] != null ? Number(row["volume_ml"]) : null,
-          unit: getString(row, ["unit"], "本"),
+          unit: getString(row, ["unit_name", "unit"], "本"),
+          caseQty: row["case_qty"] != null ? Number(row["case_qty"]) : null,
           bottleType: getString(row, ["bottle_type"], ""),
           containerCode: getString(row, ["container_code"], ""),
           polishRate: row["polish_rate"] != null ? Number(row["polish_rate"]) : null,

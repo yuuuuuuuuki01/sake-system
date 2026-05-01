@@ -2758,7 +2758,14 @@ function bindEvents(root: HTMLElement): void {
     section.querySelector(".search-results")?.remove();
     if (query.length < 1) return;
     const customers = state.masterStats?.customers ?? [];
-    const filtered = customers.filter(c => c.name.includes(query) || c.code.includes(query)).slice(0, 8);
+    const q = query.toLowerCase();
+    const filtered = customers.filter(c =>
+      c.name.includes(query) ||
+      c.kanaName.includes(query) ||
+      c.code.includes(query) ||
+      c.name.toLowerCase().includes(q) ||
+      c.kanaName.toLowerCase().includes(q)
+    ).slice(0, 10);
     if (filtered.length === 0) return;
     const div = document.createElement("div");
     div.className = "search-results";
@@ -2787,17 +2794,32 @@ function bindEvents(root: HTMLElement): void {
     if (!section) return;
     section.querySelector(".search-results")?.remove();
     if (query.length < 1) return;
-    const products = state.masterStats?.products ?? [];
-    const filtered = products.filter(p => p.name.includes(query) || p.code.includes(query)).slice(0, 8);
+    if (!state.masterStats) {
+      const msg = document.createElement("div");
+      msg.className = "search-results";
+      msg.innerHTML = `<p style="padding:8px 12px;color:var(--text-secondary);font-size:13px;">マスタ読込中…</p>`;
+      const formRow = section.querySelector(".form-row");
+      if (formRow) formRow.after(msg); else section.appendChild(msg);
+      return;
+    }
+    const products = state.masterStats.products;
+    const q = query.toLowerCase();
+    const filtered = products.filter(p =>
+      p.name.includes(query) ||
+      p.kanaName.includes(query) ||
+      p.code.includes(query) ||
+      p.name.toLowerCase().includes(q) ||
+      p.kanaName.toLowerCase().includes(q)
+    ).slice(0, 10);
     if (filtered.length === 0) return;
     const pricing = state.quotePricing;
     const div = document.createElement("div");
     div.className = "search-results";
     div.innerHTML = filtered.map(p => {
-      const resolved = pricing ? resolveProductPrice(p, pricing) : { price: (p as any).salePrice || 0, label: "標準価格" };
+      const resolved = pricing ? resolveProductPrice(p, pricing) : { price: p.salePrice || 0, label: "標準価格" };
       const isSpecial = resolved.label !== "標準価格";
-      return `<button class="search-item" type="button" data-add-product="${qEsc(p.code)}" data-prod-name="${qEsc(p.name)}" data-prod-price="${resolved.price}" data-prod-jan="${qEsc((p as any).janCode ?? "")}" data-prod-case="${(p as any).caseQty ?? ""}">` +
-        `<span class="mono">${qEsc(p.code)}</span> ${qEsc(p.name)}` +
+      return `<button class="search-item" type="button" data-add-product="${qEsc(p.code)}" data-prod-name="${qEsc(p.name)}" data-prod-price="${resolved.price}" data-prod-jan="${qEsc(p.janCode ?? "")}" data-prod-unit="${qEsc(p.unit)}" data-prod-case="${p.caseQty ?? ""}">` +
+        `<span class="mono" style="font-size:11px;">${qEsc(p.code)}</span> ${qEsc(p.name)}` +
         `<span class="numeric"${isSpecial ? ' style="color:#2f855a;font-weight:700;"' : ""}>${resolved.price ? "¥" + resolved.price.toLocaleString("ja-JP") : ""} <small>(${qEsc(resolved.label)})</small></span>` +
         `</button>`;
     }).join("");
@@ -2807,12 +2829,13 @@ function bindEvents(root: HTMLElement): void {
         const name = btn.dataset.prodName ?? "";
         const price = parseInt(btn.dataset.prodPrice ?? "0");
         const jan = btn.dataset.prodJan ?? "";
+        const unit = btn.dataset.prodUnit || "本";
         const caseQtyRaw = btn.dataset.prodCase ?? "";
         const caseQty = caseQtyRaw ? parseInt(caseQtyRaw) : null;
         state.quoteState.lines.push({
           productCode: code, productName: name,
           janCode: jan, caseQty,
-          quantity: 1, unit: "本",
+          quantity: 1, unit,
           unitPrice: price, retailPrice: null,
           amount: price
         });
