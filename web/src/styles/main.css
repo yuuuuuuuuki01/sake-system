@@ -4021,27 +4021,50 @@ details.panel[open] > summary::before {
 .search-results {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: 200px;
+  gap: 0;
+  max-height: 360px;
   overflow-y: auto;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   margin-top: 4px;
+  box-shadow: 0 4px 12px rgba(16, 24, 40, 0.08);
 }
 
 .search-item {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   width: 100%;
   text-align: left;
-  padding: 8px 12px;
+  padding: 9px 12px;
   border: none;
+  border-bottom: 1px solid var(--border);
   background: var(--surface);
   cursor: pointer;
   font-size: 13px;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.search-item:last-child {
+  border-bottom: none;
 }
 
 .search-item:hover {
   background: var(--primary-soft);
+}
+
+.search-item .mono {
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: block;
+}
+
+.search-item .numeric {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: block;
 }
 
 .selected-item {

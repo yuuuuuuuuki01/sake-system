@@ -2765,13 +2765,14 @@ function bindEvents(root: HTMLElement): void {
       c.code.includes(query) ||
       c.name.toLowerCase().includes(q) ||
       c.kanaName.toLowerCase().includes(q)
-    ).slice(0, 10);
+    ).slice(0, 30);
     if (filtered.length === 0) return;
     const div = document.createElement("div");
     div.className = "search-results";
     div.innerHTML = filtered.map(c =>
       `<button class="search-item" type="button" data-select-customer="${qEsc(c.code)}" data-cust-name="${qEsc(c.name)}" data-cust-addr="${qEsc(c.address1 || "")}">` +
-      `<span class="mono">${qEsc(c.code)}</span> ${qEsc(c.name)}` +
+      `<span class="mono">${qEsc(c.code)}</span>` +
+      `<span style="font-size:13px;font-weight:600;">${qEsc(c.name)}</span>` +
       `</button>`
     ).join("");
     section.querySelector(".form-row")?.after(div);
@@ -2810,7 +2811,7 @@ function bindEvents(root: HTMLElement): void {
       p.code.includes(query) ||
       p.name.toLowerCase().includes(q) ||
       p.kanaName.toLowerCase().includes(q)
-    ).slice(0, 10);
+    ).slice(0, 30);
     if (filtered.length === 0) return;
     const pricing = state.quotePricing;
     const div = document.createElement("div");
@@ -2819,8 +2820,9 @@ function bindEvents(root: HTMLElement): void {
       const resolved = pricing ? resolveProductPrice(p, pricing) : { price: p.salePrice || 0, label: "標準価格" };
       const isSpecial = resolved.label !== "標準価格";
       return `<button class="search-item" type="button" data-add-product="${qEsc(p.code)}" data-prod-name="${qEsc(p.name)}" data-prod-price="${resolved.price}" data-prod-jan="${qEsc(p.janCode ?? "")}" data-prod-unit="${qEsc(p.unit)}" data-prod-case="${p.caseQty ?? ""}">` +
-        `<span class="mono" style="font-size:11px;">${qEsc(p.code)}</span> ${qEsc(p.name)}` +
-        `<span class="numeric"${isSpecial ? ' style="color:#2f855a;font-weight:700;"' : ""}>${resolved.price ? "¥" + resolved.price.toLocaleString("ja-JP") : ""} <small>(${qEsc(resolved.label)})</small></span>` +
+        `<span class="mono">${qEsc(p.code)}</span>` +
+        `<span style="font-size:13px;font-weight:600;line-height:1.4;">${qEsc(p.name)}</span>` +
+        `<span class="numeric"${isSpecial ? ' style="color:#2f855a;font-weight:700;"' : ""}>${resolved.price ? "¥" + resolved.price.toLocaleString("ja-JP") : "価格未設定"} <small style="font-weight:400;">(${qEsc(resolved.label)})</small></span>` +
         `</button>`;
     }).join("");
     div.querySelectorAll<HTMLButtonElement>("[data-add-product]").forEach(btn => {
