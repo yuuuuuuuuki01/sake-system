@@ -2043,6 +2043,7 @@ function renderView(): string {
     case "/analytics":
       return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown, state.analyticsPeriodChartData, state.analyticsPrevYearChartData, state.analyticsChartMetric, state.analyticsFiscalMode);
     case "/":
+      return renderHome();
     default:
       return renderDashboard(state.salesSummary, state.pipelineMeta, state.salesAnalytics, {
         prospects: state.prospects,
@@ -2105,6 +2106,106 @@ function renderAnnouncementBar(): string {
   return bars + updateBar;
 }
 
+function renderHome(): string {
+  function card(path: RoutePath, icon: string, label: string, desc: string): string {
+    const href = `${import.meta.env.BASE_URL.replace(/\/$/, "") || "/"}${path}`;
+    return `<a href="${href}" data-link="${path}" class="home-card">
+      <span class="home-card-icon">${icon}</span>
+      <span class="home-card-label">${label}</span>
+      <span class="home-card-desc">${desc}</span>
+    </a>`;
+  }
+
+  const sections: Array<{ title: string; color: string; cards: string }> = [
+    {
+      title: "販売業務",
+      color: "#1a56db",
+      cards: [
+        card("/invoice-entry", "📝", "伝票入力", "売上・返品を入力"),
+        card("/quote", "📄", "見積作成", "見積書の作成・管理"),
+        card("/invoice", "🔍", "伝票照会", "過去伝票の照会"),
+        card("/delivery", "🚚", "納品書", "納品書の発行"),
+        card("/billing", "💳", "月次請求", "請求書・入金管理"),
+        card("/ledger", "📒", "得意先台帳", "取引履歴の確認"),
+      ].join(""),
+    },
+    {
+      title: "分析・レポート",
+      color: "#7e3af2",
+      cards: [
+        card("/analytics", "📊", "売上分析", "期間・商品・得意先別"),
+        card("/customer-analysis", "👥", "得意先分析", "ABC分析・ランク"),
+        card("/product-power", "📦", "商品力分析", "商品別販売力"),
+        card("/customer-efficiency", "⚡", "営業効率", "訪問効率・コスト"),
+        card("/report", "📈", "集計帳票", "各種集計帳票"),
+        card("/sales", "📋", "売上一覧", "売上明細一覧"),
+      ].join(""),
+    },
+    {
+      title: "営業・顧客管理",
+      color: "#0e9f6e",
+      cards: [
+        card("/churn-alert", "🎯", "営業アクション", "離反リスク・フォロー"),
+        card("/visit-planner", "📅", "訪問計画", "訪問スケジュール"),
+        card("/map", "🗺️", "取引先マップ", "地図で取引先を確認"),
+        card("/prospects", "🌱", "新規営業", "新規開拓の進捗"),
+        card("/email", "✉️", "メール配信", "一斉メール配信"),
+        card("/seasonal-calendar", "🌸", "季節提案", "季節別提案管理"),
+      ].join(""),
+    },
+    {
+      title: "受注・仕入",
+      color: "#e3a008",
+      cards: [
+        card("/workflow", "🔄", "受注ワークフロー", "受注から出荷まで"),
+        card("/shopify", "🛒", "Shopify注文", "EC受注の確認"),
+        card("/purchase", "📥", "仕入・買掛", "仕入管理・買掛金"),
+        card("/payment", "💰", "入金状況", "入金・回収状況"),
+      ].join(""),
+    },
+    {
+      title: "製造管理",
+      color: "#e02424",
+      cards: [
+        card("/jikomi", "🍶", "仕込管理", "仕込帳・製造記録"),
+        card("/tanks", "🛢️", "タンク管理", "タンク在庫の管理"),
+        card("/tax", "📋", "酒税申告", "酒税申告書の作成"),
+        card("/demand", "📆", "需要・生産計画", "需要予測・生産計画"),
+        card("/brewing-plan", "🗓️", "醸造計画", "年間醸造スケジュール"),
+      ].join(""),
+    },
+    {
+      title: "マスタ・設定",
+      color: "#6b7280",
+      cards: [
+        card("/master", "⚙️", "マスタ管理", "商品・得意先マスタ"),
+        card("/store", "🏪", "店舗・直売所", "直売所の販売管理"),
+        card("/tour", "🏯", "酒蔵見学", "見学予約の管理"),
+        card("/setup", "🔗", "連動設定", "酒仙iとの連動"),
+        card("/import", "📤", "データ取込", "CSVデータ取込"),
+        card("/users", "👤", "ユーザー管理", "アカウント管理"),
+      ].join(""),
+    },
+  ];
+
+  return `
+    <div class="home-page">
+      <div class="home-welcome">
+        <p class="home-welcome-date">${new Date().toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}</p>
+        <h2 class="home-welcome-title">何をしますか？</h2>
+      </div>
+      ${sections.map(s => `
+        <div class="home-section">
+          <h3 class="home-section-title" style="--section-color:${s.color}">
+            <span class="home-section-bar"></span>${s.title}
+          </h3>
+          <div class="home-card-grid">${s.cards}</div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderShell(): string {
   if (shouldShowLogin()) {
     return `
@@ -2116,174 +2217,60 @@ function renderShell(): string {
     `;
   }
 
-  const navGroups: Record<CategoryKey, NavGroup[]> = {
-    dashboard: [
-      {
-        label: "概要",
-        items: [
-          { path: "/", label: "ダッシュボード", kicker: "Home" },
-          { path: "/sales", label: "売上一覧", kicker: "Sales" },
-          { path: "/payment", label: "入金状況", kicker: "Payment" }
-        ]
-      }
-    ],
-    sales: [
-      {
-        label: "販売業務",
-        items: [
-          { path: "/invoice-entry", label: "伝票入力", kicker: "Entry" },
-          { path: "/quote", label: "見積作成", kicker: "Quote" },
-          { path: "/delivery", label: "納品書", kicker: "Delivery" },
-          { path: "/shipment-calendar", label: "出荷カレンダー", kicker: "ShipCal" },
-          { path: "/billing", label: "月次請求", kicker: "Billing" },
-          { path: "/invoice", label: "伝票照会", kicker: "Invoice" },
-          { path: "/ledger", label: "得意先台帳", kicker: "Ledger" }
-        ]
-      }
-    ],
-    analytics: [
-      {
-        label: "分析",
-        items: [
-          { path: "/analytics", label: "売上分析", kicker: "Analytics" },
-          { path: "/customer-analysis", label: "得意先分析", kicker: "CustABC" },
-                    { path: "/product-power", label: "商品力分析", kicker: "Power" },
-          { path: "/customer-efficiency", label: "営業効率", kicker: "Efficiency" },
-          { path: "/report", label: "集計帳票", kicker: "Report" }
-        ]
-      }
-    ],
-    crm: [
-      {
-        label: "既存顧客ケア",
-        items: [
-          { path: "/churn-alert", label: "営業アクション", kicker: "Action" },
-          { path: "/visit-planner", label: "訪問計画", kicker: "Visit" },
-          { path: "/seasonal-calendar", label: "季節提案", kicker: "Season" },
-          { path: "/map", label: "取引先マップ", kicker: "Map" },
-        ]
-      },
-      {
-        label: "新規開拓",
-        items: [
-          { path: "/prospects", label: "新規営業", kicker: "Prospects" },
-          { path: "/list-builder", label: "リスト取得", kicker: "ListBuild" },
-          { path: "/calls", label: "通話履歴", kicker: "Calls" },
-          { path: "/email", label: "メール配信", kicker: "Mail" }
-        ]
-      },
-      {
-        label: "受注・出荷",
-        items: [
-          { path: "/workflow", label: "受注ワークフロー", kicker: "Workflow" },
-          { path: "/mobile-order", label: "モバイル受注", kicker: "Mobile" },
-          { path: "/shopify", label: "Shopify注文", kicker: "Shopify" },
-          { path: "/fax", label: "FAX OCR", kicker: "FAX" }
-        ]
-      }
-    ],
-    orders: [
-      {
-        label: "仕入・調達",
-        items: [
-          { path: "/purchase", label: "仕入・買掛", kicker: "Purchase" },
-          { path: "/raw-material", label: "手形・原料", kicker: "RawMat" }
-        ]
-      }
-    ],
-    brewery: [
-      {
-        label: "製造管理",
-        items: [
-          { path: "/jikomi", label: "仕込管理", kicker: "Jikomi" },
-          { path: "/tanks", label: "タンク管理", kicker: "Tank" },
-          { path: "/kentei", label: "検定管理", kicker: "Kentei" },
-          { path: "/materials", label: "資材管理", kicker: "Material" },
-          { path: "/tax", label: "酒税申告", kicker: "Tax" },
-          { path: "/demand", label: "需要・生産計画", kicker: "Demand" },
-          { path: "/brewing-plan", label: "醸造計画", kicker: "Brew" }
-        ]
-      }
-    ],
-    master: [
-      {
-        label: "マスタ・ツール",
-        items: [
-          { path: "/master", label: "マスタ管理", kicker: "Master" },
-          { path: "/calendar", label: "カレンダー", kicker: "Calendar" },
-          { path: "/store", label: "店舗・直売所", kicker: "Store" },
-          { path: "/tour", label: "酒蔵見学", kicker: "Tour" },
-          { path: "/print", label: "印刷", kicker: "Print" }
-        ]
-      }
-    ],
-    settings: [
-      {
-        label: "システム設定",
-        items: [
-          { path: "/setup", label: "連動設定", kicker: "Setup" },
-          { path: "/integrations", label: "外部連携", kicker: "API" },
-          { path: "/slack", label: "Slack通知", kicker: "Slack" },
-          { path: "/import", label: "データ取込", kicker: "Import" },
-          { path: "/raw-browser", label: "データブラウザ", kicker: "RawData" },
-          { path: "/users", label: "ユーザー管理", kicker: "Users" },
-          { path: "/profile", label: "プロフィール", kicker: "Profile" },
-          { path: "/audit", label: "操作ログ", kicker: "Audit" }
-        ]
-      }
-    ]
+  const PAGE_TITLES: Partial<Record<RoutePath, string>> = {
+    "/invoice-entry": "伝票入力",
+    "/quote": state.quoteEditId ? (state.quoteEditId === "new" ? "見積作成" : "見積編集") : "見積一覧",
+    "/quote-settings": "見積設定",
+    "/email": "メール配信",
+    "/delivery": "納品書",
+    "/shipment-calendar": "出荷カレンダー",
+    "/billing": "月次請求",
+    "/report": "集計帳票",
+    "/invoice": "伝票照会",
+    "/ledger": "得意先台帳",
+    "/payment": "入金状況",
+    "/sales": "売上一覧",
+    "/analytics": "売上分析",
+    "/customer-analysis": "得意先分析",
+    "/product-power": "商品力分析",
+    "/customer-efficiency": "営業効率",
+    "/churn-alert": "営業アクション",
+    "/visit-planner": "訪問計画",
+    "/seasonal-calendar": "季節提案",
+    "/map": "取引先マップ",
+    "/prospects": "新規営業",
+    "/list-builder": "リスト取得",
+    "/calls": "通話履歴",
+    "/workflow": "受注ワークフロー",
+    "/mobile-order": "モバイル受注",
+    "/shopify": "Shopify注文",
+    "/fax": "FAX OCR",
+    "/purchase": "仕入・買掛",
+    "/raw-material": "手形・原料",
+    "/jikomi": "仕込管理",
+    "/tanks": "タンク管理",
+    "/kentei": "検定管理",
+    "/materials": "資材管理",
+    "/tax": "酒税申告",
+    "/demand": "需要・生産計画",
+    "/brewing-plan": "醸造計画",
+    "/master": "マスタ管理",
+    "/calendar": "カレンダー",
+    "/store": "店舗・直売所",
+    "/tour": "酒蔵見学",
+    "/print": "印刷",
+    "/setup": "連動設定",
+    "/integrations": "外部連携",
+    "/slack": "Slack通知",
+    "/import": "データ取込",
+    "/raw-browser": "データブラウザ",
+    "/users": "ユーザー管理",
+    "/profile": "プロフィール",
+    "/audit": "操作ログ",
   };
 
-  const topLevelItems: Array<{ category: CategoryKey; path: RoutePath; label: string }> = [
-    { category: "dashboard", path: "/", label: "ダッシュボード" },
-    { category: "sales", path: "/invoice-entry", label: "販売" },
-    { category: "analytics", path: "/analytics", label: "分析" },
-    { category: "crm", path: "/churn-alert", label: "営業" },
-    { category: "orders", path: "/purchase", label: "仕入" },
-    { category: "brewery", path: "/jikomi", label: "製造" },
-    { category: "master", path: "/master", label: "マスタ" },
-    { category: "settings", path: "/setup", label: "設定" }
-  ];
-
-  const navHtml = navGroups[state.currentCategory]
-    .map(
-      (group) => `
-        <div class="nav-group">
-          <p class="nav-group-label">${group.label}</p>
-          ${group.items
-            .map(
-              (item) => `
-                <a
-                  href="${import.meta.env.BASE_URL.replace(/\/$/, "")}${item.path === "/" ? "/" : item.path}"
-                  class="nav-link ${state.route === item.path ? "active" : ""}"
-                  data-link="${item.path}"
-                >
-                  <div>
-                    <div class="nav-kicker">${item.kicker}</div>
-                    <div class="nav-label">${item.label}</div>
-                  </div>
-                </a>
-              `
-            )
-            .join("")}
-        </div>
-      `
-    )
-    .join("");
-
-  const topLevelHtml = topLevelItems
-    .map(
-      (item) => `
-        <a
-          href="${import.meta.env.BASE_URL.replace(/\/$/, "")}${item.path === "/" ? "/" : item.path}"
-          class="category-link ${state.currentCategory === item.category ? "active" : ""}"
-          data-link="${item.path}"
-        >
-          ${item.label}
-        </a>
-      `
-    )
-    .join("");
+  const isHome = state.route === "/";
+  const pageTitle = PAGE_TITLES[state.route] ?? "";
 
   const pickerHtml =
     state.pickerMode && state.masterStats
@@ -2297,49 +2284,31 @@ function renderShell(): string {
     : "";
 
   const userHtml = state.user
-    ? `
-        <div class="user-badge">
-          <span>${state.user.email}</span>
-          <button class="button secondary" type="button" data-action="auth-logout">ログアウト</button>
-        </div>
-      `
+    ? `<span class="app-header-user">${state.user.email}</span>
+       <button class="button secondary small" type="button" data-action="auth-logout">ログアウト</button>`
     : state.authSkipped
-      ? `<div class="user-badge demo">デモモード</div>`
+      ? `<span class="app-header-user">デモモード</span>`
       : "";
 
+  const leftHtml = isHome
+    ? `<div class="app-brand">
+        <span class="app-brand-mark">syusen-cloud</span>
+        <span class="app-brand-name">酒仙i クラウド</span>
+       </div>`
+    : `<a href="${import.meta.env.BASE_URL.replace(/\/$/, "") || "/"}" data-link="/" class="app-back-btn">← ホーム</a>
+       <span class="app-page-title">${pageTitle}</span>`;
+
   return `
-    <div class="shell">
-      <button
-        class="menu-toggle"
-        type="button"
-        aria-label="メニューを開く"
-        data-action="${state.sidebarOpen ? "sidebar-close" : "sidebar-open"}"
-      >
-        ☰
-      </button>
-      <button
-        class="sidebar-backdrop ${state.sidebarOpen ? "open" : ""}"
-        type="button"
-        aria-label="メニューを閉じる"
-        data-action="sidebar-close"
-      ></button>
-      <aside class="sidebar ${state.sidebarOpen ? "open" : ""}">
-        <div class="brand">
-          <span class="brand-mark">syusen-cloud</span>
-          <h1>業務Web UI</h1>
-          <p>酒仙i 次世代版</p>
-        </div>
-        <nav class="nav" aria-label="主要ナビゲーション">
-          <div class="category-nav">${topLevelHtml}</div>
-          <div class="subnav">${navHtml}</div>
-        </nav>
-      </aside>
-      <main class="main">
-        <header class="topbar">
-          <button class="button secondary" type="button" data-action="global-search-open">検索 (Ctrl+K)</button>
+    <div class="shell-v2">
+      <header class="app-header">
+        <div class="app-header-left">${leftHtml}</div>
+        <div class="app-header-right">
+          <button class="button secondary small" type="button" data-action="global-search-open">検索 <kbd>Ctrl+K</kbd></button>
           ${userHtml}
-        </header>
-        ${renderAnnouncementBar()}
+        </div>
+      </header>
+      ${renderAnnouncementBar()}
+      <main class="main-v2">
         <div class="view ${state.actionLoading ? "is-busy" : ""}">${renderView()}</div>
         <button class="no-print" data-action="print-page" title="印刷" style="position:fixed;bottom:24px;right:24px;z-index:900;width:48px;height:48px;border-radius:50%;background:#1e40af;color:white;border:none;cursor:pointer;font-size:20px;box-shadow:0 2px 8px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;" aria-label="印刷">🖨</button>
       </main>
@@ -2348,6 +2317,7 @@ function renderShell(): string {
     </div>
   `;
 }
+
 
 async function reloadSalesSummary(): Promise<void> {
   state.actionLoading = true;
