@@ -2782,14 +2782,14 @@ function bindEvents(root: HTMLElement): void {
   function updateCustSearchResults(query: string) {
     const formRow = root.querySelector<HTMLElement>("#q-cust-search")?.closest<HTMLElement>(".form-row");
     if (!formRow) return;
-    let div = formRow.querySelector<HTMLElement>(".search-results");
+    let div = document.getElementById("cust-search-results") as HTMLElement | null;
     if (!div) {
       div = document.createElement("div");
+      div.id = "cust-search-results";
       div.className = "search-results";
-      // mousedownでpreventDefaultしblurを防ぐ（タップしても入力フィールドのフォーカスが外れない）
       div.addEventListener("mousedown", e => e.preventDefault());
       div.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
-      formRow.appendChild(div);
+      formRow.after(div); // form-rowの直後の兄弟要素として挿入
     }
     const all = state.masterStats?.customers ?? [];
     const q = query.trim().toLowerCase();
@@ -2843,13 +2843,14 @@ function bindEvents(root: HTMLElement): void {
   function updateProdSearchResults(query: string) {
     const formRow = root.querySelector<HTMLElement>("#q-prod-search")?.closest<HTMLElement>(".form-row");
     if (!formRow) return;
-    let div = formRow.querySelector<HTMLElement>(".search-results");
+    let div = document.getElementById("prod-search-results") as HTMLElement | null;
     if (!div) {
       div = document.createElement("div");
+      div.id = "prod-search-results";
       div.className = "search-results";
       div.addEventListener("mousedown", e => e.preventDefault());
       div.addEventListener("touchstart", e => e.preventDefault(), { passive: false });
-      formRow.appendChild(div);
+      formRow.after(div); // form-rowの直後の兄弟要素として挿入
     }
     if (!state.masterStats) {
       div.innerHTML = `<p style="padding:10px 12px;color:var(--text-secondary);font-size:13px;">マスタ読込中…</p>`;
@@ -2888,7 +2889,7 @@ function bindEvents(root: HTMLElement): void {
       const delay = (Date.now() - lastComposeEnd) < 600 ? 800 : 200;
       setTimeout(() => {
         if (document.activeElement === el) return; // フォーカスが戻ってたら閉じない
-        el.closest<HTMLElement>(".form-row")?.querySelector(".search-results")?.remove();
+        document.getElementById("cust-search-results")?.remove();
       }, delay);
     });
     // 既に値が入っていれば初期表示
@@ -2917,7 +2918,7 @@ function bindEvents(root: HTMLElement): void {
       const delay = (Date.now() - lastComposeEnd) < 600 ? 800 : 200;
       setTimeout(() => {
         if (document.activeElement === el) return;
-        el.closest<HTMLElement>(".form-row")?.querySelector(".search-results")?.remove();
+        document.getElementById("prod-search-results")?.remove();
       }, delay);
     });
     // 既に値が入っていれば初期表示

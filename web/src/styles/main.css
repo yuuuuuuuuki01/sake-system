@@ -4020,11 +4020,6 @@ details.panel[open] > summary::before {
 }
 
 .search-results {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 500;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -4033,11 +4028,13 @@ details.panel[open] > summary::before {
   overflow-x: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
+  margin-top: 4px;
   box-shadow: 0 4px 16px rgba(16, 24, 40, 0.14);
   background: var(--surface);
 }
 
 .search-item {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
