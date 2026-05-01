@@ -2866,15 +2866,38 @@ function bindEvents(root: HTMLElement): void {
     bindProdListClicks(div);
   }
 
+  // 検索ドロップダウンを外部タップで閉じるユーティリティ
+  // blurではなくdocumentへのtouchstart/mousedownで閉じる
+  // → キーボード閉じてもdropdownは閉じない
+  function attachOutsideClose(inputEl: HTMLInputElement, dropdownId: string) {
+    let handler: ((e: Event) => void) | null = null;
+    function open() {
+      if (handler) return;
+      handler = (e: Event) => {
+        const drop = document.getElementById(dropdownId);
+        if (!drop) { document.removeEventListener("touchstart", handler!); document.removeEventListener("mousedown", handler!); handler = null; return; }
+        if (inputEl.contains(e.target as Node) || drop.contains(e.target as Node)) return;
+        drop.remove();
+        document.removeEventListener("touchstart", handler!);
+        document.removeEventListener("mousedown", handler!);
+        handler = null;
+      };
+      document.addEventListener("touchstart", handler, { passive: true });
+      document.addEventListener("mousedown", handler);
+    }
+    return open;
+  }
+
   // 得意先検索
   (function() {
     const el = root.querySelector<HTMLInputElement>("#q-cust-search");
     if (!el) return;
-    let lastComposeEnd = 0;
-    // フォーカス時に全件表示
-    el.addEventListener("focus", () => updateCustSearchResults(el.value));
+    const openOutsideClose = attachOutsideClose(el, "cust-search-results");
+    el.addEventListener("focus", () => {
+      updateCustSearchResults(el.value);
+      openOutsideClose();
+    });
     el.addEventListener("compositionend", () => {
-      lastComposeEnd = Date.now();
       state.quoteCustomerQuery = el.value;
       updateCustSearchResults(el.value);
     });
@@ -2883,16 +2906,6 @@ function bindEvents(root: HTMLElement): void {
       state.quoteCustomerQuery = el.value;
       updateCustSearchResults(el.value);
     });
-    // フォーカスが外れたら一覧を閉じる
-    // IME確定直後(600ms以内)のblurはスキップ（モバイルキーボード確定で閉じない）
-    el.addEventListener("blur", () => {
-      const delay = (Date.now() - lastComposeEnd) < 600 ? 800 : 200;
-      setTimeout(() => {
-        if (document.activeElement === el) return; // フォーカスが戻ってたら閉じない
-        document.getElementById("cust-search-results")?.remove();
-      }, delay);
-    });
-    // 既に値が入っていれば初期表示
     if (el.value) updateCustSearchResults(el.value);
   })();
 
@@ -2900,11 +2913,12 @@ function bindEvents(root: HTMLElement): void {
   (function() {
     const el = root.querySelector<HTMLInputElement>("#q-prod-search");
     if (!el) return;
-    let lastComposeEnd = 0;
-    // フォーカス時に全件表示
-    el.addEventListener("focus", () => updateProdSearchResults(el.value));
+    const openOutsideClose = attachOutsideClose(el, "prod-search-results");
+    el.addEventListener("focus", () => {
+      updateProdSearchResults(el.value);
+      openOutsideClose();
+    });
     el.addEventListener("compositionend", () => {
-      lastComposeEnd = Date.now();
       state.quoteProductQuery = el.value;
       updateProdSearchResults(el.value);
     });
@@ -2913,15 +2927,6 @@ function bindEvents(root: HTMLElement): void {
       state.quoteProductQuery = el.value;
       updateProdSearchResults(el.value);
     });
-    // フォーカスが外れたら一覧を閉じる
-    el.addEventListener("blur", () => {
-      const delay = (Date.now() - lastComposeEnd) < 600 ? 800 : 200;
-      setTimeout(() => {
-        if (document.activeElement === el) return;
-        document.getElementById("prod-search-results")?.remove();
-      }, delay);
-    });
-    // 既に値が入っていれば初期表示
     if (el.value) updateProdSearchResults(el.value);
   })();
 
