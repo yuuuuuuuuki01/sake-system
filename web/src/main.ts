@@ -1546,28 +1546,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           if (dbPlan.length > 0) {
             state.productionPlan = dbPlan;
           } else if (state.demandAnalysis && state.safetyStockParams.length > 0) {
-            const ym = state.demandPlanYearMonth;
-            const recentMonths = state.demandAnalysis.months.filter((m) => m < ym).slice(-3);
-            state.productionPlan = state.safetyStockParams.map((p) => {
-                const isMTO = p.productionType === "make_to_order";
-                const qtys = recentMonths.map((m) => state.demandAnalysis!.matrix[p.productCode]?.[m] ?? 0);
-                const forecast = isMTO ? 0
-                  : qtys.length > 0
-                    ? Math.ceil(qtys.reduce((s, v) => s + v, 0) / qtys.length)
-                    : Math.ceil(p.avgMonthlyDemand);
-                const ss = isMTO ? 0 : Math.ceil(p.safetyStockQty);
-                const required = Math.max(0, forecast + ss);
-                return {
-                  id: "", yearMonth: ym,
-                  productCode: p.productCode, productName: p.productName,
-                  demandForecast: forecast, safetyStockTarget: ss, openingStock: 0,
-                  requiredProduction: required,
-                  plannedQty: isMTO ? 0 : required, actualQty: 0,
-                  status: "draft" as const,
-                  productionType: (p as any).productionType ?? "monthly",
-                  notes: ""
-                };
-              });
+            state.productionPlan = buildPlanFromAnalysis(state.demandPlanYearMonth);
           }
         }
         break;
@@ -3329,16 +3308,26 @@ function bindEvents(root: HTMLElement): void {
     const ssParams = state.safetyStockParams;
     if (!analysis || ssParams.length === 0) return [];
 
-    // 対象月より前の直近3ヶ月
+    // 昨対ベース: 前年同月を第一優先、なければ直近3ヶ月平均にフォールバック
+    const [yStr, mStr] = ym.split("-");
+    const lastYearMonth = `${parseInt(yStr) - 1}-${mStr}`;
     const recentMonths = analysis.months.filter((m) => m < ym).slice(-3);
 
     return ssParams.map((p) => {
         const isMTO = (p as any).productionType === "make_to_order";
+
+        // 前年同月の実績
+        const lastYearQty = analysis.matrix[p.productCode]?.[lastYearMonth] ?? 0;
+        // 直近3ヶ月平均（フォールバック用）
         const recentQtys = recentMonths.map((m) => analysis.matrix[p.productCode]?.[m] ?? 0);
+        const recentAvg = recentQtys.length > 0
+          ? recentQtys.reduce((s, v) => s + v, 0) / recentQtys.length
+          : p.avgMonthlyDemand;
+
         const forecast = isMTO ? 0
-          : recentQtys.length > 0
-            ? Math.ceil(recentQtys.reduce((s, v) => s + v, 0) / recentQtys.length)
-            : Math.ceil(p.avgMonthlyDemand);
+          : lastYearQty > 0 ? Math.ceil(lastYearQty)
+          : Math.ceil(recentAvg);
+
         const ss = isMTO ? 0 : Math.ceil(p.safetyStockQty);
         const required = Math.max(0, forecast + ss);
         return {
