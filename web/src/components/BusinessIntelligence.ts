@@ -296,7 +296,7 @@ export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortSt
           <tbody>
             ${applySortToRows(customers, sortState, {
               currentRank: "currentRank", name: "name", yearAmount: "yearAmount", sharePct: "sharePct", orderDays: "orderDays", growthRate: "growthRate"
-            }).slice(0, 50).map((c) => `
+            }).map((c) => `
               <tr>
                 <td>${rankBadge(c.currentRank)}</td>
                 <td>${c.name || c.code}</td>
