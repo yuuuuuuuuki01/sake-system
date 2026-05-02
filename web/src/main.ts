@@ -3063,60 +3063,124 @@ function bindEvents(root: HTMLElement): void {
     syncQuoteFormToState(state.quoteState);
     const q = state.quoteState;
 
-    const { supabaseInsert, supabaseUpdate } = await import("./supabase");
     const subtotal = q.lines.reduce((s, l) => s + l.amount, 0);
     const tax = Math.round(subtotal * q.taxRate / 100);
     const total = subtotal + tax;
 
-    // Generate quote number if needed
+    // 見積番号が未採番なら発番
     if (!q.quoteNo) {
-      const { supabaseRpc } = await import("./supabase");
-      const generated = await supabaseRpc<string>("generate_quote_no", {});
-      q.quoteNo = generated ?? `Q${Date.now().toString(36).toUpperCase()}`;
+      try {
+        const { supabaseRpc } = await import("./supabase");
+        const generated = await supabaseRpc<string>("generate_quote_no", {});
+        q.quoteNo = generated ?? `Q${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${Math.floor(Math.random()*1000).toString().padStart(3,"0")}`;
+      } catch {
+        q.quoteNo = `Q${new Date().toISOString().slice(0,10).replace(/-/g,"")}-${Math.floor(Math.random()*1000).toString().padStart(3,"0")}`;
+      }
     }
 
-    const quotePayload = {
-      quote_no: q.quoteNo, quote_date: q.quoteDate, valid_until: q.validUntil || null,
-      legacy_customer_code: q.customerCode || null, customer_name: q.customerName,
-      customer_address: q.customerAddress, subject: q.subject,
-      template_type: q.templateType, subtotal, tax_amount: tax, total_amount: total,
-      tax_rate: q.taxRate, remarks: q.remarks, delivery_date: q.deliveryDate,
-      payment_terms: q.paymentTerms, delivery_place: q.deliveryPlace,
-      updated_at: new Date().toISOString()
+    const quotePayload: Record<string, unknown> = {
+      quote_no: q.quoteNo,
+      quote_date: q.quoteDate,
+      valid_until: q.validUntil || null,
+      legacy_customer_code: q.customerCode || null,
+      customer_name: q.customerName,
+      customer_address: q.customerAddress,
+      subject: q.subject,
+      template_type: q.templateType,
+      subtotal,
+      tax_amount: tax,
+      total_amount: total,
+      tax_rate: q.taxRate,
+      remarks: q.remarks,
+      delivery_date: q.deliveryDate,
+      payment_terms: q.paymentTerms,
+      delivery_place: q.deliveryPlace,
+      updated_at: new Date().toISOString(),
     };
 
-    let quoteId = q.id;
+    try {
+      let quoteId = q.id;
 
-    if (q.id) {
-      // Update existing
-      await supabaseUpdate("quotes", q.id, quotePayload);
-      // Delete existing lines then re-insert
-      await fetch(`${SUPABASE_URL}/rest/v1/quote_lines?quote_id=eq.${q.id}`, {
-        method: "DELETE",
-        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
-      });
-    } else {
-      // Insert new
-      const saved = await supabaseInsert<{ id: string }>("quotes", quotePayload);
-      if (!saved?.id) { showToast("保存に失敗しました", "error"); return; }
-      quoteId = saved.id;
-      q.id = quoteId;
+      if (q.id) {
+        // 既存レコードを更新
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/quotes?id=eq.${encodeURIComponent(q.id)}`, {
+          method: "PATCH",
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            "Content-Type": "application/json",
+            Prefer: "return=minimal",
+          },
+          body: JSON.stringify(quotePayload),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`quotes更新失敗 ${res.status}: ${errText}`);
+        }
+        // 明細を全削除してから再投入
+        await fetch(`${SUPABASE_URL}/rest/v1/quote_lines?quote_id=eq.${encodeURIComponent(q.id)}`, {
+          method: "DELETE",
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        });
+      } else {
+        // 新規作成
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/quotes`, {
+          method: "POST",
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            "Content-Type": "application/json",
+            Prefer: "return=representation",
+          },
+          body: JSON.stringify(quotePayload),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`quotes作成失敗 ${res.status}: ${errText}`);
+        }
+        const rows = await res.json() as { id: string }[];
+        if (!rows?.[0]?.id) throw new Error("IDが返りませんでした");
+        quoteId = rows[0].id;
+        q.id = quoteId;
+      }
+
+      // 明細行を一括 upsert
+      if (q.lines.length > 0) {
+        const linesPayload = q.lines.map((l, i) => ({
+          quote_id: quoteId,
+          line_no: i + 1,
+          legacy_product_code: l.productCode || null,
+          product_name: l.productName,
+          jan_code: l.janCode || null,
+          case_qty: l.caseQty ?? null,
+          quantity: l.quantity,
+          unit: l.unit,
+          unit_price: l.unitPrice,
+          retail_price: l.retailPrice ?? null,
+          amount: l.amount,
+        }));
+        const linesRes = await fetch(`${SUPABASE_URL}/rest/v1/quote_lines`, {
+          method: "POST",
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            "Content-Type": "application/json",
+            Prefer: "return=minimal",
+          },
+          body: JSON.stringify(linesPayload),
+        });
+        if (!linesRes.ok) {
+          const errText = await linesRes.text();
+          throw new Error(`明細保存失敗 ${linesRes.status}: ${errText}`);
+        }
+      }
+
+      showToast(`見積 ${q.quoteNo} を保存しました`, "success");
+      renderApp();
+    } catch (err) {
+      console.error("[save-quote]", err);
+      showToast(`保存失敗: ${String(err).slice(0, 120)}`, "error");
     }
-
-    // Insert lines
-    for (let i = 0; i < q.lines.length; i++) {
-      const l = q.lines[i];
-      await supabaseInsert("quote_lines", {
-        quote_id: quoteId, line_no: i + 1,
-        legacy_product_code: l.productCode || null, product_name: l.productName,
-        jan_code: l.janCode || null, case_qty: l.caseQty ?? null,
-        quantity: l.quantity, unit: l.unit, unit_price: l.unitPrice,
-        retail_price: l.retailPrice ?? null, amount: l.amount
-      });
-    }
-
-    showToast(`見積 ${q.quoteNo} を保存しました`, "success");
-    renderApp();
   });
 
   // ── 会社設定 ──────────────────────────────────────────────────────────────

@@ -566,8 +566,7 @@ export async function fetchSystemSetting<T>(key: string): Promise<T | null> {
   try {
     const rows = await supabaseQuery<{ key: string; value: T }>("system_settings", {
       select: "key,value",
-      filter: `key=eq.${key}`,
-      limit: 1,
+      key: `eq.${key}`,
     });
     return rows?.[0]?.value ?? null;
   } catch {
