@@ -1322,6 +1322,36 @@ export async function fetchBrewingMonthlyTrend(fyStart: string, fyEnd: string): 
   }));
 }
 
+export interface BrewingProductDetail {
+  brewCategory: string;
+  subCategory: string;
+  productCode: string;
+  productName: string;
+  volumeMl: number;
+  annualQty: number;
+  annualMl: number;
+  monthlyAvgQty: number;
+  monthlyAvgMl: number;
+}
+
+export async function fetchBrewingProductDetail(fyStart: string, fyEnd: string): Promise<BrewingProductDetail[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_brewing_product_detail", {
+    p_fy_start: fyStart, p_fy_end: fyEnd
+  });
+  if (!result) return [];
+  return result.map(r => ({
+    brewCategory: getString(r, ["brew_category"], ""),
+    subCategory: getString(r, ["sub_category"], ""),
+    productCode: getString(r, ["product_code"], ""),
+    productName: getString(r, ["product_name"], ""),
+    volumeMl: getNumber(r, ["volume_ml"], 0),
+    annualQty: getNumber(r, ["annual_qty"], 0),
+    annualMl: getNumber(r, ["annual_ml"], 0),
+    monthlyAvgQty: getNumber(r, ["monthly_avg_qty"], 0),
+    monthlyAvgMl: getNumber(r, ["monthly_avg_ml"], 0)
+  }));
+}
+
 export interface BrewingScheduleRow {
   id: string;
   brewCategory: string;

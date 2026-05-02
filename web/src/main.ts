@@ -621,6 +621,8 @@ interface AppState {
   calendarDefaultEmp: number;
   calendarSelectedDate: string | null;
   brewingSchedule: import("./api").BrewingScheduleRow[];
+  brewingProductDetail: import("./api").BrewingProductDetail[];
+  brewingExcludedProducts: Set<string>;
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -931,6 +933,8 @@ const state: AppState = {
   calendarDefaultEmp: 1,
   calendarSelectedDate: null as string | null,
   brewingSchedule: [] as import("./api").BrewingScheduleRow[],
+  brewingProductDetail: [] as import("./api").BrewingProductDetail[],
+  brewingExcludedProducts: new Set<string>(),
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1565,18 +1569,20 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-plan": {
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule] = await Promise.all([
+        const [summary, trend, schedule, products] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd),
           fetchBrewingMonthlyTrend(fyStart, fyEnd),
-          fetchBrewingSchedule(fy)
+          fetchBrewingSchedule(fy),
+          fetchBrewingProductDetail(fyStart, fyEnd)
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
         state.brewingSchedule = schedule;
+        state.brewingProductDetail = products;
         break;
       }
       case "/jikomi":
@@ -1872,7 +1878,7 @@ function renderView(): string {
       );
 
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -5672,16 +5678,32 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLSelectElement>("#brewing-fy-select")?.addEventListener("change", async (e) => {
     const fy = parseInt((e.target as HTMLSelectElement).value);
     state.brewingPlanFY = fy;
-    const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule } = await import("./api");
-    const [summary, trend, schedule] = await Promise.all([
+    const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail } = await import("./api");
+    const [summary, trend, schedule, products] = await Promise.all([
       fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
       fetchBrewingMonthlyTrend(`${fy}-10-01`, `${fy + 1}-09-30`),
-      fetchBrewingSchedule(fy)
+      fetchBrewingSchedule(fy),
+      fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`)
     ]);
     state.brewingPlanData = summary;
     state.brewingMonthlyTrend = trend;
     state.brewingSchedule = schedule;
+    state.brewingProductDetail = products;
+    state.brewingExcludedProducts = new Set();
     renderApp();
+  });
+
+  // 醸造計画: 銘柄の除外/復帰トグル
+  root.querySelectorAll<HTMLInputElement>("[data-action='brew-product-toggle']").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const code = cb.dataset.code ?? "";
+      if (cb.checked) {
+        state.brewingExcludedProducts.delete(code);
+      } else {
+        state.brewingExcludedProducts.add(code);
+      }
+      renderApp();
+    });
   });
 
   // 醸造計画: 編集ボタン

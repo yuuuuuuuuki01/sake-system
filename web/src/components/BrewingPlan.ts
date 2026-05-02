@@ -1,4 +1,4 @@
-import type { BrewingPlanRow, BrewingMonthlyTrend } from "../api";
+import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail } from "../api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -310,12 +310,120 @@ function buildStockProjection(data: BrewingPlanRow[]): string {
   `;
 }
 
+// ─── Product Detail per Category ─────────────────────────────────────────────
+
+function buildProductDetail(
+  products: BrewingProductDetail[],
+  excluded: Set<string>
+): string {
+  if (products.length === 0) return "";
+
+  // Group by brew category
+  const grouped = new Map<string, BrewingProductDetail[]>();
+  for (const p of products) {
+    if (!grouped.has(p.brewCategory)) grouped.set(p.brewCategory, []);
+    grouped.get(p.brewCategory)!.push(p);
+  }
+
+  const sections = CATEGORY_ORDER
+    .filter(cat => grouped.has(cat))
+    .map(cat => {
+      const items = grouped.get(cat)!;
+      const color = CATEGORY_COLORS[cat] ?? "#9ca3af";
+
+      // Included items only
+      const included = items.filter(p => !excluded.has(p.productCode));
+      const totalMl = included.reduce((s, p) => s + p.annualMl, 0);
+      const totalQty = included.reduce((s, p) => s + p.annualQty, 0);
+      const monthlyMl = included.reduce((s, p) => s + p.monthlyAvgMl, 0);
+
+      const rows = items.map(p => {
+        const isExcluded = excluded.has(p.productCode);
+        return `
+          <tr style="${isExcluded ? "opacity:0.4;text-decoration:line-through;" : ""}">
+            <td style="width:36px;text-align:center;">
+              <input type="checkbox" data-action="brew-product-toggle" data-code="${p.productCode}"
+                ${isExcluded ? "" : "checked"} style="cursor:pointer;" />
+            </td>
+            <td style="font-size:11px;color:var(--text-secondary);">${p.productCode}</td>
+            <td style="white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}">${p.productName}</td>
+            <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
+            <td style="text-align:right;">${p.volumeMl ? p.volumeMl + "ml" : "—"}</td>
+            <td style="text-align:right;">${fmtNum(p.annualQty)}</td>
+            <td style="text-align:right;">${fmtL(p.annualMl)}</td>
+            <td style="text-align:right;">${fmtNum(p.monthlyAvgQty)}</td>
+            <td style="text-align:right;">${fmtL(p.monthlyAvgMl)}</td>
+          </tr>
+        `;
+      }).join("");
+
+      return `
+        <div style="margin-bottom:20px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${color};"></span>
+            <h4 style="margin:0;font-size:14px;">${cat}</h4>
+            <span style="font-size:12px;color:var(--text-secondary);">
+              ${included.length}/${items.length}銘柄 ・ 年間${fmtL(totalMl)}L ・ 月平均${fmtL(monthlyMl)}L
+              ${excluded.size > 0 && items.some(p => excluded.has(p.productCode))
+                ? `<span style="color:#b7791f;">（${items.length - included.length}銘柄除外中）</span>` : ""}
+            </span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" style="font-size:12px;">
+              <thead>
+                <tr>
+                  <th style="width:36px;"></th>
+                  <th>コード</th>
+                  <th>銘柄</th>
+                  <th>製成種別</th>
+                  <th style="text-align:right;">容量</th>
+                  <th style="text-align:right;">年間(本)</th>
+                  <th style="text-align:right;">年間(L)</th>
+                  <th style="text-align:right;">月平均(本)</th>
+                  <th style="text-align:right;">月平均(L)</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+              <tfoot>
+                <tr style="font-weight:600;background:var(--surface-alt);">
+                  <td></td>
+                  <td></td>
+                  <td>計（有効分）</td>
+                  <td></td>
+                  <td></td>
+                  <td style="text-align:right;">${fmtNum(totalQty)}</td>
+                  <td style="text-align:right;">${fmtL(totalMl)}</td>
+                  <td></td>
+                  <td style="text-align:right;">${fmtL(monthlyMl)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div>
+          <h3 style="font-size:14px;margin:0;">製成種別 × 銘柄明細</h3>
+          <p style="font-size:11px;color:var(--text-secondary);margin:4px 0 0;">チェックを外すと醸造高計算から除外されます</p>
+        </div>
+      </div>
+      ${sections}
+    </div>
+  `;
+}
+
 // ─── Main Render ──────────────────────────────────────────────────────────────
 
 export function renderBrewingPlan(
   data: BrewingPlanRow[],
   trend: BrewingMonthlyTrend[],
-  fy: number
+  fy: number,
+  productDetail: BrewingProductDetail[] = [],
+  excludedProducts: Set<string> = new Set()
 ): string {
   const now = new Date();
   const currentFY = now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1;
@@ -353,6 +461,8 @@ export function renderBrewingPlan(
       ${buildSummaryCards(data)}
 
       ${buildStockProjection(data)}
+
+      ${buildProductDetail(productDetail, excludedProducts)}
 
       <div class="card">
         <h3 style="font-size:14px;margin:0 0 8px 0;">区分別出荷明細</h3>
