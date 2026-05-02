@@ -5985,35 +5985,21 @@ function bindEvents(root: HTMLElement): void {
       const cat = btn.dataset.cat ?? "";
       const catId = btn.dataset.catId ?? "";
       const stockInput = root.querySelector<HTMLInputElement>(`#stock-input-${catId}`);
-      const costInput = root.querySelector<HTMLInputElement>(`#cost-input-${catId}`);
       const stockL = parseFloat(stockInput?.value ?? "");
-      const costPerL = parseFloat(costInput?.value ?? "0") || 0;
       if (isNaN(stockL) || stockL < 0) { alert("有効な数値を入力してください"); return; }
-
-      // 仕込みスケジュール行を収集
-      const scheduleRows = [...root.querySelectorAll(`#schedule-rows-${catId} .schedule-edit-row`)].map(row => ({
-        brewMonth: parseInt((row.querySelector(".schedule-month") as HTMLSelectElement)?.value ?? "0"),
-        durationMonths: parseInt((row.querySelector(".schedule-duration") as HTMLInputElement)?.value ?? "2"),
-        plannedVolumeL: parseFloat((row.querySelector(".schedule-volume") as HTMLInputElement)?.value ?? "0")
-      })).filter(r => r.brewMonth >= 1 && r.brewMonth <= 12);
 
       btn.textContent = "保存中...";
       btn.setAttribute("disabled", "true");
       try {
-        const { upsertBrewingStock, saveBrewingSchedule, fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule } = await import("./api");
+        const { upsertBrewingStock, fetchBrewingPlanSummary, fetchBrewingMonthlyTrend } = await import("./api");
         const fy = state.brewingPlanFY;
-        await Promise.all([
-          upsertBrewingStock(cat, stockL, costPerL),
-          saveBrewingSchedule(cat, fy, scheduleRows)
-        ]);
-        const [summary, trend, schedule] = await Promise.all([
+        await upsertBrewingStock(cat, stockL, 0);
+        const [summary, trend] = await Promise.all([
           fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
-          fetchBrewingMonthlyTrend(`${fy}-10-01`, `${fy + 1}-09-30`),
-          fetchBrewingSchedule(fy)
+          fetchBrewingMonthlyTrend(`${fy}-10-01`, `${fy + 1}-09-30`)
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
-        state.brewingSchedule = schedule;
         renderApp();
       } catch (err) {
         console.error("[brewing save]", err);

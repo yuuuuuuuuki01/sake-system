@@ -148,15 +148,37 @@ function buildSummaryCards(data: BrewingPlanRow[]): string {
       const sl = stockLabel(g.months);
       const progressPct = Math.min(g.months / 6 * 100, 100);
 
+      const catId = cat.replace(/[^a-zA-Z0-9]/g, "_");
       return `
         <div class="card" style="border-top:3px solid ${color};min-width:220px;flex:1;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <h4 style="margin:0;font-size:14px;color:${color};">${cat}</h4>
-            <span style="font-size:11px;padding:2px 8px;border-radius:9999px;background:${sc}20;color:${sc};font-weight:600;">${sl}</span>
+            <div style="display:flex;gap:4px;align-items:center;">
+              <span style="font-size:11px;padding:2px 8px;border-radius:9999px;background:${sc}20;color:${sc};font-weight:600;">${sl}</span>
+              <button class="btn-edit-stock" data-cat-id="${catId}" data-cat="${cat}"
+                style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;">編集</button>
+            </div>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px;margin-bottom:8px;">
-            <div><span style="color:#6b7280;">現在庫</span><br><strong>${fmtNum(g.stockL)}L</strong></div>
-            <div><span style="color:#6b7280;">月平均移出</span><br><strong>${fmtL(g.avgMl)}L</strong></div>
+          <div id="stock-display-${catId}">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px;margin-bottom:8px;">
+              <div><span style="color:#6b7280;">現在庫</span><br><strong>${fmtNum(g.stockL)}L</strong></div>
+              <div><span style="color:#6b7280;">月平均移出</span><br><strong>${fmtL(g.avgMl)}L</strong></div>
+            </div>
+          </div>
+          <div id="stock-edit-${catId}" style="display:none;margin-bottom:8px;">
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+              <label style="font-size:11px;color:#6b7280;display:flex;align-items:center;gap:4px;">
+                現在庫(L)
+                <input id="stock-input-${catId}" type="number" min="0" step="1" value="${g.stockL}"
+                  style="width:70px;height:26px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 4px;" />
+              </label>
+            </div>
+            <div style="display:flex;gap:4px;">
+              <button class="btn-save-stock" data-cat="${cat}" data-cat-id="${catId}"
+                style="font-size:11px;padding:3px 10px;border:none;border-radius:4px;background:#0F5B8D;color:#fff;cursor:pointer;">保存</button>
+              <button class="btn-cancel-stock" data-cat-id="${catId}"
+                style="font-size:11px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;">取消</button>
+            </div>
           </div>
           <div style="margin-bottom:4px;display:flex;justify-content:space-between;font-size:11px;">
             <span style="color:#6b7280;">残月数</span>
