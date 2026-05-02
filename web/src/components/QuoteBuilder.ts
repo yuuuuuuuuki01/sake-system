@@ -107,9 +107,12 @@ function makeDocCss(accent: string): string {
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11px; color:#1a1a2e; padding:16mm 18mm; }
 .q-doc { max-width: 720px; margin: 0 auto; }
-/* タイトル行（1カラム全幅） */
-.q-title-row { border-bottom:3px solid ${accent}; padding-bottom:8px; margin-bottom:12px; }
+/* タイトル行: 左=御見積書、右=見積番号・日付（右寄せ） */
+.q-title-row { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid ${accent}; padding-bottom:8px; margin-bottom:12px; }
 .q-title { font-size:22px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
+.q-meta-table { font-size:10px; border-collapse:collapse; }
+.q-meta-table th { text-align:left; padding:2px 8px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
+.q-meta-table td { font-weight:600; text-align:right; padding-left:12px; }
 /* 取引先＋自社情報（2カラム） */
 .q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:14px; }
 .q-customer { flex:1; }
@@ -120,9 +123,11 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 .q-seller-name { font-size:13px; font-weight:700; }
 .q-seller-sub { color:#444; font-size:10px; margin-top:1px; line-height:1.5; }
 .q-regno { color:#777; font-size:9px; }
-.q-meta-table { font-size:10px; border-collapse:collapse; margin-top:8px; }
-.q-meta-table th { text-align:left; padding:2px 8px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
-.q-meta-table td { font-weight:600; text-align:right; padding-left:12px; }
+/* 取引条件グリッド（合計バナーの上、4列） */
+.q-cond-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:#d0d8e8; border:1px solid #d0d8e8; border-radius:3px; margin-bottom:12px; font-size:10px; overflow:hidden; }
+.q-cond-cell { background:white; padding:5px 7px; }
+.q-cond-label { color:#888; font-size:9px; margin-bottom:2px; }
+.q-cond-value { font-weight:600; color:#1a1a2e; }
 /* 以下 */
 .q-total-banner { display:flex; justify-content:space-between; align-items:center; background:${accent}; color:white; padding:10px 16px; border-radius:4px; margin-bottom:14px; }
 .q-total-label { font-size:12px; }
@@ -135,9 +140,6 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 .q-items tbody tr:nth-child(even) td { background:${accentMidTint}; }
 .q-items tfoot td { padding:4px 6px; border:1px solid #d0d8e8; }
 .q-total-row td { font-weight:700; font-size:12px; background:${accentLight}; border-top:2px solid ${accent}; }
-.q-conditions { width:55%; border-collapse:collapse; margin-bottom:12px; font-size:10px; }
-.q-conditions th { background:#f0f0f0; padding:4px 8px; text-align:left; border:1px solid #ccc; width:90px; font-weight:600; }
-.q-conditions td { padding:4px 8px; border:1px solid #ccc; }
 .q-remarks { border:1px solid #ddd; padding:8px; font-size:10px; margin-bottom:10px; border-radius:3px; }
 .q-remarks-label { font-weight:700; margin-bottom:3px; }
 .q-footer-note { font-size:9px; color:#777; margin-bottom:8px; }
@@ -154,9 +156,12 @@ function makeDocCssSpa(accent: string): string {
   return `
 .q-doc { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:13px; color:#1a1a2e; max-width:720px; margin:0 auto; }
 .q-doc * { box-sizing:border-box; margin:0; padding:0; }
-/* タイトル行（1カラム全幅） */
-.q-doc .q-title-row { border-bottom:3px solid ${accent}; padding-bottom:10px; margin-bottom:14px; }
+/* タイトル行: 左=御見積書、右=見積番号・日付（右寄せ） */
+.q-doc .q-title-row { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid ${accent}; padding-bottom:10px; margin-bottom:14px; }
 .q-doc .q-title { font-size:26px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
+.q-doc .q-meta-table { font-size:12px; border-collapse:collapse; }
+.q-doc .q-meta-table th { text-align:left; padding:2px 10px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
+.q-doc .q-meta-table td { font-weight:600; text-align:right; padding-left:14px; }
 /* 取引先＋自社情報（2カラム） */
 .q-doc .q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:16px; }
 .q-doc .q-customer { flex:1; }
@@ -167,9 +172,11 @@ function makeDocCssSpa(accent: string): string {
 .q-doc .q-seller-name { font-size:14px; font-weight:700; }
 .q-doc .q-seller-sub { color:#444; font-size:12px; margin-top:2px; line-height:1.5; }
 .q-doc .q-regno { color:#777; font-size:11px; }
-.q-doc .q-meta-table { font-size:12px; border-collapse:collapse; margin-top:10px; }
-.q-doc .q-meta-table th { text-align:left; padding:2px 10px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
-.q-doc .q-meta-table td { font-weight:600; text-align:right; padding-left:14px; }
+/* 取引条件グリッド（合計バナーの上、4列） */
+.q-doc .q-cond-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:#d0d8e8; border:1px solid #d0d8e8; border-radius:4px; margin-bottom:14px; font-size:12px; overflow:hidden; }
+.q-doc .q-cond-cell { background:white; padding:7px 10px; }
+.q-doc .q-cond-label { color:#888; font-size:11px; margin-bottom:3px; }
+.q-doc .q-cond-value { font-weight:600; color:#1a1a2e; }
 /* 以下 */
 .q-doc .q-total-banner { display:flex; justify-content:space-between; align-items:center; background:${accent}; color:white; padding:12px 18px; border-radius:6px; margin-bottom:16px; }
 .q-doc .q-total-label { font-size:13px; }
@@ -183,9 +190,6 @@ function makeDocCssSpa(accent: string): string {
 .q-doc .q-items tbody tr:nth-child(even) td { background:${accentMidTint}; }
 .q-doc .q-items tfoot td { padding:6px 8px; border:1px solid #d0d8e8; }
 .q-doc .q-total-row td { font-weight:700; font-size:13px; background:${accentLight}; border-top:2px solid ${accent}; }
-.q-doc .q-conditions { width:100%; max-width:380px; border-collapse:collapse; margin-bottom:14px; font-size:12px; }
-.q-doc .q-conditions th { background:#f0f0f0; padding:5px 10px; text-align:left; border:1px solid #ccc; width:100px; font-weight:600; white-space:nowrap; }
-.q-doc .q-conditions td { padding:5px 10px; border:1px solid #ccc; }
 .q-doc .q-remarks { border:1px solid #ddd; padding:10px; font-size:12px; margin-bottom:12px; border-radius:4px; line-height:1.6; }
 .q-doc .q-remarks-label { font-weight:700; margin-bottom:4px; }
 .q-doc .q-footer-note { font-size:11px; color:#777; margin-bottom:10px; }
@@ -232,11 +236,6 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
     </tr>`;
   }).join("") || `<tr><td colspan="${headColspan}" style="text-align:center;padding:16px;color:#999;">明細なし</td></tr>`;
 
-  const conditions: string[] = [];
-  if (quote.validUntil) conditions.push(`<tr><th>有効期限</th><td>${fmtDate(quote.validUntil)}</td></tr>`);
-  if (quote.paymentTerms) conditions.push(`<tr><th>支払条件</th><td>${esc(quote.paymentTerms)}</td></tr>`);
-  if (quote.deliveryDate) conditions.push(`<tr><th>納期</th><td>${esc(quote.deliveryDate)}</td></tr>`);
-  if (quote.deliveryPlace) conditions.push(`<tr><th>納品場所</th><td>${esc(quote.deliveryPlace)}</td></tr>`);
 
   const bankLine = [
     settings.bankName, settings.bankBranch,
@@ -255,14 +254,28 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
     ? `<img src="${settings.sealImageDataUrl}" style="width:${settings.sealSize}px;height:${settings.sealSize}px;opacity:0.9;flex-shrink:0;" />`
     : "";
 
+  // 取引条件グリッドセル（値があるものだけ）
+  const condCells: string[] = [];
+  if (quote.validUntil)   condCells.push(`<div class="q-cond-cell"><div class="q-cond-label">有効期限</div><div class="q-cond-value">${fmtDate(quote.validUntil)}</div></div>`);
+  if (quote.paymentTerms) condCells.push(`<div class="q-cond-cell"><div class="q-cond-label">支払条件</div><div class="q-cond-value">${esc(quote.paymentTerms)}</div></div>`);
+  if (quote.deliveryDate) condCells.push(`<div class="q-cond-cell"><div class="q-cond-label">納期</div><div class="q-cond-value">${esc(quote.deliveryDate)}</div></div>`);
+  if (quote.deliveryPlace) condCells.push(`<div class="q-cond-cell"><div class="q-cond-label">納品場所</div><div class="q-cond-value">${esc(quote.deliveryPlace)}</div></div>`);
+  const condGrid = condCells.length > 0
+    ? `<div class="q-cond-grid" style="grid-template-columns:repeat(${Math.min(condCells.length,4)},1fr);">${condCells.join("")}</div>`
+    : "";
+
   return `
 <div class="q-doc">
-  <!-- 御見積書（1カラム全幅） -->
+  <!-- タイトル行: 左=御見積書、右=見積番号・日付（右寄せ） -->
   <div class="q-title-row">
     <h1 class="q-title">御 見 積 書</h1>
+    <table class="q-meta-table">
+      ${quote.quoteNo ? `<tr><th>見積番号</th><td>${esc(quote.quoteNo)}</td></tr>` : ""}
+      <tr><th>見積日</th><td>${fmtDate(quote.quoteDate)}</td></tr>
+    </table>
   </div>
 
-  <!-- 取引先（左）・自社情報＋日付（右） -->
+  <!-- 取引先（左）・自社情報（右） -->
   <div class="q-parties">
     <div class="q-customer">
       <p class="q-customer-name">${esc(quote.customerName || "（得意先未選択）")} 御中</p>
@@ -279,14 +292,10 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
       ${settings.companyTel ? `<p class="q-seller-sub">TEL: ${esc(settings.companyTel)}</p>` : ""}
       ${settings.companyFax ? `<p class="q-seller-sub">FAX: ${esc(settings.companyFax)}</p>` : ""}
       ${settings.companyRegistrationNo ? `<p class="q-seller-sub q-regno">登録番号: ${esc(settings.companyRegistrationNo)}</p>` : ""}
-      <!-- 見積番号・日付 -->
-      <table class="q-meta-table">
-        ${quote.quoteNo ? `<tr><th>見積番号</th><td>${esc(quote.quoteNo)}</td></tr>` : ""}
-        <tr><th>見積日</th><td>${fmtDate(quote.quoteDate)}</td></tr>
-        ${quote.validUntil ? `<tr><th>有効期限</th><td>${fmtDate(quote.validUntil)}</td></tr>` : ""}
-      </table>
     </div>
   </div>
+
+  ${condGrid}
 
   <div class="q-total-banner">
     <span class="q-total-label">合計金額</span>
@@ -317,8 +326,6 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
     </tfoot>
   </table>
   </div>
-
-  ${conditions.length > 0 ? `<table class="q-conditions">${conditions.join("")}</table>` : ""}
 
   ${quote.remarks ? `<div class="q-remarks"><p class="q-remarks-label">備考</p><p>${esc(quote.remarks).replace(/\n/g,"<br/>")}</p></div>` : ""}
 
