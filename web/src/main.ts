@@ -3078,23 +3078,25 @@ function bindEvents(root: HTMLElement): void {
       }
     }
 
+    const today = new Date().toISOString().slice(0, 10);
+    const templateType = (q.templateType === "sake" || q.templateType === "standard") ? q.templateType : "sake";
     const quotePayload: Record<string, unknown> = {
       quote_no: q.quoteNo,
-      quote_date: q.quoteDate,
-      valid_until: q.validUntil || null,
+      quote_date: q.quoteDate || today,          // 空なら今日
+      valid_until: q.validUntil || null,          // 空ならNULL
       legacy_customer_code: q.customerCode || null,
-      customer_name: q.customerName,
-      customer_address: q.customerAddress,
-      subject: q.subject,
-      template_type: q.templateType,
+      customer_name: q.customerName || "",
+      customer_address: q.customerAddress || "",
+      subject: q.subject || "",
+      template_type: templateType,               // check制約対応
       subtotal,
       tax_amount: tax,
       total_amount: total,
-      tax_rate: q.taxRate,
-      remarks: q.remarks,
-      delivery_date: q.deliveryDate,
-      payment_terms: q.paymentTerms,
-      delivery_place: q.deliveryPlace,
+      tax_rate: q.taxRate || 10,
+      remarks: q.remarks || "",
+      delivery_date: q.deliveryDate || "",
+      payment_terms: q.paymentTerms || "",
+      delivery_place: q.deliveryPlace || "",
       updated_at: new Date().toISOString(),
     };
 
