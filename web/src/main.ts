@@ -3468,6 +3468,80 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
+  // Demand planning: CSVインポート（在庫数・計画数）
+  root.querySelector<HTMLInputElement>("[data-action='plan-csv-import']")?.addEventListener("change", (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const { parseCSV } = await import("./utils/import");
+      const { columns, rows } = parseCSV(reader.result as string);
+      const statusEl = document.getElementById("csv-import-status");
+
+      // カラムの自動マッピング: 商品コード/在庫数/計画数を柔軟に検出
+      const codeCol = columns.find(c => /商品コード|product_code|code|コード/i.test(c));
+      const stockCol = columns.find(c => /在庫|stock|期首|opening/i.test(c));
+      const planCol = columns.find(c => /計画|plan|planned|生産/i.test(c));
+
+      if (!codeCol) {
+        if (statusEl) {
+          statusEl.style.display = "block";
+          statusEl.style.background = "rgba(197,61,61,0.1)";
+          statusEl.style.color = "#c53d3d";
+          statusEl.textContent = `エラー: 商品コード列が見つかりません。列名: ${columns.join(", ")}`;
+        }
+        return;
+      }
+
+      let matched = 0;
+      let stockUpdated = 0;
+      let planUpdated = 0;
+
+      for (const csvRow of rows) {
+        const code = (csvRow[codeCol] ?? "").trim();
+        if (!code) continue;
+        const planRow = state.productionPlan.find(r => r.productCode === code);
+        if (!planRow) continue;
+        matched++;
+
+        if (stockCol && csvRow[stockCol] !== undefined && csvRow[stockCol] !== "") {
+          const val = parseFloat(csvRow[stockCol]) || 0;
+          planRow.openingStock = val;
+          // 必要生産数を再計算
+          planRow.requiredProduction = Math.max(0, planRow.demandForecast + planRow.safetyStockTarget - val);
+          if (planRow.plannedQty > 0 && !planCol) {
+            planRow.plannedQty = planRow.requiredProduction;
+          }
+          stockUpdated++;
+        }
+
+        if (planCol && csvRow[planCol] !== undefined && csvRow[planCol] !== "") {
+          planRow.plannedQty = parseFloat(csvRow[planCol]) || 0;
+          planUpdated++;
+        }
+      }
+
+      if (statusEl) {
+        statusEl.style.display = "block";
+        if (matched === 0) {
+          statusEl.style.background = "rgba(183,121,31,0.1)";
+          statusEl.style.color = "#b7791f";
+          statusEl.textContent = `一致する商品コードが見つかりませんでした（CSV: ${rows.length}行）`;
+        } else {
+          statusEl.style.background = "rgba(47,133,90,0.1)";
+          statusEl.style.color = "#2f855a";
+          statusEl.textContent = `${matched}商品に反映: 在庫${stockUpdated}件${planUpdated > 0 ? ` / 計画${planUpdated}件` : ""} 更新`;
+        }
+        setTimeout(() => { statusEl.style.display = "none"; }, 5000);
+      }
+
+      renderApp();
+    };
+    reader.readAsText(file, "UTF-8");
+    // 同じファイルを再選択可能にする
+    (e.target as HTMLInputElement).value = "";
+  });
+
   // Demand planning: 計画を保存ボタン（全行一括）
   root.querySelector<HTMLButtonElement>("[data-action='plan-save']")?.addEventListener("click", async () => {
     if (state.productionPlan.length === 0) return;
@@ -5574,10 +5648,12 @@ function bindEvents(root: HTMLElement): void {
     const columns: import("./utils/csv").CSVColumn[] = [
       { key: "productCode", label: "商品コード" },
       { key: "productName", label: "商品名" },
+      { key: "productionType", label: "生産区分" },
       { key: "demandForecast", label: "需要予測" },
       { key: "safetyStockTarget", label: "安全在庫" },
+      { key: "openingStock", label: "在庫数" },
       { key: "requiredProduction", label: "必要生産量" },
-      { key: "plannedQty", label: "計画数量" },
+      { key: "plannedQty", label: "計画数" },
       { key: "actualQty", label: "実績" },
       { key: "status", label: "ステータス" }
     ];

@@ -538,13 +538,19 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
   ).join("");
 
   return `
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
       <label class="field" style="margin:0;flex-shrink:0;">
         <span>対象年月</span>
         <select data-action="plan-year-month" style="width:140px;">${monthOptions}</select>
       </label>
       <button class="button secondary" type="button" data-action="plan-recalc">需要予測を再計算</button>
+      <label class="button secondary" type="button" style="cursor:pointer;margin:0;padding:6px 12px;font-size:13px;">
+        CSVから在庫・計画を読込
+        <input type="file" accept=".csv" data-action="plan-csv-import"
+          style="display:none;" />
+      </label>
     </div>
+    <div id="csv-import-status" style="display:none;margin-bottom:12px;padding:8px 12px;border-radius:6px;font-size:12px;"></div>
 
     <section class="panel" style="margin-bottom:16px;">
       <div class="panel-header"><h2>ラベル工数サマリ</h2><p class="panel-caption">表+裏 手貼り 80本/時 × 8h = 640本/人日</p></div>
