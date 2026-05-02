@@ -3571,6 +3571,21 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // Production calendar: おすすめパターン適用
+  root.querySelectorAll<HTMLButtonElement>("[data-action='cal-apply-pattern']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const date = btn.dataset.date ?? "";
+      const pt = parseInt(btn.dataset.part ?? "0");
+      const emp = parseInt(btn.dataset.emp ?? "0");
+      const shift = state.calendarShifts.find(s => s.date === date);
+      if (shift) {
+        shift.partTimers = pt;
+        shift.employees = emp;
+      }
+      renderApp();
+    });
+  });
+
   // Production calendar: 詳細パネルからパート人数変更
   root.querySelectorAll<HTMLInputElement>("[data-action='cal-shift-part']").forEach((input) => {
     input.addEventListener("change", () => {

@@ -865,12 +865,59 @@ function renderCalendarTab(
 
     const capBreakdown = `パート${d.partTimers}人×${PART_TIMER_CAPACITY} + 社員${d.employees}人×${EMPLOYEE_CAPACITY} = ${fmtQty(d.capacity)}本`;
 
+    // 必要人数の逆算
+    const neededPartOnly = d.totalQty > 0 ? Math.ceil(d.totalQty / PART_TIMER_CAPACITY) : 0;
+    const neededEmpOnly = d.totalQty > 0 ? Math.ceil(d.totalQty / EMPLOYEE_CAPACITY) : 0;
+    // 混成パターン: パート1人をベースに、残りを社員で埋める
+    const mixedPatterns: Array<{ p: number; e: number }> = [];
+    if (d.totalQty > 0) {
+      for (let pt = 0; pt <= neededPartOnly; pt++) {
+        const remaining = d.totalQty - pt * PART_TIMER_CAPACITY;
+        if (remaining <= 0) { mixedPatterns.push({ p: pt, e: 0 }); break; }
+        const emp = Math.ceil(remaining / EMPLOYEE_CAPACITY);
+        mixedPatterns.push({ p: pt, e: emp });
+      }
+    }
+    // 現在の配置で足りているか
+    const shortage = d.totalQty - d.capacity;
+    const staffStatus = d.totalQty === 0 ? ""
+      : shortage > 0
+        ? `<span style="color:#c53d3d;font-weight:600;">⚠ ${fmtQty(shortage)}本 不足</span>`
+        : `<span style="color:#2f855a;">✓ キャパ内</span>`;
+
+    // おすすめパターン（最小人数で収まる組み合わせ上位3つ）
+    const bestPatterns = mixedPatterns
+      .filter(m => m.p + m.e > 0)
+      .sort((a, b) => (a.p + a.e) - (b.p + b.e))
+      .slice(0, 3);
+
+    const recommendSection = d.totalQty > 0 ? `
+      <div style="background:var(--surface-alt);border-radius:6px;padding:10px 12px;margin:0 4px 8px;">
+        <div style="font-size:12px;font-weight:600;margin-bottom:6px;">
+          ${fmtQty(d.totalQty)}本を収めるには ${staffStatus}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${bestPatterns.map((m, i) => {
+            const isCurrent = m.p === d.partTimers && m.e === d.employees;
+            return `<button data-action="cal-apply-pattern" data-date="${selectedDate}" data-part="${m.p}" data-emp="${m.e}"
+              style="font-size:11px;padding:4px 10px;border:1px solid ${isCurrent ? "#2f855a" : "var(--border)"};
+                border-radius:4px;background:${isCurrent ? "rgba(47,133,90,0.08)" : "var(--surface)"};
+                cursor:pointer;white-space:nowrap;${isCurrent ? "font-weight:600;" : ""}">
+              パ${m.p}社${m.e}＝${m.p + m.e}人
+              <span style="color:var(--text-secondary);margin-left:2px;">${fmtQty(m.p * PART_TIMER_CAPACITY + m.e * EMPLOYEE_CAPACITY)}本</span>
+            </button>`;
+          }).join("")}
+        </div>
+      </div>
+    ` : "";
+
     return `
       <section class="panel" style="margin-top:12px;border:2px solid #0F5B8D;">
         <div class="panel-header" style="padding-bottom:8px;">
           <h2>${dayNum}日（${dowLabel}）の生産内訳</h2>
           <p class="panel-caption">${capBreakdown} ・ 稼働率${utilPct}%</p>
         </div>
+        ${recommendSection}
         <div style="display:flex;gap:12px;padding:0 4px 8px;flex-wrap:wrap;">
           <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
             パート
