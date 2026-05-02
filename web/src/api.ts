@@ -561,6 +561,28 @@ function aggregateMockAnalytics(): SalesAnalytics {
 }
 
 
+// ── システム設定 DB 読み書き ─────────────────────────────────────────
+export async function fetchSystemSetting<T>(key: string): Promise<T | null> {
+  try {
+    const rows = await supabaseQuery<{ key: string; value: T }>("system_settings", {
+      select: "key,value",
+      filter: `key=eq.${key}`,
+      limit: 1,
+    });
+    return rows?.[0]?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function upsertSystemSetting<T>(key: string, value: T): Promise<void> {
+  await supabaseUpsert("system_settings", {
+    key,
+    value,
+    updated_at: new Date().toISOString(),
+  });
+}
+
 export async function fetchSalesSummary(): Promise<SalesSummary> {
   const salesRows = await supabaseQueryAll<DailySalesFactRow>("daily_sales_detail", {
     select: "sales_date,amount,document_count,bottles,volume_ml,price_per_bottle,price_per_liter",

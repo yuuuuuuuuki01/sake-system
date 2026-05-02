@@ -7,9 +7,12 @@ export interface QuoteCompanySettings {
   companyFax: string;
   companyEmail: string;
   companyRegistrationNo: string;
-  billingName: string;
-  billingPostal: string;
-  billingAddress: string;
+  // 振込口座
+  bankName: string;
+  bankBranch: string;
+  bankAccountType: string; // 普通 / 当座
+  bankAccountNo: string;
+  bankAccountHolder: string;
   defaultPaymentTerms: string;
   defaultHeaderNote: string;
   defaultFooterNote: string;
@@ -40,9 +43,11 @@ export const defaultCompanySettings: QuoteCompanySettings = {
   companyFax: "0463-88-5885",
   companyEmail: "info@kaneishuzo.co.jp",
   companyRegistrationNo: "T1234567890123",
-  billingName: "株式会社金井酒造",
-  billingPostal: "257-0014",
-  billingAddress: "神奈川県秦野市堀山下182",
+  bankName: "横浜銀行",
+  bankBranch: "秦野支店",
+  bankAccountType: "普通",
+  bankAccountNo: "",
+  bankAccountHolder: "カ）カナイシュゾウテン",
   defaultPaymentTerms: "月末締め翌月末払い",
   defaultHeaderNote: "下記のとおりお見積り申し上げます。",
   defaultFooterNote: "",
@@ -51,12 +56,13 @@ export const defaultCompanySettings: QuoteCompanySettings = {
   accentColor: "#0968e5",
 };
 
+/** localStorage から読み込む（DBロード前のフォールバック用） */
 export function loadQuoteSettings(): QuoteCompanySettings {
   try {
     const raw = localStorage.getItem(QUOTE_SETTINGS_KEY);
     if (raw) return { ...defaultCompanySettings, ...JSON.parse(raw) };
   } catch {}
-  // Migrate old seal setting
+  // 旧シールデータの移行
   try {
     const oldSeal = localStorage.getItem("quote-seal");
     if (oldSeal) {
@@ -67,6 +73,7 @@ export function loadQuoteSettings(): QuoteCompanySettings {
   return { ...defaultCompanySettings };
 }
 
+/** localStorage に保存（DBとの二重保存でオフライン時のフォールバック） */
 export function saveQuoteSettings(s: QuoteCompanySettings): void {
   localStorage.setItem(QUOTE_SETTINGS_KEY, JSON.stringify(s));
 }
@@ -79,10 +86,15 @@ function field(id: string, label: string, value: string, type = "text", placehol
   return `<div class="form-row"><label>${label}</label><input type="${type}" id="${id}" value="${esc(value)}" placeholder="${esc(placeholder)}" /></div>`;
 }
 
+function selectField(id: string, label: string, value: string, options: string[]): string {
+  const opts = options.map(o => `<option value="${esc(o)}" ${value === o ? "selected" : ""}>${esc(o)}</option>`).join("");
+  return `<div class="form-row"><label>${label}</label><select id="${id}">${opts}</select></div>`;
+}
+
 export function renderQuoteSettings(s: QuoteCompanySettings): string {
   return `
     <section class="page-head">
-      <div><p class="eyebrow">見積書</p><h1>会社・請求先設定</h1></div>
+      <div><p class="eyebrow">見積書</p><h1>会社・口座設定</h1></div>
       <div class="meta-stack">
         <button class="button primary" type="button" data-action="save-quote-settings">保存</button>
         <a class="button secondary" href="/quote" data-link="/quote">← 見積一覧</a>
@@ -104,11 +116,13 @@ export function renderQuoteSettings(s: QuoteCompanySettings): string {
     </section>
 
     <section class="panel">
-      <div class="panel-header"><h2>請求書送付先</h2></div>
+      <div class="panel-header"><h2>振込口座</h2></div>
       <div class="form-grid-2">
-        ${field("qs-billing-name", "宛名", s.billingName)}
-        ${field("qs-billing-postal", "郵便番号", s.billingPostal)}
-        ${field("qs-billing-address", "住所", s.billingAddress)}
+        ${field("qs-bank-name", "銀行名", s.bankName, "text", "横浜銀行")}
+        ${field("qs-bank-branch", "支店名", s.bankBranch, "text", "秦野支店")}
+        ${selectField("qs-bank-type", "口座種別", s.bankAccountType, ["普通", "当座"])}
+        ${field("qs-bank-no", "口座番号", s.bankAccountNo, "text", "1234567")}
+        ${field("qs-bank-holder", "口座名義（カナ）", s.bankAccountHolder, "text", "カ）カナイシュゾウテン")}
       </div>
     </section>
 

@@ -240,12 +240,16 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
   if (quote.deliveryDate) conditions.push(`<tr><th>納期</th><td>${esc(quote.deliveryDate)}</td></tr>`);
   if (quote.deliveryPlace) conditions.push(`<tr><th>納品場所</th><td>${esc(quote.deliveryPlace)}</td></tr>`);
 
-  const billingSection = (settings.billingName || settings.billingAddress) ? `
+  const bankLine = [
+    settings.bankName, settings.bankBranch,
+    settings.bankAccountType ? settings.bankAccountType + "預金" : "",
+    settings.bankAccountNo,
+    settings.bankAccountHolder ? "　口座名義：" + settings.bankAccountHolder : ""
+  ].filter(Boolean).join("　");
+  const billingSection = bankLine ? `
     <div class="billing-box">
-      <p style="font-weight:600;margin-bottom:2px;">【請求書送付先】</p>
-      ${settings.billingPostal ? `<p>〒${esc(settings.billingPostal)}</p>` : ""}
-      ${settings.billingAddress ? `<p>${esc(settings.billingAddress)}</p>` : ""}
-      ${settings.billingName ? `<p>${esc(settings.billingName)}</p>` : ""}
+      <p style="font-weight:600;margin-bottom:2px;">【振込口座】</p>
+      <p>${esc(bankLine)}</p>
     </div>
   ` : "";
 

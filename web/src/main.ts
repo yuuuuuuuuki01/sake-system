@@ -116,9 +116,9 @@ import { renderGlobalSearch } from "./components/GlobalSearch";
 import { renderCustomerPicker } from "./components/CustomerPicker";
 import { renderInvoiceEntry } from "./components/InvoiceEntry";
 import { renderQuoteList } from "./components/QuoteList";
-import { renderQuoteSettings, loadQuoteSettings, saveQuoteSettings, type QuoteCompanySettings } from "./components/QuoteSettings";
+import { renderQuoteSettings, loadQuoteSettings, saveQuoteSettings, defaultCompanySettings, type QuoteCompanySettings } from "./components/QuoteSettings";
 import { renderQuoteBuilder, makeDefaultQuoteState, generateQuotePdf, syncQuoteFormToState, defaultQuoteState, type QuoteState, type QuoteTemplateType } from "./components/QuoteBuilder";
-import { fetchQuoteList, fetchQuoteWithLines, type QuoteListItem } from "./api";
+import { fetchQuoteList, fetchQuoteWithLines, fetchSystemSetting, upsertSystemSetting, type QuoteListItem } from "./api";
 import { supabaseDelete } from "./supabase";
 import { toggleSort, type SortState } from "./utils/tableSort";
 import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter, type ProductPeriod } from "./components/BusinessIntelligence";
@@ -3123,7 +3123,7 @@ function bindEvents(root: HTMLElement): void {
 
   // 設定保存
   root.querySelector<HTMLButtonElement>("[data-action='save-quote-settings']")?.addEventListener("click", () => {
-    const g = (id: string) => (document.getElementById(id) as HTMLInputElement)?.value ?? "";
+    const g = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLSelectElement)?.value ?? "";
     const newSettings: QuoteCompanySettings = {
       ...state.quoteCompanySettings,
       companyName: g("qs-company-name"),
@@ -3134,15 +3134,18 @@ function bindEvents(root: HTMLElement): void {
       companyFax: g("qs-company-fax"),
       companyEmail: g("qs-company-email"),
       companyRegistrationNo: g("qs-company-regno"),
-      billingName: g("qs-billing-name"),
-      billingPostal: g("qs-billing-postal"),
-      billingAddress: g("qs-billing-address"),
+      bankName: g("qs-bank-name"),
+      bankBranch: g("qs-bank-branch"),
+      bankAccountType: g("qs-bank-type"),
+      bankAccountNo: g("qs-bank-no"),
+      bankAccountHolder: g("qs-bank-holder"),
       defaultPaymentTerms: g("qs-payment-terms"),
       defaultHeaderNote: g("qs-header-note"),
       defaultFooterNote: g("qs-footer-note"),
       accentColor: (document.getElementById("qs-accent-color") as HTMLInputElement)?.value || state.quoteCompanySettings.accentColor || "#0968e5"
     };
-    saveQuoteSettings(newSettings);
+    saveQuoteSettings(newSettings); // localStorage（オフライン用）
+    void upsertSystemSetting("quote_company", newSettings); // DB保存
     state.quoteCompanySettings = newSettings;
     showToast("設定を保存しました", "success");
     renderApp();
@@ -3154,6 +3157,7 @@ function bindEvents(root: HTMLElement): void {
       const color = btn.dataset.color ?? "#0968e5";
       state.quoteCompanySettings = { ...state.quoteCompanySettings, accentColor: color };
       saveQuoteSettings(state.quoteCompanySettings);
+      void upsertSystemSetting("quote_company", state.quoteCompanySettings);
       renderApp();
     });
   });
@@ -3174,6 +3178,7 @@ function bindEvents(root: HTMLElement): void {
     reader.onload = () => {
       state.quoteCompanySettings = { ...state.quoteCompanySettings, sealImageDataUrl: reader.result as string };
       saveQuoteSettings(state.quoteCompanySettings);
+      void upsertSystemSetting("quote_company", state.quoteCompanySettings);
       renderApp();
     };
     reader.readAsDataURL(file);
@@ -3184,6 +3189,7 @@ function bindEvents(root: HTMLElement): void {
     const size = parseInt((e.target as HTMLInputElement).value);
     state.quoteCompanySettings = { ...state.quoteCompanySettings, sealSize: size };
     saveQuoteSettings(state.quoteCompanySettings);
+    void upsertSystemSetting("quote_company", state.quoteCompanySettings);
     renderApp();
   });
 
@@ -3191,6 +3197,7 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>("[data-action='remove-company-seal']")?.addEventListener("click", () => {
     state.quoteCompanySettings = { ...state.quoteCompanySettings, sealImageDataUrl: "" };
     saveQuoteSettings(state.quoteCompanySettings);
+    void upsertSystemSetting("quote_company", state.quoteCompanySettings);
     renderApp();
   });
 
@@ -6144,7 +6151,8 @@ async function loadData(): Promise<void> {
       invoiceRecords,
       customerLedger,
       salesAnalytics,
-      syncDashboard
+      syncDashboard,
+      dbCompanySettings,
     ] = await Promise.all([
       fetchSalesSummary(),
       fetchPaymentStatus(),
@@ -6153,7 +6161,8 @@ async function loadData(): Promise<void> {
       fetchInvoices(state.invoiceFilter),
       fetchCustomerLedger(state.ledgerCustomerCode),
       fetchSalesAnalytics(),
-      fetchSyncDashboard()
+      fetchSyncDashboard(),
+      fetchSystemSetting<QuoteCompanySettings>("quote_company"),
     ]);
 
     state.salesSummary = salesSummary;
@@ -6164,6 +6173,13 @@ async function loadData(): Promise<void> {
     state.customerLedger = customerLedger;
     state.salesAnalytics = salesAnalytics;
     state.syncDashboard = syncDashboard;
+
+    // DB設定をローカル設定にマージ（DB優先）
+    if (dbCompanySettings) {
+      const merged = { ...defaultCompanySettings, ...loadQuoteSettings(), ...dbCompanySettings };
+      state.quoteCompanySettings = merged;
+      saveQuoteSettings(merged); // localStorageにも書き戻す（オフライン用）
+    }
 
     // お知らせ取得
     fetchAnnouncements().then((list) => {
