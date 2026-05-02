@@ -11,9 +11,14 @@ export interface DayShift {
   confirmed: boolean;  // 確定フラグ
 }
 
-// パート: 80本/時 × 5h = 400本/人日、社員: 合間作業 80本/時 × 3h = 240本/人日
-export const PART_TIMER_CAPACITY = 400;
-export const EMPLOYEE_CAPACITY = 240;
+// デフォルト値（UIから変更可能）
+export const DEFAULT_PART_CAPACITY = 400;  // 80本/時 × 5h
+export const DEFAULT_EMP_CAPACITY = 240;   // 80本/時 × 3h
+
+export interface CalendarCapacity {
+  partCapacity: number;  // パート1人あたり日産
+  empCapacity: number;   // 社員1人あたり日産
+}
 
 /** カレンダー上の日別生産割り当て */
 export interface DayProduction {
@@ -631,8 +636,8 @@ function isWeekend(dateStr: string): boolean {
   return dow === 0 || dow === 6;
 }
 
-function shiftCapacity(s: DayShift): number {
-  return s.partTimers * PART_TIMER_CAPACITY + s.employees * EMPLOYEE_CAPACITY;
+function shiftCapacity(s: DayShift, cap: CalendarCapacity): number {
+  return s.partTimers * cap.partCapacity + s.employees * cap.empCapacity;
 }
 
 function shiftTotal(s: DayShift): number {
@@ -642,12 +647,10 @@ function shiftTotal(s: DayShift): number {
 /** 稼働日数と総生産量から、日当たりの最適なパート/社員数を算出してシフトに反映 */
 export function optimizeShifts(
   shifts: DayShift[],
-  plan: ProductionPlanRow[]
+  plan: ProductionPlanRow[],
+  cap: CalendarCapacity = { partCapacity: DEFAULT_PART_CAPACITY, empCapacity: DEFAULT_EMP_CAPACITY }
 ): void {
-  const workingDays = shifts.filter(s => s.partTimers > 0 || s.employees > 0 || !isWeekend(s.date));
   const workDates = shifts.filter(s => s.partTimers > 0 || s.employees > 0);
-
-  // 稼働日がなければ何もしない
   if (workDates.length === 0) return;
 
   const totalQty = plan.reduce((s, r) => {
@@ -659,14 +662,14 @@ export function optimizeShifts(
 
   const dailyTarget = totalQty / workDates.length;
 
-  // 最小人数の組み合わせを探す（パート優先: コスパが良い）
+  // 最小人数の組み合わせを探す（パート優先）
   let bestPart = 0;
   let bestEmp = 0;
   let bestTotal = Infinity;
-  const maxPart = Math.ceil(dailyTarget / PART_TIMER_CAPACITY);
+  const maxPart = Math.ceil(dailyTarget / cap.partCapacity);
   for (let pt = 0; pt <= maxPart; pt++) {
-    const remaining = dailyTarget - pt * PART_TIMER_CAPACITY;
-    const emp = remaining > 0 ? Math.ceil(remaining / EMPLOYEE_CAPACITY) : 0;
+    const remaining = dailyTarget - pt * cap.partCapacity;
+    const emp = remaining > 0 ? Math.ceil(remaining / cap.empCapacity) : 0;
     const total = pt + emp;
     if (total < bestTotal) {
       bestTotal = total;
@@ -676,22 +679,20 @@ export function optimizeShifts(
   }
 
   for (const shift of shifts) {
-    if (shift.confirmed) continue; // 確定済みは触らない
+    if (shift.confirmed) continue;
     if (shift.partTimers > 0 || shift.employees > 0) {
-      // 稼働日 → 最適値をセット
       shift.partTimers = bestPart;
       shift.employees = bestEmp;
     }
-    // 休日(0,0)はそのまま
   }
 }
 
 /** 月間生産計画を日別に配分する */
 export function allocateProductionToDays(
   plan: ProductionPlanRow[],
-  shifts: DayShift[]
+  shifts: DayShift[],
+  cap: CalendarCapacity = { partCapacity: DEFAULT_PART_CAPACITY, empCapacity: DEFAULT_EMP_CAPACITY }
 ): DayProduction[] {
-  // 稼働日（人員 > 0）を取得
   const workingDays = shifts
     .filter(s => shiftTotal(s) > 0)
     .map(s => s.date)
@@ -727,13 +728,13 @@ export function allocateProductionToDays(
   // 日別の割り当て結果
   const dayMap = new Map<string, DayProduction>();
   for (const s of shifts) {
-    const cap = shiftCapacity(s);
+    const dayCap = shiftCapacity(s, cap);
     dayMap.set(s.date, {
       date: s.date,
       partTimers: s.partTimers,
       employees: s.employees,
       confirmed: s.confirmed,
-      capacity: cap,
+      capacity: dayCap,
       items: [],
       totalQty: 0,
       utilization: 0
@@ -788,13 +789,14 @@ function renderCalendarTab(
   yearMonth: string,
   shifts: DayShift[],
   selectedDate: string | null = null,
-  labelExcluded: Set<string> = new Set()
+  labelExcluded: Set<string> = new Set(),
+  cap: CalendarCapacity = { partCapacity: DEFAULT_PART_CAPACITY, empCapacity: DEFAULT_EMP_CAPACITY }
 ): string {
   const days = daysInMonth(yearMonth);
 
   // ラベル対象外を除外した計画で配分
   const labelPlan = plan.filter(r => !labelExcluded.has(r.productCode));
-  const allocation = allocateProductionToDays(labelPlan, shifts);
+  const allocation = allocateProductionToDays(labelPlan, shifts, cap);
   const allocMap = new Map(allocation.map(a => [a.date, a]));
 
   // 月間サマリ（ラベル対象分のみ）
@@ -910,18 +912,16 @@ function renderCalendarTab(
       </div>
     `).join("");
 
-    const capBreakdown = `パ${d.partTimers} 社${d.employees} = ${fmtQty(d.capacity)}本キャパ`;
+    const capBreakdown = `パ${d.partTimers}×${cap.partCapacity} 社${d.employees}×${cap.empCapacity} = ${fmtQty(d.capacity)}本`;
 
     // 必要人数の逆算
-    const neededPartOnly = d.totalQty > 0 ? Math.ceil(d.totalQty / PART_TIMER_CAPACITY) : 0;
-    const neededEmpOnly = d.totalQty > 0 ? Math.ceil(d.totalQty / EMPLOYEE_CAPACITY) : 0;
-    // 混成パターン: パート1人をベースに、残りを社員で埋める
+    const neededPartOnly = d.totalQty > 0 ? Math.ceil(d.totalQty / cap.partCapacity) : 0;
     const mixedPatterns: Array<{ p: number; e: number }> = [];
     if (d.totalQty > 0) {
       for (let pt = 0; pt <= neededPartOnly; pt++) {
-        const remaining = d.totalQty - pt * PART_TIMER_CAPACITY;
+        const remaining = d.totalQty - pt * cap.partCapacity;
         if (remaining <= 0) { mixedPatterns.push({ p: pt, e: 0 }); break; }
-        const emp = Math.ceil(remaining / EMPLOYEE_CAPACITY);
+        const emp = Math.ceil(remaining / cap.empCapacity);
         mixedPatterns.push({ p: pt, e: emp });
       }
     }
@@ -951,7 +951,7 @@ function renderCalendarTab(
                 border-radius:4px;background:${isCurrent ? "rgba(47,133,90,0.08)" : "var(--surface)"};
                 cursor:pointer;white-space:nowrap;${isCurrent ? "font-weight:600;" : ""}">
               パ${m.p}社${m.e}＝${m.p + m.e}人
-              <span style="color:var(--text-secondary);margin-left:2px;">${fmtQty(m.p * PART_TIMER_CAPACITY + m.e * EMPLOYEE_CAPACITY)}本</span>
+              <span style="color:var(--text-secondary);margin-left:2px;">${fmtQty(m.p * cap.partCapacity + m.e * cap.empCapacity)}本</span>
             </button>`;
           }).join("")}
         </div>
@@ -1035,7 +1035,22 @@ function renderCalendarTab(
       <button class="button secondary" type="button" data-action="cal-reset-shifts"
         style="margin-top:auto;padding:6px 10px;font-size:12px;">平日リセット</button>
       <button class="button primary" type="button" data-action="cal-confirm-all"
-        style="margin-top:auto;padding:6px 10px;font-size:12px;">全日確定</button>
+        style="margin-top:auto;padding:6px 10px;font-size:12px;">月一括確定</button>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;">
+      <label style="font-size:11px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+        パート日産
+        <input type="number" min="50" max="2000" step="50" value="${cap.partCapacity}"
+          data-action="cal-cap-part"
+          style="width:60px;height:26px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:4px;padding:0;" />本
+      </label>
+      <label style="font-size:11px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+        社員日産
+        <input type="number" min="50" max="2000" step="50" value="${cap.empCapacity}"
+          data-action="cal-cap-emp"
+          style="width:60px;height:26px;font-size:12px;text-align:center;border:1px solid var(--border);border-radius:4px;padding:0;" />本
+      </label>
     </div>
 
     <div style="background:var(--surface-alt);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;line-height:1.8;">
@@ -1043,7 +1058,7 @@ function renderCalendarTab(
       <div>→ パ<strong>${totalPartDays}</strong> 社<strong>${totalEmpDays}</strong>人日 ・ キャパ<strong>${fmtQty(totalCapacity)}</strong>本
         ${totalAllocated < totalPlanned ? ` <span style="color:#c53d3d;">（${fmtQty(Math.round(totalPlanned - totalAllocated))}本 未配分）</span>` : ` <span style="color:#2f855a;">✓ 全量配分済</span>`}
       </div>
-      <div style="color:var(--text-secondary);font-size:10px;">パート ${PART_TIMER_CAPACITY}本/人日 ・ 社員 ${EMPLOYEE_CAPACITY}本/人日 ｜ 日付タップで稼働ON/OFF → 人数自動計算</div>
+      <div style="color:var(--text-secondary);font-size:10px;">日付タップで稼働ON/OFF → 人数自動計算</div>
     </div>
 
     <section class="panel" style="padding:8px;">
@@ -1147,7 +1162,8 @@ export function renderDemandPlanning(
   sort: DemandSortState = null,
   shifts: DayShift[] = [],
   selectedDate: string | null = null,
-  labelExcluded: Set<string> = new Set()
+  labelExcluded: Set<string> = new Set(),
+  cap: CalendarCapacity = { partCapacity: DEFAULT_PART_CAPACITY, empCapacity: DEFAULT_EMP_CAPACITY }
 ): string {
   const tabDefs: Array<{ key: DemandTab; label: string }> = [
     { key: "demand",   label: "需要実績" },
@@ -1172,7 +1188,7 @@ export function renderDemandPlanning(
     body = renderPlanTab(productionPlan, planYearMonth, planTypeFilter, sort);
   } else if (tab === "calendar") {
     try {
-      body = renderCalendarTab(productionPlan, planYearMonth, shifts, selectedDate, labelExcluded);
+      body = renderCalendarTab(productionPlan, planYearMonth, shifts, selectedDate, labelExcluded, cap);
     } catch (err) {
       console.error("[renderCalendarTab] error:", err);
       body = `<section class="panel"><div style="color:red;padding:16px;white-space:pre-wrap;">[カレンダー描画エラー] ${String(err)}\n${(err as Error)?.stack ?? ""}</div></section>`;

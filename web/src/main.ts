@@ -3675,6 +3675,24 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // Production calendar: パート日産キャパ変更
+  root.querySelector<HTMLInputElement>("[data-action='cal-cap-part']")?.addEventListener("change", (e) => {
+    const val = parseInt((e.target as HTMLInputElement).value) || DEFAULT_PART_CAPACITY;
+    state.calendarCapacity.partCapacity = val;
+    const labelPlan = state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode));
+    optimizeShifts(state.calendarShifts, labelPlan, state.calendarCapacity);
+    renderApp();
+  });
+
+  // Production calendar: 社員日産キャパ変更
+  root.querySelector<HTMLInputElement>("[data-action='cal-cap-emp']")?.addEventListener("change", (e) => {
+    const val = parseInt((e.target as HTMLInputElement).value) || DEFAULT_EMP_CAPACITY;
+    state.calendarCapacity.empCapacity = val;
+    const labelPlan = state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode));
+    optimizeShifts(state.calendarShifts, labelPlan, state.calendarCapacity);
+    renderApp();
+  });
+
   // Production calendar: 詳細パネルからパート人数変更
   root.querySelectorAll<HTMLInputElement>("[data-action='cal-shift-part']").forEach((input) => {
     input.addEventListener("change", () => {
