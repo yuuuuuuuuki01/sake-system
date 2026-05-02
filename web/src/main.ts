@@ -3073,7 +3073,7 @@ function bindEvents(root: HTMLElement): void {
   // PDF ダウンロード（新規ウィンドウで印刷ダイアログ）
   root.querySelector<HTMLButtonElement>("[data-action='quote-download-pdf']")?.addEventListener("click", () => {
     syncQuoteFormToState(state.quoteState);
-    generateQuotePdf(state.quoteState, state.companySettings);
+    generateQuotePdf(state.quoteState, state.quoteCompanySettings);
   });
 
   // 保存
