@@ -250,10 +250,36 @@ export function renderProductPower(
   `;
 }
 
-export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortState: SortState = []): string {
+export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortState: SortState = [], selectedYear: number = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1): string {
   const aCount = customers.filter((c) => c.currentRank === "A").length;
   const upgraded = customers.filter((c) => c.prevRank && c.currentRank < c.prevRank).length;
   const downgraded = customers.filter((c) => c.prevRank && c.currentRank > c.prevRank).length;
+
+  const currentFY = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+  const firstFY = 2011;
+  const recentYears: number[] = [];
+  for (let y = currentFY; y >= firstFY && recentYears.length < 6; y--) recentYears.push(y);
+
+  const yearSelector = `
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:16px;">
+      <span style="font-size:13px;color:var(--text-secondary);margin-right:4px;">年度：</span>
+      ${recentYears.map((y) => `
+        <button class="button ${y === selectedYear ? "primary" : "secondary"} small"
+          data-action="efficiency-year-change" data-year="${y}"
+          style="min-width:80px;">
+          ${y}年度
+        </button>
+      `).join("")}
+      <select data-action="efficiency-year-select"
+        style="margin-left:8px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);font-size:13px;">
+        <option value="">過去年度…</option>
+        ${Array.from({length: currentFY - firstFY + 1}, (_, i) => currentFY - i)
+          .filter((y) => !recentYears.includes(y))
+          .map((y) => `<option value="${y}" ${y === selectedYear ? "selected" : ""}>${y}年度</option>`)
+          .join("")}
+      </select>
+    </div>
+  `;
 
   return `
     <section class="page-head">
@@ -279,7 +305,8 @@ export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortSt
     </section>
 
     <section class="panel">
-      <div class="panel-header"><h2>得意先ABC分析（年間売上構成比）</h2></div>
+      <div class="panel-header"><h2>得意先ABC分析（${selectedYear}年度・4月〜翌3月）</h2></div>
+      ${yearSelector}
       <div class="table-wrap">
         <table>
           <thead>

@@ -2147,7 +2147,7 @@ export interface ProductPower {
 export interface CustomerEfficiency {
   code: string; name: string; address: string;
   yearAmount: number; sharePct: number;
-  recentAmount: number; recentQty: number; orderDays: number;
+  recentAmount?: number; recentQty?: number; orderDays: number;
   prevAmount: number; growthRate: number | null;
   currentRank: string; prevRank: string;
 }
@@ -2210,6 +2210,23 @@ export async function fetchCustomerEfficiency(): Promise<CustomerEfficiency[]> {
     sharePct: Number(r.share_pct ?? 0),
     recentAmount: Number(r.recent_amount ?? 0),
     recentQty: Number(r.recent_qty ?? 0),
+    orderDays: Number(r.order_days ?? 0),
+    prevAmount: Number(r.prev_amount ?? 0),
+    growthRate: r.growth_rate != null ? Number(r.growth_rate) : null,
+    currentRank: String(r.current_rank ?? "C"),
+    prevRank: String(r.prev_rank ?? "")
+  }));
+}
+
+export async function fetchCustomerEfficiencyByYear(fiscalYear: number): Promise<CustomerEfficiency[]> {
+  const rows = await supabaseRpc<Record<string, unknown>[]>("get_customer_efficiency", { p_fiscal_year: fiscalYear });
+  if (!rows) return [];
+  return rows.map((r) => ({
+    code: String(r.legacy_customer_code ?? ""),
+    name: String(r.customer_name ?? ""),
+    address: String(r.address1 ?? ""),
+    yearAmount: Number(r.year_amount ?? 0),
+    sharePct: Number(r.share_pct ?? 0),
     orderDays: Number(r.order_days ?? 0),
     prevAmount: Number(r.prev_amount ?? 0),
     growthRate: r.growth_rate != null ? Number(r.growth_rate) : null,

@@ -38,6 +38,7 @@ import {
   fetchProductDaily,
   type ProductDailyRow,
   fetchCustomerEfficiency,
+  fetchCustomerEfficiencyByYear,
   type CustomerPricing,
   type ProductPower,
   type CustomerEfficiency,
@@ -185,7 +186,7 @@ import {
 } from "./utils/import";
 import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./components/RawBrowser";
 import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromSchedule, renderDeliveryCalendarWidget, defaultDemandForecastState, type DemandForecastState, type DeliveryCalendarEntry, type ProductionSegment } from "./components/DemandForecast";
-import { renderDemandPlanning, buildDefaultShifts, optimizeShifts, type DemandTab, type DemandSortState, type DayShift } from "./components/DemandPlanning";
+import { renderDemandPlanning, buildDefaultShifts, optimizeShifts, DEFAULT_PART_CAPACITY, DEFAULT_EMP_CAPACITY, type DemandTab, type DemandSortState, type DayShift, type CalendarCapacity } from "./components/DemandPlanning";
 import { renderBrewingPlan } from "./components/BrewingPlan";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { CHURN_REASONS } from "./api";
@@ -569,6 +570,7 @@ interface AppState {
   productCustomEnd: string;
   productSortState: SortState;
   customerEfficiency: CustomerEfficiency[];
+  customerEfficiencyYear: number;
   customerSortState: SortState;
   dashboardSortState: SortState;
   masterSortState: SortState;
@@ -621,6 +623,7 @@ interface AppState {
   calendarDefaultEmp: number;
   calendarSelectedDate: string | null;
   calendarLabelExcluded: Set<string>;
+  calendarCapacity: CalendarCapacity;
   brewingSchedule: import("./api").BrewingScheduleRow[];
   brewingProductDetail: import("./api").BrewingProductDetail[];
   brewingExcludedProducts: Set<string>;
@@ -885,6 +888,7 @@ const state: AppState = {
   masterSortState: [] as SortState,
   analyticsSortState: [] as SortState,
   customerEfficiency: [],
+  customerEfficiencyYear: (() => { const now = new Date(); return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1; })(),
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
@@ -936,6 +940,7 @@ const state: AppState = {
   calendarDefaultEmp: 0,
   calendarSelectedDate: null as string | null,
   calendarLabelExcluded: new Set<string>(),
+  calendarCapacity: { partCapacity: DEFAULT_PART_CAPACITY, empCapacity: DEFAULT_EMP_CAPACITY } as CalendarCapacity,
   brewingSchedule: [] as import("./api").BrewingScheduleRow[],
   brewingProductDetail: [] as import("./api").BrewingProductDetail[],
   brewingExcludedProducts: new Set<string>(),
@@ -1414,9 +1419,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         }
         break;
       case "/customer-efficiency":
-        if (state.customerEfficiency.length === 0) {
-          state.customerEfficiency = await fetchCustomerEfficiency();
-        }
+        state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear);
         break;
       case "/customer-analysis":
         if (!state.customerAnalysis) {
@@ -1557,7 +1560,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         // 除外設定を反映して最適化
         if (state.productionPlan.length > 0) {
           const labelPlan = state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode));
-          optimizeShifts(state.calendarShifts, labelPlan);
+          optimizeShifts(state.calendarShifts, labelPlan, state.calendarCapacity);
         }
         break;
       }
@@ -1853,7 +1856,7 @@ function renderView(): string {
     case "/product-power":
       return renderProductPower(state.productPower, state.productFilter as ProductViewFilter, state.productDaily, state.productPeriod as ProductPeriod, state.productCustomStart, state.productCustomEnd, state.productSortState);
     case "/customer-efficiency":
-      return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState);
+      return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState, state.customerEfficiencyYear);
     case "/customer-analysis":
       return state.customerAnalysis
         ? renderCustomerAnalysis(state.customerAnalysis)
@@ -1872,7 +1875,8 @@ function renderView(): string {
         state.demandSort,
         state.calendarShifts,
         state.calendarSelectedDate,
-        state.calendarLabelExcluded
+        state.calendarLabelExcluded,
+        state.calendarCapacity
       );
     case "/brewing-plan":
       return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides);
@@ -3458,7 +3462,7 @@ function bindEvents(root: HTMLElement): void {
     const { fetchProductionPlan } = await import("./api");
     const rows = await fetchProductionPlan(ym);
     state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
-    optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
+    optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)), state.calendarCapacity);
     renderApp();
   });
 
@@ -3596,13 +3600,13 @@ function bindEvents(root: HTMLElement): void {
         // 稼働日 → 休日にする
         shift.partTimers = 0;
         shift.employees = 0;
-        optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
+        optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)), state.calendarCapacity);
         state.calendarSelectedDate = date;
       } else {
         // 休日 → 稼働日にする（仮で1,1を入れてoptimizeに任せる）
         shift.partTimers = 1;
         shift.employees = 0;
-        optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
+        optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)), state.calendarCapacity);
         state.calendarSelectedDate = date;
       }
       renderApp();
@@ -3635,7 +3639,7 @@ function bindEvents(root: HTMLElement): void {
         state.calendarLabelExcluded.add(code);
       }
       const labelPlan = state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode));
-      optimizeShifts(state.calendarShifts, labelPlan);
+      optimizeShifts(state.calendarShifts, labelPlan, state.calendarCapacity);
       renderApp();
 
       requestAnimationFrame(() => {
@@ -3661,7 +3665,7 @@ function bindEvents(root: HTMLElement): void {
         for (const r of items) state.calendarLabelExcluded.add(r.productCode);
       }
       const labelPlan = state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode));
-      optimizeShifts(state.calendarShifts, labelPlan);
+      optimizeShifts(state.calendarShifts, labelPlan, state.calendarCapacity);
       renderApp();
 
       requestAnimationFrame(() => {
@@ -3707,7 +3711,7 @@ function bindEvents(root: HTMLElement): void {
     ]);
     state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
     state.calendarLabelExcluded = new Set(savedExcl);
-    optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
+    optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)), state.calendarCapacity);
     renderApp();
   });
 
@@ -3740,7 +3744,7 @@ function bindEvents(root: HTMLElement): void {
   // Production calendar: シフトリセット（平日ON→自動最適化）
   root.querySelector<HTMLButtonElement>("[data-action='cal-reset-shifts']")?.addEventListener("click", () => {
     state.calendarShifts = buildDefaultShifts(state.demandPlanYearMonth, 1, 0);
-    optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
+    optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)), state.calendarCapacity);
     renderApp();
   });
 
@@ -3785,6 +3789,25 @@ function bindEvents(root: HTMLElement): void {
       }
       renderApp();
     });
+  });
+
+  // 営業効率: 年度切り替え（ボタン）
+  root.querySelectorAll<HTMLButtonElement>("[data-action='efficiency-year-change']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const year = parseInt(btn.dataset.year ?? "", 10);
+      if (!year) return;
+      state.customerEfficiencyYear = year;
+      state.customerEfficiency = await fetchCustomerEfficiencyByYear(year);
+      renderApp();
+    });
+  });
+  // 営業効率: 年度切り替え（セレクト・過去年度）
+  root.querySelector<HTMLSelectElement>("[data-action='efficiency-year-select']")?.addEventListener("change", async (e) => {
+    const year = parseInt((e.target as HTMLSelectElement).value, 10);
+    if (!year) return;
+    state.customerEfficiencyYear = year;
+    state.customerEfficiency = await fetchCustomerEfficiencyByYear(year);
+    renderApp();
   });
 
   root.querySelectorAll<HTMLButtonElement>("[data-product-period]").forEach((btn) => {
