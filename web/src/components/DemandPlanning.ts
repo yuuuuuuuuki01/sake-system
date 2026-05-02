@@ -787,14 +787,20 @@ function renderCalendarTab(
   plan: ProductionPlanRow[],
   yearMonth: string,
   shifts: DayShift[],
-  selectedDate: string | null = null
+  selectedDate: string | null = null,
+  labelExcluded: Set<string> = new Set()
 ): string {
   const days = daysInMonth(yearMonth);
-  const allocation = allocateProductionToDays(plan, shifts);
+
+  // ラベル対象外を除外した計画で配分
+  const labelPlan = plan.filter(r => !labelExcluded.has(r.productCode));
+  const allocation = allocateProductionToDays(labelPlan, shifts);
   const allocMap = new Map(allocation.map(a => [a.date, a]));
 
-  // 月間サマリ
-  const totalPlanned = plan.reduce((s, r) => s + (r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock)), 0);
+  // 月間サマリ（ラベル対象分のみ）
+  const totalPlanned = labelPlan.reduce((s, r) => s + (r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock)), 0);
+  const totalAllProducts = plan.reduce((s, r) => s + (r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock)), 0);
+  const excludedQty = totalAllProducts - totalPlanned;
   const totalAllocated = allocation.reduce((s, d) => s + d.totalQty, 0);
   const workDays = shifts.filter(s => shiftTotal(s) > 0).length;
   const totalCapacity = allocation.reduce((s, d) => s + d.capacity, 0);
@@ -1046,10 +1052,35 @@ function renderCalendarTab(
         ).join("")}
         ${calCells.join("")}
       </div>
-      <p style="font-size:10px;color:var(--text-secondary);margin:6px 0 0;text-align:center;">日付をタップで詳細表示</p>
+      <p style="font-size:10px;color:var(--text-secondary);margin:6px 0 0;text-align:center;">日付タップで稼働ON/OFF</p>
     </section>
 
     ${detailPanel}
+
+    <section class="panel" style="margin-top:12px;">
+      <div class="panel-header" style="padding-bottom:4px;">
+        <div>
+          <h2 style="font-size:14px;">ラベル対象商品</h2>
+          <p class="panel-caption">印刷瓶・ラベル不要品はチェックを外してください${labelExcluded.size > 0 ? `（${labelExcluded.size}品除外中 = ${fmtQty(Math.round(excludedQty))}本）` : ""}</p>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;padding:4px;max-height:300px;overflow-y:auto;">
+        ${plan.map(r => {
+          const qty = r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
+          if (qty <= 0) return "";
+          const excluded = labelExcluded.has(r.productCode);
+          return `
+            <label style="display:flex;align-items:center;gap:4px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;cursor:pointer;
+              background:${excluded ? "var(--surface-alt)" : "var(--surface)"};${excluded ? "opacity:0.5;" : ""}white-space:nowrap;">
+              <input type="checkbox" data-action="cal-label-toggle" data-code="${r.productCode}"
+                ${excluded ? "" : "checked"} style="margin:0;" />
+              <span style="overflow:hidden;text-overflow:ellipsis;max-width:140px;" title="${r.productName}">${r.productName}</span>
+              <span style="color:var(--text-secondary);">${fmtQty(Math.round(qty))}</span>
+            </label>
+          `;
+        }).join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -1065,7 +1096,8 @@ export function renderDemandPlanning(
   planTypeFilter: string = "all",
   sort: DemandSortState = null,
   shifts: DayShift[] = [],
-  selectedDate: string | null = null
+  selectedDate: string | null = null,
+  labelExcluded: Set<string> = new Set()
 ): string {
   const tabDefs: Array<{ key: DemandTab; label: string }> = [
     { key: "demand",   label: "需要実績" },
@@ -1090,7 +1122,7 @@ export function renderDemandPlanning(
     body = renderPlanTab(productionPlan, planYearMonth, planTypeFilter, sort);
   } else if (tab === "calendar") {
     try {
-      body = renderCalendarTab(productionPlan, planYearMonth, shifts, selectedDate);
+      body = renderCalendarTab(productionPlan, planYearMonth, shifts, selectedDate, labelExcluded);
     } catch (err) {
       console.error("[renderCalendarTab] error:", err);
       body = `<section class="panel"><div style="color:red;padding:16px;white-space:pre-wrap;">[カレンダー描画エラー] ${String(err)}\n${(err as Error)?.stack ?? ""}</div></section>`;

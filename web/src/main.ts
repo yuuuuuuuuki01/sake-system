@@ -620,6 +620,7 @@ interface AppState {
   calendarDefaultPart: number;
   calendarDefaultEmp: number;
   calendarSelectedDate: string | null;
+  calendarLabelExcluded: Set<string>;
   brewingSchedule: import("./api").BrewingScheduleRow[];
   brewingProductDetail: import("./api").BrewingProductDetail[];
   brewingExcludedProducts: Set<string>;
@@ -934,6 +935,7 @@ const state: AppState = {
   calendarDefaultPart: 1,
   calendarDefaultEmp: 0,
   calendarSelectedDate: null as string | null,
+  calendarLabelExcluded: new Set<string>(),
   brewingSchedule: [] as import("./api").BrewingScheduleRow[],
   brewingProductDetail: [] as import("./api").BrewingProductDetail[],
   brewingExcludedProducts: new Set<string>(),
@@ -1861,9 +1863,9 @@ function renderView(): string {
         state.demandPlanTypeFilter,
         state.demandSort,
         state.calendarShifts,
-        state.calendarSelectedDate
+        state.calendarSelectedDate,
+        state.calendarLabelExcluded
       );
-
     case "/brewing-plan":
       return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides);
     case "/churn-alert":
@@ -3439,7 +3441,7 @@ function bindEvents(root: HTMLElement): void {
     const { fetchProductionPlan } = await import("./api");
     const rows = await fetchProductionPlan(ym);
     state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
-    optimizeShifts(state.calendarShifts, state.productionPlan);
+    optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
     renderApp();
   });
 
@@ -3577,15 +3579,31 @@ function bindEvents(root: HTMLElement): void {
         // 稼働日 → 休日にする
         shift.partTimers = 0;
         shift.employees = 0;
-        optimizeShifts(state.calendarShifts, state.productionPlan);
+        optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
         state.calendarSelectedDate = date;
       } else {
         // 休日 → 稼働日にする（仮で1,1を入れてoptimizeに任せる）
         shift.partTimers = 1;
         shift.employees = 0;
-        optimizeShifts(state.calendarShifts, state.productionPlan);
+        optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
         state.calendarSelectedDate = date;
       }
+      renderApp();
+    });
+  });
+
+  // Production calendar: ラベル対象ON/OFF → 除外して再最適化
+  root.querySelectorAll<HTMLInputElement>("[data-action='cal-label-toggle']").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const code = cb.dataset.code ?? "";
+      if (cb.checked) {
+        state.calendarLabelExcluded.delete(code);
+      } else {
+        state.calendarLabelExcluded.add(code);
+      }
+      // ラベル対象が変わったので人数も再最適化
+      const labelPlan = state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode));
+      optimizeShifts(state.calendarShifts, labelPlan);
       renderApp();
     });
   });
@@ -3622,7 +3640,7 @@ function bindEvents(root: HTMLElement): void {
     const { fetchProductionPlan } = await import("./api");
     const rows = await fetchProductionPlan(ym);
     state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
-    optimizeShifts(state.calendarShifts, state.productionPlan);
+    optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
     renderApp();
   });
 
@@ -3655,7 +3673,7 @@ function bindEvents(root: HTMLElement): void {
   // Production calendar: シフトリセット（平日ON→自動最適化）
   root.querySelector<HTMLButtonElement>("[data-action='cal-reset-shifts']")?.addEventListener("click", () => {
     state.calendarShifts = buildDefaultShifts(state.demandPlanYearMonth, 1, 0);
-    optimizeShifts(state.calendarShifts, state.productionPlan);
+    optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
     renderApp();
   });
 
