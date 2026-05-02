@@ -1309,7 +1309,7 @@ ${s}
       <div class="quote-seal-area">
         ${e.sealImageDataUrl?`
           <div class="quote-seal-preview">
-            <img src="${e.sealImageDataUrl}" alt="社印" style="width:${e.sealSize}px;height:${e.sealSize}px;border-radius:50%;" />
+            <img src="${e.sealImageDataUrl}" alt="社印" style="width:${e.sealSize}px;height:${e.sealSize}px;" />
           </div>
           <div class="quote-seal-controls">
             <label>サイズ: <input type="range" id="qs-seal-size" min="40" max="120" value="${e.sealSize}" style="width:120px;" /> ${e.sealSize}px</label>
