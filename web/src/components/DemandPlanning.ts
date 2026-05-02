@@ -1063,6 +1063,8 @@ function renderCalendarTab(
           <h2 style="font-size:14px;">ラベル対象商品</h2>
           <p class="panel-caption">区分ごとにまとめて外す or 個別に外せます${labelExcluded.size > 0 ? `（<strong>${labelExcluded.size}</strong>品除外中 = ${fmtQty(Math.round(excludedQty))}本）` : ""}</p>
         </div>
+        <button class="button primary" type="button" data-action="cal-save-exclusions"
+          style="padding:6px 14px;font-size:12px;">設定を保存</button>
       </div>
       <div id="cal-label-list" style="max-height:500px;overflow-y:auto;">
         ${(() => {

@@ -1480,6 +1480,39 @@ export async function fetchBrewingCategoryOverrides(): Promise<Record<string, st
   return map;
 }
 
+// ─── カレンダー ラベル除外設定 ─────────────────────────────────────────────────
+
+export async function fetchLabelExclusions(yearMonth: string): Promise<string[]> {
+  const rows = await supabaseQuery<LooseRow>("calendar_label_exclusions", {
+    year_month: `eq.${yearMonth}`
+  });
+  return (rows ?? []).map(r => getString(r, ["product_code"], "")).filter(Boolean);
+}
+
+export async function saveLabelExclusions(yearMonth: string, productCodes: string[]): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  try {
+    // 該当年月を全削除
+    await fetch(
+      `${SUPABASE_URL}/rest/v1/calendar_label_exclusions?year_month=eq.${encodeURIComponent(yearMonth)}`,
+      { method: "DELETE", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    if (productCodes.length === 0) return true;
+    // 一括INSERT
+    const body = productCodes.map(code => ({ year_month: yearMonth, product_code: code }));
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/calendar_label_exclusions`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json", Prefer: "return=minimal"
+      },
+      body: JSON.stringify(body)
+    });
+    return resp.ok;
+  } catch { return false; }
+}
+
 // ─── 伝票入力 ────────────────────────────────────────────────────────────────
 
 export type InvoiceType = "sales" | "return" | "export_return";

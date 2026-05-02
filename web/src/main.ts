@@ -1533,7 +1533,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         }
         break;
       case "/demand": {
-        const { fetchDemandAnalysis, fetchSafetyStockParams, fetchProductionPlan } = await import("./api");
+        const { fetchDemandAnalysis, fetchSafetyStockParams, fetchProductionPlan, fetchLabelExclusions } = await import("./api");
         if (!state.demandAnalysis) {
           const [analysis, ssParams] = await Promise.all([
             fetchDemandAnalysis(state.demandYearsBack * 12),
@@ -1550,6 +1550,14 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           } else if (state.demandAnalysis && state.safetyStockParams.length > 0) {
             state.productionPlan = buildPlanFromAnalysis(state.demandPlanYearMonth);
           }
+        }
+        // ラベル除外設定をDBからロード
+        const savedExcl = await fetchLabelExclusions(state.demandPlanYearMonth);
+        state.calendarLabelExcluded = new Set(savedExcl);
+        // 除外設定を反映して最適化
+        if (state.productionPlan.length > 0) {
+          const labelPlan = state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode));
+          optimizeShifts(state.calendarShifts, labelPlan);
         }
         break;
       }
@@ -3592,6 +3600,19 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // Production calendar: ラベル除外設定をDBに保存
+  root.querySelector<HTMLButtonElement>("[data-action='cal-save-exclusions']")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "保存中…";
+    const { saveLabelExclusions } = await import("./api");
+    const codes = [...state.calendarLabelExcluded];
+    const ok = await saveLabelExclusions(state.demandPlanYearMonth, codes);
+    btn.disabled = false;
+    btn.textContent = ok ? "✓ 保存しました" : "✗ 保存失敗";
+    setTimeout(() => { btn.textContent = "設定を保存"; }, 2500);
+  });
+
   // Production calendar: ラベル対象 個別ON/OFF（スクロール位置保持）
   root.querySelectorAll<HTMLInputElement>("[data-action='cal-label-toggle']").forEach((cb) => {
     cb.addEventListener("change", () => {
@@ -3670,9 +3691,13 @@ function bindEvents(root: HTMLElement): void {
     state.demandPlanYearMonth = ym;
     state.calendarSelectedDate = null;
     state.calendarShifts = buildDefaultShifts(ym, 1, 0);
-    const { fetchProductionPlan } = await import("./api");
-    const rows = await fetchProductionPlan(ym);
+    const { fetchProductionPlan, fetchLabelExclusions } = await import("./api");
+    const [rows, savedExcl] = await Promise.all([
+      fetchProductionPlan(ym),
+      fetchLabelExclusions(ym)
+    ]);
     state.productionPlan = rows.length > 0 ? rows : buildPlanFromAnalysis(ym);
+    state.calendarLabelExcluded = new Set(savedExcl);
     optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)));
     renderApp();
   });
