@@ -623,6 +623,8 @@ interface AppState {
   brewingSchedule: import("./api").BrewingScheduleRow[];
   brewingProductDetail: import("./api").BrewingProductDetail[];
   brewingExcludedProducts: Set<string>;
+  brewingCustomCategories: string[];
+  brewingOverrides: Record<string, string>;
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -935,6 +937,8 @@ const state: AppState = {
   brewingSchedule: [] as import("./api").BrewingScheduleRow[],
   brewingProductDetail: [] as import("./api").BrewingProductDetail[],
   brewingExcludedProducts: new Set<string>(),
+  brewingCustomCategories: [] as string[],
+  brewingOverrides: {} as Record<string, string>,
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1569,20 +1573,24 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-plan": {
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule, products] = await Promise.all([
+        const [summary, trend, schedule, products, customCats, overrides] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd),
           fetchBrewingMonthlyTrend(fyStart, fyEnd),
           fetchBrewingSchedule(fy),
-          fetchBrewingProductDetail(fyStart, fyEnd)
+          fetchBrewingProductDetail(fyStart, fyEnd),
+          fetchBrewingCustomCategories(),
+          fetchBrewingCategoryOverrides()
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
         state.brewingSchedule = schedule;
         state.brewingProductDetail = products;
+        state.brewingCustomCategories = customCats;
+        state.brewingOverrides = overrides;
         break;
       }
       case "/jikomi":
@@ -1878,7 +1886,7 @@ function renderView(): string {
       );
 
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -5678,17 +5686,21 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLSelectElement>("#brewing-fy-select")?.addEventListener("change", async (e) => {
     const fy = parseInt((e.target as HTMLSelectElement).value);
     state.brewingPlanFY = fy;
-    const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail } = await import("./api");
-    const [summary, trend, schedule, products] = await Promise.all([
+    const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides } = await import("./api");
+    const [summary, trend, schedule, products, customCats, overrides] = await Promise.all([
       fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
       fetchBrewingMonthlyTrend(`${fy}-10-01`, `${fy + 1}-09-30`),
       fetchBrewingSchedule(fy),
-      fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`)
+      fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
+      fetchBrewingCustomCategories(),
+      fetchBrewingCategoryOverrides()
     ]);
     state.brewingPlanData = summary;
     state.brewingMonthlyTrend = trend;
     state.brewingSchedule = schedule;
     state.brewingProductDetail = products;
+    state.brewingCustomCategories = customCats;
+    state.brewingOverrides = overrides;
     state.brewingExcludedProducts = new Set();
     renderApp();
   });
@@ -5701,6 +5713,82 @@ function bindEvents(root: HTMLElement): void {
         state.brewingExcludedProducts.delete(code);
       } else {
         state.brewingExcludedProducts.add(code);
+      }
+      renderApp();
+    });
+  });
+
+  // 醸造計画: 銘柄の区分変更ドロップダウン
+  root.querySelectorAll<HTMLSelectElement>("[data-action='brew-move-product']").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const code = sel.dataset.code ?? "";
+      const newCat = sel.value;
+      const originalCat = sel.dataset.original ?? "";
+      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail } = await import("./api");
+      // 「自動」を選んだ場合はオーバーライド解除
+      const ok = await setBrewingCategoryOverride(code, newCat === originalCat ? null : newCat);
+      if (ok) {
+        const fy = state.brewingPlanFY;
+        const [summary, products] = await Promise.all([
+          fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+          fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`)
+        ]);
+        state.brewingPlanData = summary;
+        state.brewingProductDetail = products;
+        if (newCat === originalCat) {
+          delete state.brewingOverrides[code];
+        } else {
+          state.brewingOverrides[code] = newCat;
+        }
+      }
+      renderApp();
+    });
+  });
+
+  // 醸造計画: カスタム区分の追加
+  root.querySelector<HTMLButtonElement>("[data-action='brew-add-category']")?.addEventListener("click", async () => {
+    const input = root.querySelector<HTMLInputElement>("#brew-new-category-name");
+    const name = input?.value.trim() ?? "";
+    if (!name) return;
+    // 重複チェック（既存 + カスタム）
+    const allCats = [...["純米大吟醸","大吟醸","純米吟醸","純米","本醸造","普通酒","リキュール","その他"], ...state.brewingCustomCategories];
+    if (allCats.includes(name)) {
+      showToast("同名の区分が既に存在します", "warning");
+      return;
+    }
+    const { addBrewingCustomCategory } = await import("./api");
+    const ok = await addBrewingCustomCategory(name);
+    if (ok) {
+      state.brewingCustomCategories.push(name);
+      if (input) input.value = "";
+      showToast(`「${name}」を追加しました`);
+    } else {
+      showToast("追加に失敗しました", "error");
+    }
+    renderApp();
+  });
+
+  // 醸造計画: カスタム区分の削除
+  root.querySelectorAll<HTMLButtonElement>("[data-action='brew-delete-category']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const name = btn.dataset.cat ?? "";
+      if (!name) return;
+      const { deleteBrewingCustomCategory, fetchBrewingPlanSummary, fetchBrewingProductDetail } = await import("./api");
+      const ok = await deleteBrewingCustomCategory(name);
+      if (ok) {
+        state.brewingCustomCategories = state.brewingCustomCategories.filter(c => c !== name);
+        // オーバーライドも消えているのでstate反映
+        for (const [code, cat] of Object.entries(state.brewingOverrides)) {
+          if (cat === name) delete state.brewingOverrides[code];
+        }
+        const fy = state.brewingPlanFY;
+        const [summary, products] = await Promise.all([
+          fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+          fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`)
+        ]);
+        state.brewingPlanData = summary;
+        state.brewingProductDetail = products;
+        showToast(`「${name}」を削除しました`);
       }
       renderApp();
     });

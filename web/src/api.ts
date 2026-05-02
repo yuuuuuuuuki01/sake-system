@@ -1408,6 +1408,78 @@ export async function upsertBrewingStock(brewCategory: string, stockL: number, c
   return result !== null;
 }
 
+// カスタム醸造区分の取得
+export async function fetchBrewingCustomCategories(): Promise<string[]> {
+  const rows = await supabaseQuery<LooseRow>("brewing_custom_categories", {
+    order: "sort_order.asc,name.asc"
+  });
+  return (rows ?? []).map(r => getString(r, ["name"], ""));
+}
+
+// カスタム醸造区分の追加
+export async function addBrewingCustomCategory(name: string): Promise<boolean> {
+  const result = await supabaseInsert("brewing_custom_categories", { name });
+  return result !== null;
+}
+
+// カスタム醸造区分の削除（紐づく銘柄のオーバーライドも消す）
+export async function deleteBrewingCustomCategory(name: string): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  try {
+    // まずオーバーライドを削除
+    await fetch(`${SUPABASE_URL}/rest/v1/brewing_category_overrides?brew_category=eq.${encodeURIComponent(name)}`, {
+      method: "DELETE",
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+    });
+    // 次にカテゴリ自体を削除
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/brewing_custom_categories?name=eq.${encodeURIComponent(name)}`, {
+      method: "DELETE",
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+    });
+    return resp.ok;
+  } catch { return false; }
+}
+
+// ���柄の醸造区分を変更（オーバーライド設定/解除）
+export async function setBrewingCategoryOverride(productCode: string, brewCategory: string | null): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  try {
+    if (brewCategory === null) {
+      // オーバーライド解除（自動分類に戻す）
+      const resp = await fetch(
+        `${SUPABASE_URL}/rest/v1/brewing_category_overrides?product_code=eq.${encodeURIComponent(productCode)}`,
+        { method: "DELETE", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+      );
+      return resp.ok;
+    }
+    // upsert
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/brewing_category_overrides`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({ product_code: productCode, brew_category: brewCategory })
+    });
+    return resp.ok;
+  } catch { return false; }
+}
+
+// 現在のオーバーライド一覧を取得
+export async function fetchBrewingCategoryOverrides(): Promise<Record<string, string>> {
+  const rows = await supabaseQuery<LooseRow>("brewing_category_overrides", {});
+  const map: Record<string, string> = {};
+  for (const r of rows ?? []) {
+    const code = getString(r, ["product_code"], "");
+    const cat = getString(r, ["brew_category"], "");
+    if (code && cat) map[code] = cat;
+  }
+  return map;
+}
+
 // ─── 伝票入力 ────────────────────────────────────────────────────────────────
 
 export type InvoiceType = "sales" | "return" | "export_return";
