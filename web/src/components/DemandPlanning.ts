@@ -639,6 +639,53 @@ function shiftTotal(s: DayShift): number {
   return s.partTimers + s.employees;
 }
 
+/** 稼働日数と総生産量から、日当たりの最適なパート/社員数を算出してシフトに反映 */
+export function optimizeShifts(
+  shifts: DayShift[],
+  plan: ProductionPlanRow[]
+): void {
+  const workingDays = shifts.filter(s => s.partTimers > 0 || s.employees > 0 || !isWeekend(s.date));
+  const workDates = shifts.filter(s => s.partTimers > 0 || s.employees > 0);
+
+  // 稼働日がなければ何もしない
+  if (workDates.length === 0) return;
+
+  const totalQty = plan.reduce((s, r) => {
+    const qty = r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
+    return s + qty;
+  }, 0);
+
+  if (totalQty <= 0) return;
+
+  const dailyTarget = totalQty / workDates.length;
+
+  // 最小人数の組み合わせを探す（パート優先: コスパが良い）
+  let bestPart = 0;
+  let bestEmp = 0;
+  let bestTotal = Infinity;
+  const maxPart = Math.ceil(dailyTarget / PART_TIMER_CAPACITY);
+  for (let pt = 0; pt <= maxPart; pt++) {
+    const remaining = dailyTarget - pt * PART_TIMER_CAPACITY;
+    const emp = remaining > 0 ? Math.ceil(remaining / EMPLOYEE_CAPACITY) : 0;
+    const total = pt + emp;
+    if (total < bestTotal) {
+      bestTotal = total;
+      bestPart = pt;
+      bestEmp = emp;
+    }
+  }
+
+  for (const shift of shifts) {
+    if (shift.confirmed) continue; // 確定済みは触らない
+    if (shift.partTimers > 0 || shift.employees > 0) {
+      // 稼働日 → 最適値をセット
+      shift.partTimers = bestPart;
+      shift.employees = bestEmp;
+    }
+    // 休日(0,0)はそのまま
+  }
+}
+
 /** 月間生産計画を日別に配分する */
 export function allocateProductionToDays(
   plan: ProductionPlanRow[],
@@ -754,15 +801,8 @@ function renderCalendarTab(
   const totalPartDays = shifts.reduce((s, d) => s + d.partTimers, 0);
   const totalEmpDays = shifts.reduce((s, d) => s + d.employees, 0);
 
-  // デフォルト人数
-  const defaultPart = shifts.find(s => s.partTimers > 0)?.partTimers ?? 1;
-  const defaultEmp = shifts.find(s => s.employees > 0)?.employees ?? 1;
-  const partOptions = [0, 1, 2, 3, 4, 5].map(n =>
-    `<option value="${n}" ${n === defaultPart ? "selected" : ""}>${n}</option>`
-  ).join("");
-  const empOptions = [0, 1, 2, 3].map(n =>
-    `<option value="${n}" ${n === defaultEmp ? "selected" : ""}>${n}</option>`
-  ).join("");
+  // 日当たり目安
+  const dailyTarget = workDays > 0 ? Math.ceil(totalPlanned / workDays) : 0;
 
   // 年月セレクタ
   const now = new Date();
@@ -808,7 +848,7 @@ function renderCalendarTab(
     const staffLabel = hc > 0 ? `<span style="font-size:8px;color:var(--text-secondary);line-height:1;">${pt > 0 ? `パ${pt}` : ""}${emp > 0 ? `社${emp}` : ""}</span>` : "";
 
     calCells.push(`
-      <div data-action="cal-select-day" data-date="${date}"
+      <div data-action="cal-toggle-day" data-date="${date}"
         style="min-height:44px;padding:3px;border:${selected ? "2px solid #0F5B8D" : "1px solid var(--border)"};border-radius:6px;
           background:${bg};cursor:pointer;display:flex;flex-direction:column;
           ${selected ? "box-shadow:0 0 0 2px rgba(15,91,141,0.2);" : ""}">
@@ -981,29 +1021,18 @@ function renderCalendarTab(
         <span>対象年月</span>
         <select data-action="cal-year-month" style="width:130px;">${monthOptions}</select>
       </label>
-      <label class="field" style="margin:0;flex-shrink:0;">
-        <span>パート</span>
-        <select data-action="cal-default-part" style="width:54px;">${partOptions}</select>
-      </label>
-      <label class="field" style="margin:0;flex-shrink:0;">
-        <span>社員</span>
-        <select data-action="cal-default-emp" style="width:54px;">${empOptions}</select>
-      </label>
       <button class="button secondary" type="button" data-action="cal-reset-shifts"
-        style="margin-top:auto;padding:6px 10px;font-size:12px;">リセット</button>
+        style="margin-top:auto;padding:6px 10px;font-size:12px;">平日リセット</button>
       <button class="button primary" type="button" data-action="cal-confirm-all"
         style="margin-top:auto;padding:6px 10px;font-size:12px;">全日確定</button>
     </div>
 
-    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;font-size:12px;">
-      <span><strong>${fmtQty(Math.round(totalPlanned))}</strong>本予定</span>
-      <span><strong>${fmtQty(Math.round(totalAllocated))}</strong>本配分${totalPlanned > 0 ? `（${Math.round(totalAllocated / totalPlanned * 100)}%）` : ""}</span>
-      <span><strong>${workDays}</strong>日稼働</span>
-      <span>パ<strong>${totalPartDays}</strong> 社<strong>${totalEmpDays}</strong>人日</span>
-      <span>キャパ<strong>${fmtQty(totalCapacity)}</strong>本</span>
-    </div>
-    <div style="font-size:10px;color:var(--text-secondary);margin-bottom:8px;">
-      パート: 80本/時×5h=<strong>${PART_TIMER_CAPACITY}</strong>本/人日　社員: 80本/時×3h=<strong>${EMPLOYEE_CAPACITY}</strong>本/人日
+    <div style="background:var(--surface-alt);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;line-height:1.8;">
+      <div><strong>${fmtQty(Math.round(totalPlanned))}</strong>本 ÷ <strong>${workDays}</strong>稼働日 = 日当たり<strong>${fmtQty(dailyTarget)}</strong>本</div>
+      <div>→ パ<strong>${totalPartDays}</strong> 社<strong>${totalEmpDays}</strong>人日 ・ キャパ<strong>${fmtQty(totalCapacity)}</strong>本
+        ${totalAllocated < totalPlanned ? ` <span style="color:#c53d3d;">（${fmtQty(Math.round(totalPlanned - totalAllocated))}本 未配分）</span>` : ` <span style="color:#2f855a;">✓ 全量配分済</span>`}
+      </div>
+      <div style="color:var(--text-secondary);font-size:10px;">パート ${PART_TIMER_CAPACITY}本/人日 ・ 社員 ${EMPLOYEE_CAPACITY}本/人日 ｜ 日付タップで稼働ON/OFF → 人数自動計算</div>
     </div>
 
     <section class="panel" style="padding:8px;">
