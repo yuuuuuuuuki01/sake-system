@@ -1057,26 +1057,33 @@ function renderCalendarTab(
 
     ${detailPanel}
 
-    <section class="panel" style="margin-top:12px;">
+    <section class="panel" style="margin-top:12px;" id="cal-label-section">
       <div class="panel-header" style="padding-bottom:4px;">
         <div>
           <h2 style="font-size:14px;">ラベル対象商品</h2>
-          <p class="panel-caption">印刷瓶・ラベル不要品はチェックを外してください${labelExcluded.size > 0 ? `（${labelExcluded.size}品除外中 = ${fmtQty(Math.round(excludedQty))}本）` : ""}</p>
+          <p class="panel-caption">印刷瓶・ラベル不要品はチェックを外してください${labelExcluded.size > 0 ? `（<strong>${labelExcluded.size}</strong>品除外中 = ${fmtQty(Math.round(excludedQty))}本）` : ""}</p>
         </div>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;padding:4px;max-height:300px;overflow-y:auto;">
-        ${plan.map(r => {
+      <div id="cal-label-list" style="max-height:400px;overflow-y:auto;">
+        ${plan.filter(r => {
           const qty = r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
-          if (qty <= 0) return "";
+          return qty > 0;
+        }).map(r => {
+          const qty = r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
           const excluded = labelExcluded.has(r.productCode);
           return `
-            <label style="display:flex;align-items:center;gap:4px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;cursor:pointer;
-              background:${excluded ? "var(--surface-alt)" : "var(--surface)"};${excluded ? "opacity:0.5;" : ""}white-space:nowrap;">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--border);${excluded ? "opacity:0.45;" : ""}"
+              data-label-row="${r.productCode}">
               <input type="checkbox" data-action="cal-label-toggle" data-code="${r.productCode}"
-                ${excluded ? "" : "checked"} style="margin:0;" />
-              <span style="overflow:hidden;text-overflow:ellipsis;max-width:140px;" title="${r.productName}">${r.productName}</span>
-              <span style="color:var(--text-secondary);">${fmtQty(Math.round(qty))}</span>
-            </label>
+                ${excluded ? "" : "checked"} style="cursor:pointer;flex-shrink:0;width:18px;height:18px;" />
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${excluded ? "text-decoration:line-through;" : ""}">${r.productName}</div>
+                <div style="font-size:11px;color:var(--text-secondary);">${r.productCode}</div>
+              </div>
+              <div style="text-align:right;flex-shrink:0;">
+                <div style="font-size:14px;font-weight:700;">${fmtQty(Math.round(qty))}<span style="font-size:11px;font-weight:400;">本</span></div>
+              </div>
+            </div>
           `;
         }).join("")}
       </div>
