@@ -1774,7 +1774,7 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
             </tr>
           </thead>
           <tbody>
-            ${Ge(e,t,{currentRank:"currentRank",name:"name",yearAmount:"yearAmount",sharePct:"sharePct",orderDays:"orderDays",growthRate:"growthRate"}).slice(0,50).map(r=>`
+            ${Ge(e,t,{currentRank:"currentRank",name:"name",yearAmount:"yearAmount",sharePct:"sharePct",orderDays:"orderDays",growthRate:"growthRate"}).map(r=>`
               <tr>
                 <td>${wn(r.currentRank)}</td>
                 <td>${r.name||r.code}</td>
