@@ -167,7 +167,7 @@ export function renderQuoteSettings(s: QuoteCompanySettings): string {
       <div class="quote-seal-area">
         ${s.sealImageDataUrl ? `
           <div class="quote-seal-preview">
-            <img src="${s.sealImageDataUrl}" alt="社印" style="width:${s.sealSize}px;height:${s.sealSize}px;border-radius:50%;" />
+            <img src="${s.sealImageDataUrl}" alt="社印" style="width:${s.sealSize}px;height:${s.sealSize}px;" />
           </div>
           <div class="quote-seal-controls">
             <label>サイズ: <input type="range" id="qs-seal-size" min="40" max="120" value="${s.sealSize}" style="width:120px;" /> ${s.sealSize}px</label>
