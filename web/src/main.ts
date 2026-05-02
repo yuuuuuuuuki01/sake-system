@@ -571,6 +571,7 @@ interface AppState {
   productSortState: SortState;
   customerEfficiency: CustomerEfficiency[];
   customerEfficiencyYear: number;
+  customerEfficiencyGroupBy: 'billing' | 'delivery';
   customerSortState: SortState;
   dashboardSortState: SortState;
   masterSortState: SortState;
@@ -889,6 +890,7 @@ const state: AppState = {
   analyticsSortState: [] as SortState,
   customerEfficiency: [],
   customerEfficiencyYear: (() => { const now = new Date(); return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1; })(),
+  customerEfficiencyGroupBy: 'billing' as 'billing' | 'delivery',
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
   analyticsTab: "products",
@@ -1419,7 +1421,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         }
         break;
       case "/customer-efficiency":
-        state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear);
+        state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear, state.customerEfficiencyGroupBy);
         break;
       case "/customer-analysis":
         if (!state.customerAnalysis) {
@@ -1856,7 +1858,7 @@ function renderView(): string {
     case "/product-power":
       return renderProductPower(state.productPower, state.productFilter as ProductViewFilter, state.productDaily, state.productPeriod as ProductPeriod, state.productCustomStart, state.productCustomEnd, state.productSortState);
     case "/customer-efficiency":
-      return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState, state.customerEfficiencyYear);
+      return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState, state.customerEfficiencyYear, state.customerEfficiencyGroupBy);
     case "/customer-analysis":
       return state.customerAnalysis
         ? renderCustomerAnalysis(state.customerAnalysis)
@@ -3815,7 +3817,7 @@ function bindEvents(root: HTMLElement): void {
       const year = parseInt(btn.dataset.year ?? "", 10);
       if (!year) return;
       state.customerEfficiencyYear = year;
-      state.customerEfficiency = await fetchCustomerEfficiencyByYear(year);
+      state.customerEfficiency = await fetchCustomerEfficiencyByYear(year, state.customerEfficiencyGroupBy);
       renderApp();
     });
   });
@@ -3824,8 +3826,17 @@ function bindEvents(root: HTMLElement): void {
     const year = parseInt((e.target as HTMLSelectElement).value, 10);
     if (!year) return;
     state.customerEfficiencyYear = year;
-    state.customerEfficiency = await fetchCustomerEfficiencyByYear(year);
+    state.customerEfficiency = await fetchCustomerEfficiencyByYear(year, state.customerEfficiencyGroupBy);
     renderApp();
+  });
+  // 営業効率: 得意先/店舗 切り替え
+  root.querySelectorAll<HTMLButtonElement>("[data-action='efficiency-groupby-change']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const groupBy = (btn.dataset.groupby ?? "billing") as 'billing' | 'delivery';
+      state.customerEfficiencyGroupBy = groupBy;
+      state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear, groupBy);
+      renderApp();
+    });
   });
 
   root.querySelectorAll<HTMLButtonElement>("[data-product-period]").forEach((btn) => {
@@ -5859,23 +5870,20 @@ function bindEvents(root: HTMLElement): void {
     sel.addEventListener("change", async () => {
       const code = sel.dataset.code ?? "";
       const newCat = sel.value;
-      const originalCat = sel.dataset.original ?? "";
-      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail } = await import("./api");
-      // 「自動」を選んだ場合はオーバーライド解除
-      const ok = await setBrewingCategoryOverride(code, newCat === originalCat ? null : newCat);
+      const currentCat = sel.dataset.current ?? "";
+      if (newCat === currentCat) return;
+      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
+      const ok = await setBrewingCategoryOverride(code, newCat);
       if (ok) {
         const fy = state.brewingPlanFY;
-        const [summary, products] = await Promise.all([
+        const [summary, products, overrides] = await Promise.all([
           fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
-          fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`)
+          fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
+          fetchBrewingCategoryOverrides()
         ]);
         state.brewingPlanData = summary;
         state.brewingProductDetail = products;
-        if (newCat === originalCat) {
-          delete state.brewingOverrides[code];
-        } else {
-          state.brewingOverrides[code] = newCat;
-        }
+        state.brewingOverrides = overrides;
       }
       renderApp();
     });

@@ -355,8 +355,6 @@ function buildProductDetail(
       const rows = items.map(p => {
         const isExcluded = excluded.has(p.productCode);
         const hasOverride = p.productCode in overrides;
-        // The "original" category is what auto-classification would give
-        const originalCat = hasOverride ? "(移動済)" : cat;
         return `
           <tr style="${isExcluded ? "opacity:0.4;text-decoration:line-through;" : ""}">
             <td style="width:32px;text-align:center;">
@@ -368,7 +366,7 @@ function buildProductDetail(
             <td style="text-align:right;">${fmtL(p.annualMl)}</td>
             <td style="text-align:right;">${fmtL(p.monthlyAvgMl)}</td>
             <td>
-              <select data-action="brew-move-product" data-code="${p.productCode}" data-original="${p.subCategory}"
+              <select data-action="brew-move-product" data-code="${p.productCode}" data-current="${cat}"
                 style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;max-width:120px;${hasOverride ? "background:rgba(99,102,241,0.08);" : ""}">
                 ${catOptions(cat, cat)}
               </select>
