@@ -1061,31 +1061,67 @@ function renderCalendarTab(
       <div class="panel-header" style="padding-bottom:4px;">
         <div>
           <h2 style="font-size:14px;">ラベル対象商品</h2>
-          <p class="panel-caption">印刷瓶・ラベル不要品はチェックを外してください${labelExcluded.size > 0 ? `（<strong>${labelExcluded.size}</strong>品除外中 = ${fmtQty(Math.round(excludedQty))}本）` : ""}</p>
+          <p class="panel-caption">区分ごとにまとめて外す or 個別に外せます${labelExcluded.size > 0 ? `（<strong>${labelExcluded.size}</strong>品除外中 = ${fmtQty(Math.round(excludedQty))}本）` : ""}</p>
         </div>
       </div>
-      <div id="cal-label-list" style="max-height:400px;overflow-y:auto;">
-        ${plan.filter(r => {
-          const qty = r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
-          return qty > 0;
-        }).map(r => {
-          const qty = r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
-          const excluded = labelExcluded.has(r.productCode);
-          return `
-            <div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid var(--border);${excluded ? "opacity:0.45;" : ""}"
-              data-label-row="${r.productCode}">
-              <input type="checkbox" data-action="cal-label-toggle" data-code="${r.productCode}"
-                ${excluded ? "" : "checked"} style="cursor:pointer;flex-shrink:0;width:18px;height:18px;" />
-              <div style="flex:1;min-width:0;">
-                <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${excluded ? "text-decoration:line-through;" : ""}">${r.productName}</div>
-                <div style="font-size:11px;color:var(--text-secondary);">${r.productCode}</div>
+      <div id="cal-label-list" style="max-height:500px;overflow-y:auto;">
+        ${(() => {
+          const typeOrder: Array<{ key: string; label: string; color: string }> = [
+            { key: "monthly", label: "月次", color: "#0F5B8D" },
+            { key: "november", label: "11月生産", color: "#B7791F" },
+            { key: "annual", label: "年次", color: "#6B46C1" },
+            { key: "make_to_order", label: "受注生産", color: "#999" }
+          ];
+          // 区分ごとにグルーピング
+          const grouped = new Map<string, ProductionPlanRow[]>();
+          for (const r of plan) {
+            const qty = r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
+            if (qty <= 0) continue;
+            const key = r.productionType || "monthly";
+            if (!grouped.has(key)) grouped.set(key, []);
+            grouped.get(key)!.push(r);
+          }
+
+          return typeOrder.filter(t => grouped.has(t.key)).map(t => {
+            const items = grouped.get(t.key)!;
+            const totalQty = items.reduce((s, r) => {
+              return s + (r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock));
+            }, 0);
+            const excludedCount = items.filter(r => labelExcluded.has(r.productCode)).length;
+            const allExcluded = excludedCount === items.length;
+            const noneExcluded = excludedCount === 0;
+
+            const rows = items.map(r => {
+              const qty = r.plannedQty > 0 ? r.plannedQty : Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock);
+              const excluded = labelExcluded.has(r.productCode);
+              return `
+                <div style="display:flex;align-items:center;gap:8px;padding:7px 4px 7px 28px;border-bottom:1px solid var(--border);${excluded ? "opacity:0.4;" : ""}">
+                  <input type="checkbox" data-action="cal-label-toggle" data-code="${r.productCode}"
+                    ${excluded ? "" : "checked"} style="cursor:pointer;flex-shrink:0;width:18px;height:18px;" />
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${excluded ? "text-decoration:line-through;" : ""}">${r.productName}</div>
+                  </div>
+                  <div style="font-size:13px;font-weight:600;flex-shrink:0;">${fmtQty(Math.round(qty))}</div>
+                </div>
+              `;
+            }).join("");
+
+            return `
+              <div style="border-bottom:2px solid var(--border);">
+                <div style="display:flex;align-items:center;gap:8px;padding:10px 4px;background:var(--surface-alt);position:sticky;top:0;z-index:1;">
+                  <input type="checkbox" data-action="cal-label-toggle-group" data-type="${t.key}"
+                    ${allExcluded ? "" : "checked"} ${!noneExcluded && !allExcluded ? 'class="indeterminate"' : ""}
+                    style="cursor:pointer;flex-shrink:0;width:18px;height:18px;" />
+                  <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${t.color};flex-shrink:0;"></span>
+                  <div style="flex:1;font-size:13px;font-weight:600;">${t.label}<span style="font-weight:400;color:var(--text-secondary);margin-left:6px;">${items.length}品 ${fmtQty(Math.round(totalQty))}本</span></div>
+                  ${excludedCount > 0 && !allExcluded ? `<span style="font-size:11px;color:#b7791f;">${excludedCount}品除外</span>` : ""}
+                  ${allExcluded ? `<span style="font-size:11px;color:var(--text-secondary);">全除外</span>` : ""}
+                </div>
+                ${rows}
               </div>
-              <div style="text-align:right;flex-shrink:0;">
-                <div style="font-size:14px;font-weight:700;">${fmtQty(Math.round(qty))}<span style="font-size:11px;font-weight:400;">本</span></div>
-              </div>
-            </div>
-          `;
-        }).join("")}
+            `;
+          }).join("");
+        })()}
       </div>
     </section>
   `;

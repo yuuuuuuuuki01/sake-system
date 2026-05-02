@@ -3592,11 +3592,10 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // Production calendar: ラベル対象ON/OFF → 除外して再最適化（スクロール位置保持）
+  // Production calendar: ラベル対象 個別ON/OFF（スクロール位置保持）
   root.querySelectorAll<HTMLInputElement>("[data-action='cal-label-toggle']").forEach((cb) => {
     cb.addEventListener("change", () => {
       const code = cb.dataset.code ?? "";
-      // スクロール位置を記憶
       const listEl = document.getElementById("cal-label-list");
       const scrollTop = listEl?.scrollTop ?? 0;
 
@@ -3609,7 +3608,32 @@ function bindEvents(root: HTMLElement): void {
       optimizeShifts(state.calendarShifts, labelPlan);
       renderApp();
 
-      // スクロール位置を復元
+      requestAnimationFrame(() => {
+        const newList = document.getElementById("cal-label-list");
+        if (newList) newList.scrollTop = scrollTop;
+      });
+    });
+  });
+
+  // Production calendar: ラベル対象 区分まとめてON/OFF
+  root.querySelectorAll<HTMLInputElement>("[data-action='cal-label-toggle-group']").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      const type = cb.dataset.type ?? "";
+      const listEl = document.getElementById("cal-label-list");
+      const scrollTop = listEl?.scrollTop ?? 0;
+
+      const items = state.productionPlan.filter(r => r.productionType === type);
+      if (cb.checked) {
+        // 全部ONにする
+        for (const r of items) state.calendarLabelExcluded.delete(r.productCode);
+      } else {
+        // 全部OFFにする
+        for (const r of items) state.calendarLabelExcluded.add(r.productCode);
+      }
+      const labelPlan = state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode));
+      optimizeShifts(state.calendarShifts, labelPlan);
+      renderApp();
+
       requestAnimationFrame(() => {
         const newList = document.getElementById("cal-label-list");
         if (newList) newList.scrollTop = scrollTop;
