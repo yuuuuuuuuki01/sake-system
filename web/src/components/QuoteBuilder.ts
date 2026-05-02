@@ -103,25 +103,24 @@ function makeDocCss(accent: string): string {
   const accentDark    = darken(accent, 0.15);
   const accentLight   = lighten(accent, 0.88);
   const accentMidTint = lighten(accent, 0.96);
-  const sellerBg      = lighten(accent, 0.94);
-  const sellerBorder  = lighten(accent, 0.62);
   return `
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11px; color:#1a1a2e; padding:16mm 18mm; }
 .q-doc { max-width: 720px; margin: 0 auto; }
-.q-title-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; border-bottom:3px solid ${accent}; padding-bottom:8px; }
-.q-title { font-size:20px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
-.q-meta-table { font-size:10px; border-collapse:collapse; }
-.q-meta-table th { text-align:right; padding:1px 6px 1px 0; color:#555; white-space:nowrap; }
-.q-meta-table td { font-weight:600; text-align:right; }
-.q-parties { display:flex; justify-content:space-between; gap:16px; margin-bottom:14px; }
-.q-customer { flex:1; }
-.q-customer-name { font-size:16px; font-weight:700; border-bottom:1px solid #333; padding-bottom:3px; margin-bottom:3px; }
-.q-customer-addr { font-size:10px; color:#555; }
-.q-seller { width:195px; background:white; border:1px solid #ddd; border-radius:4px; padding:10px 12px; font-size:10px; min-height:90px; }
-.q-seller-name { font-size:13px; font-weight:700; margin-bottom:4px; }
-.q-seller-sub { color:#444; margin-top:1px; }
+.q-title-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; border-bottom:3px solid ${accent}; padding-bottom:10px; }
+.q-title { font-size:22px; font-weight:700; letter-spacing:0.3em; color:${accent}; padding-top:4px; }
+.q-seller { display:flex; align-items:flex-start; gap:8px; font-size:10px; }
+.q-seller-info { text-align:right; }
+.q-seller-name { font-size:13px; font-weight:700; margin-bottom:3px; }
+.q-seller-sub { color:#444; margin-top:1px; line-height:1.5; }
 .q-regno { color:#777; font-size:9px; }
+.q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:14px; }
+.q-customer { flex:1; }
+.q-customer-name { font-size:16px; font-weight:700; border-bottom:2px solid #333; padding-bottom:3px; margin-bottom:4px; }
+.q-customer-addr { font-size:10px; color:#555; line-height:1.6; }
+.q-meta-table { font-size:10px; border-collapse:collapse; }
+.q-meta-table th { text-align:left; padding:2px 8px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
+.q-meta-table td { font-weight:600; text-align:right; padding-left:12px; }
 .q-total-banner { display:flex; justify-content:space-between; align-items:center; background:${accent}; color:white; padding:10px 16px; border-radius:4px; margin-bottom:14px; }
 .q-total-label { font-size:12px; }
 .q-total-amount { font-size:20px; font-weight:700; }
@@ -149,24 +148,23 @@ function makeDocCssSpa(accent: string): string {
   const accentDark    = darken(accent, 0.15);
   const accentLight   = lighten(accent, 0.88);
   const accentMidTint = lighten(accent, 0.96);
-  const sellerBg      = lighten(accent, 0.94);
-  const sellerBorder  = lighten(accent, 0.62);
   return `
 .q-doc { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:13px; color:#1a1a2e; max-width:720px; margin:0 auto; }
 .q-doc * { box-sizing:border-box; margin:0; padding:0; }
-.q-doc .q-title-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; border-bottom:3px solid ${accent}; padding-bottom:8px; }
-.q-doc .q-title { font-size:22px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
-.q-doc .q-meta-table { font-size:12px; border-collapse:collapse; }
-.q-doc .q-meta-table th { text-align:right; padding:2px 8px 2px 0; color:#555; white-space:nowrap; }
-.q-doc .q-meta-table td { font-weight:600; text-align:right; }
-.q-doc .q-parties { display:flex; justify-content:space-between; gap:16px; margin-bottom:16px; }
-.q-doc .q-customer { flex:1; }
-.q-doc .q-customer-name { font-size:18px; font-weight:700; border-bottom:1px solid #333; padding-bottom:4px; margin-bottom:4px; }
-.q-doc .q-customer-addr { font-size:12px; color:#555; }
-.q-doc .q-seller { width:200px; background:white; border:1px solid #ddd; border-radius:4px; padding:12px; font-size:12px; min-height:90px; }
+.q-doc .q-title-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; border-bottom:3px solid ${accent}; padding-bottom:10px; }
+.q-doc .q-title { font-size:24px; font-weight:700; letter-spacing:0.3em; color:${accent}; padding-top:4px; }
+.q-doc .q-seller { display:flex; align-items:flex-start; gap:10px; font-size:12px; }
+.q-doc .q-seller-info { text-align:right; }
 .q-doc .q-seller-name { font-size:14px; font-weight:700; margin-bottom:4px; }
-.q-doc .q-seller-sub { color:#444; margin-top:2px; }
+.q-doc .q-seller-sub { color:#444; margin-top:2px; line-height:1.5; }
 .q-doc .q-regno { color:#777; font-size:11px; }
+.q-doc .q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:16px; }
+.q-doc .q-customer { flex:1; }
+.q-doc .q-customer-name { font-size:18px; font-weight:700; border-bottom:2px solid #333; padding-bottom:4px; margin-bottom:4px; }
+.q-doc .q-customer-addr { font-size:12px; color:#555; line-height:1.6; }
+.q-doc .q-meta-table { font-size:12px; border-collapse:collapse; }
+.q-doc .q-meta-table th { text-align:left; padding:2px 10px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
+.q-doc .q-meta-table td { font-weight:600; text-align:right; padding-left:14px; }
 .q-doc .q-total-banner { display:flex; justify-content:space-between; align-items:center; background:${accent}; color:white; padding:12px 18px; border-radius:6px; margin-bottom:16px; }
 .q-doc .q-total-label { font-size:13px; }
 .q-doc .q-total-amount { font-size:22px; font-weight:700; }
@@ -188,13 +186,11 @@ function makeDocCssSpa(accent: string): string {
 .q-doc .billing-box { border-top:1px solid #e0e0e0; padding-top:10px; font-size:12px; color:#555; line-height:1.7; }
 @media (max-width:600px) {
   .q-doc { font-size:13px; }
-  .q-doc .q-title { font-size:18px; letter-spacing:0.15em; }
-  .q-doc .q-title-row { flex-direction:column-reverse; gap:10px; }
-  .q-doc .q-meta-table { width:100%; }
-  .q-doc .q-meta-table th { text-align:left; }
-  .q-doc .q-meta-table td { text-align:left; }
+  .q-doc .q-title { font-size:20px; letter-spacing:0.15em; }
+  .q-doc .q-title-row { flex-direction:column; gap:10px; }
+  .q-doc .q-seller { justify-content:flex-end; }
   .q-doc .q-parties { flex-direction:column; gap:12px; }
-  .q-doc .q-seller { width:100%; min-height:auto; }
+  .q-doc .q-meta-table { align-self:flex-end; }
   .q-doc .q-customer-name { font-size:16px; }
   .q-doc .q-total-banner { padding:10px 14px; }
   .q-doc .q-total-amount { font-size:20px; }
@@ -252,36 +248,39 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
     </div>
   ` : "";
 
-  const sealHtml = settings.sealImageDataUrl ? `
-    <div style="position:absolute;right:0;top:0;">
-      <img src="${settings.sealImageDataUrl}" style="width:${settings.sealSize}px;height:${settings.sealSize}px;border-radius:0;opacity:0.9;" />
-    </div>` : "";
+  const sealImg = settings.sealImageDataUrl
+    ? `<img src="${settings.sealImageDataUrl}" style="width:${settings.sealSize}px;height:${settings.sealSize}px;opacity:0.9;flex-shrink:0;" />`
+    : "";
 
   return `
 <div class="q-doc">
+  <!-- タイトル行: 左=書類名、右=自社情報（枠なし・右寄せ） -->
   <div class="q-title-row">
     <h1 class="q-title">御 見 積 書</h1>
-    <table class="q-meta-table">
-      ${quote.quoteNo ? `<tr><th>見積番号</th><td style="text-align:right;">${esc(quote.quoteNo)}</td></tr>` : ""}
-      <tr><th>見積日</th><td style="text-align:right;">${fmtDate(quote.quoteDate)}</td></tr>
-      ${quote.validUntil ? `<tr><th>有効期限</th><td style="text-align:right;">${fmtDate(quote.validUntil)}</td></tr>` : ""}
-    </table>
+    <div class="q-seller">
+      ${sealImg}
+      <div class="q-seller-info">
+        <p class="q-seller-name">${esc(settings.companyName)}</p>
+        ${settings.companyPostal ? `<p class="q-seller-sub">〒${esc(settings.companyPostal)}</p>` : ""}
+        ${settings.companyAddress1 ? `<p class="q-seller-sub">${esc(settings.companyAddress1)}${settings.companyAddress2 ? " " + esc(settings.companyAddress2) : ""}</p>` : ""}
+        ${settings.companyTel ? `<p class="q-seller-sub">TEL: ${esc(settings.companyTel)}</p>` : ""}
+        ${settings.companyFax ? `<p class="q-seller-sub">FAX: ${esc(settings.companyFax)}</p>` : ""}
+        ${settings.companyRegistrationNo ? `<p class="q-seller-sub q-regno">登録番号: ${esc(settings.companyRegistrationNo)}</p>` : ""}
+      </div>
+    </div>
   </div>
 
+  <!-- 得意先行: 左=宛先、右=見積番号・日付（枠なし・右寄せ） -->
   <div class="q-parties">
     <div class="q-customer">
       <p class="q-customer-name">${esc(quote.customerName || "（得意先未選択）")} 御中</p>
       ${quote.customerAddress ? `<p class="q-customer-addr">${esc(quote.customerAddress)}</p>` : ""}
     </div>
-    <div class="q-seller" style="position:relative;">
-      ${sealHtml}
-      <p class="q-seller-name">${esc(settings.companyName)}</p>
-      ${settings.companyPostal ? `<p class="q-seller-sub">〒${esc(settings.companyPostal)}</p>` : ""}
-      ${settings.companyAddress1 ? `<p class="q-seller-sub">${esc(settings.companyAddress1)}${settings.companyAddress2 ? " " + esc(settings.companyAddress2) : ""}</p>` : ""}
-      ${settings.companyTel ? `<p class="q-seller-sub">TEL: ${esc(settings.companyTel)}</p>` : ""}
-      ${settings.companyFax ? `<p class="q-seller-sub">FAX: ${esc(settings.companyFax)}</p>` : ""}
-      ${settings.companyRegistrationNo ? `<p class="q-seller-sub q-regno">登録番号: ${esc(settings.companyRegistrationNo)}</p>` : ""}
-    </div>
+    <table class="q-meta-table">
+      ${quote.quoteNo ? `<tr><th>見積番号</th><td>${esc(quote.quoteNo)}</td></tr>` : ""}
+      <tr><th>見積日</th><td>${fmtDate(quote.quoteDate)}</td></tr>
+      ${quote.validUntil ? `<tr><th>有効期限</th><td>${fmtDate(quote.validUntil)}</td></tr>` : ""}
+    </table>
   </div>
 
   <div class="q-total-banner">
