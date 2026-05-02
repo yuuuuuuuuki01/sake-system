@@ -1328,23 +1328,22 @@ ${s}
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11px; color:#1a1a2e; padding:16mm 18mm; }
 .q-doc { max-width: 720px; margin: 0 auto; }
-/* ヘッダー: 左=タイトル+日付、右=取引先（上）+自社（下） */
-.q-header { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; border-bottom:3px solid ${e}; padding-bottom:12px; margin-bottom:14px; }
-.q-header-left { flex-shrink:0; }
-.q-title { font-size:22px; font-weight:700; letter-spacing:0.3em; color:${e}; margin-bottom:10px; }
-.q-meta-table { font-size:10px; border-collapse:collapse; }
-.q-meta-table th { text-align:left; padding:2px 8px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
-.q-meta-table td { font-weight:600; text-align:right; padding-left:12px; }
-.q-header-right { text-align:right; flex-shrink:0; }
-/* 取引先（右カラム上） */
-.q-customer { margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid #ddd; }
-.q-customer-name { font-size:16px; font-weight:700; margin-bottom:2px; }
+/* タイトル行（1カラム全幅） */
+.q-title-row { border-bottom:3px solid ${e}; padding-bottom:8px; margin-bottom:12px; }
+.q-title { font-size:22px; font-weight:700; letter-spacing:0.3em; color:${e}; }
+/* 取引先＋自社情報（2カラム） */
+.q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:14px; }
+.q-customer { flex:1; }
+.q-customer-name { font-size:16px; font-weight:700; border-bottom:1px solid #bbb; padding-bottom:3px; margin-bottom:3px; }
 .q-customer-addr { font-size:10px; color:#555; line-height:1.6; margin-top:2px; }
-/* 自社情報（右カラム下・右寄せ） */
+.q-seller-col { text-align:right; flex-shrink:0; }
 .q-seller-name-row { display:flex; justify-content:flex-end; align-items:center; gap:6px; margin-bottom:3px; }
 .q-seller-name { font-size:13px; font-weight:700; }
 .q-seller-sub { color:#444; font-size:10px; margin-top:1px; line-height:1.5; }
 .q-regno { color:#777; font-size:9px; }
+.q-meta-table { font-size:10px; border-collapse:collapse; margin-top:8px; }
+.q-meta-table th { text-align:left; padding:2px 8px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
+.q-meta-table td { font-weight:600; text-align:right; padding-left:12px; }
 /* 以下 */
 .q-total-banner { display:flex; justify-content:space-between; align-items:center; background:${e}; color:white; padding:10px 16px; border-radius:4px; margin-bottom:14px; }
 .q-total-label { font-size:12px; }
@@ -1368,23 +1367,22 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 `}function xr(e){const t=vn(e,.15),s=At(e,.88),n=At(e,.96);return`
 .q-doc { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:13px; color:#1a1a2e; max-width:720px; margin:0 auto; }
 .q-doc * { box-sizing:border-box; margin:0; padding:0; }
-/* ヘッダー: 左=タイトル+日付、右=取引先（上）+自社（下） */
-.q-doc .q-header { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; border-bottom:3px solid ${e}; padding-bottom:14px; margin-bottom:16px; }
-.q-doc .q-header-left { flex-shrink:0; }
-.q-doc .q-title { font-size:26px; font-weight:700; letter-spacing:0.3em; color:${e}; margin-bottom:12px; }
-.q-doc .q-meta-table { font-size:12px; border-collapse:collapse; }
-.q-doc .q-meta-table th { text-align:left; padding:2px 10px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
-.q-doc .q-meta-table td { font-weight:600; text-align:right; padding-left:14px; }
-.q-doc .q-header-right { text-align:right; flex-shrink:0; }
-/* 取引先（右カラム上） */
-.q-doc .q-customer { margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #ddd; }
-.q-doc .q-customer-name { font-size:18px; font-weight:700; margin-bottom:3px; }
+/* タイトル行（1カラム全幅） */
+.q-doc .q-title-row { border-bottom:3px solid ${e}; padding-bottom:10px; margin-bottom:14px; }
+.q-doc .q-title { font-size:26px; font-weight:700; letter-spacing:0.3em; color:${e}; }
+/* 取引先＋自社情報（2カラム） */
+.q-doc .q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:16px; }
+.q-doc .q-customer { flex:1; }
+.q-doc .q-customer-name { font-size:18px; font-weight:700; border-bottom:1px solid #bbb; padding-bottom:4px; margin-bottom:4px; }
 .q-doc .q-customer-addr { font-size:12px; color:#555; line-height:1.6; margin-top:3px; }
-/* 自社情報（右カラム下・右寄せ） */
+.q-doc .q-seller-col { text-align:right; flex-shrink:0; }
 .q-doc .q-seller-name-row { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-bottom:4px; }
 .q-doc .q-seller-name { font-size:14px; font-weight:700; }
 .q-doc .q-seller-sub { color:#444; font-size:12px; margin-top:2px; line-height:1.5; }
 .q-doc .q-regno { color:#777; font-size:11px; }
+.q-doc .q-meta-table { font-size:12px; border-collapse:collapse; margin-top:10px; }
+.q-doc .q-meta-table th { text-align:left; padding:2px 10px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
+.q-doc .q-meta-table td { font-weight:600; text-align:right; padding-left:14px; }
 /* 以下 */
 .q-doc .q-total-banner { display:flex; justify-content:space-between; align-items:center; background:${e}; color:white; padding:12px 18px; border-radius:6px; margin-bottom:16px; }
 .q-doc .q-total-label { font-size:13px; }
@@ -1407,8 +1405,8 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 .q-doc .billing-box { border-top:1px solid #e0e0e0; padding-top:10px; font-size:12px; color:#555; line-height:1.7; }
 @media (max-width:600px) {
   .q-doc .q-title { font-size:20px; letter-spacing:0.15em; }
-  .q-doc .q-header { flex-direction:column; gap:14px; }
-  .q-doc .q-header-right { align-self:stretch; }
+  .q-doc .q-parties { flex-direction:column; gap:12px; }
+  .q-doc .q-seller-col { align-self:stretch; }
   .q-doc .q-customer-name { font-size:16px; }
   .q-doc .q-total-banner { padding:10px 14px; }
   .q-doc .q-total-amount { font-size:20px; }
@@ -1431,26 +1429,19 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
     </div>
   `:"",b=t.sealImageDataUrl?`<img src="${t.sealImageDataUrl}" style="width:${t.sealSize}px;height:${t.sealSize}px;opacity:0.9;flex-shrink:0;" />`:"";return`
 <div class="q-doc">
-  <!--
-    左: 御見積書タイトル + 見積番号・日付
-    右: 取引先名称・住所（上）→ 自社情報・印鑑（下）  ※全て右寄せ
-  -->
-  <div class="q-header">
-    <div class="q-header-left">
-      <h1 class="q-title">御 見 積 書</h1>
-      <table class="q-meta-table">
-        ${e.quoteNo?`<tr><th>見積番号</th><td>${O(e.quoteNo)}</td></tr>`:""}
-        <tr><th>見積日</th><td>${jt(e.quoteDate)}</td></tr>
-        ${e.validUntil?`<tr><th>有効期限</th><td>${jt(e.validUntil)}</td></tr>`:""}
-      </table>
+  <!-- 御見積書（1カラム全幅） -->
+  <div class="q-title-row">
+    <h1 class="q-title">御 見 積 書</h1>
+  </div>
+
+  <!-- 取引先（左）・自社情報＋日付（右） -->
+  <div class="q-parties">
+    <div class="q-customer">
+      <p class="q-customer-name">${O(e.customerName||"（得意先未選択）")} 御中</p>
+      ${e.customerAddress?`<p class="q-customer-addr">${O(e.customerAddress)}</p>`:""}
     </div>
-    <div class="q-header-right">
-      <!-- 取引先（上） -->
-      <div class="q-customer">
-        <p class="q-customer-name">${O(e.customerName||"（得意先未選択）")} 御中</p>
-        ${e.customerAddress?`<p class="q-customer-addr">${O(e.customerAddress)}</p>`:""}
-      </div>
-      <!-- 自社情報（下）: 社名の右に印鑑 -->
+    <div class="q-seller-col">
+      <!-- 自社情報: 社名の右に印鑑 -->
       <div class="q-seller-name-row">
         <span class="q-seller-name">${O(t.companyName)}</span>
         ${b}
@@ -1460,6 +1451,12 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
       ${t.companyTel?`<p class="q-seller-sub">TEL: ${O(t.companyTel)}</p>`:""}
       ${t.companyFax?`<p class="q-seller-sub">FAX: ${O(t.companyFax)}</p>`:""}
       ${t.companyRegistrationNo?`<p class="q-seller-sub q-regno">登録番号: ${O(t.companyRegistrationNo)}</p>`:""}
+      <!-- 見積番号・日付 -->
+      <table class="q-meta-table">
+        ${e.quoteNo?`<tr><th>見積番号</th><td>${O(e.quoteNo)}</td></tr>`:""}
+        <tr><th>見積日</th><td>${jt(e.quoteDate)}</td></tr>
+        ${e.validUntil?`<tr><th>有効期限</th><td>${jt(e.validUntil)}</td></tr>`:""}
+      </table>
     </div>
   </div>
 
