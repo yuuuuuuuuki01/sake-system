@@ -1976,12 +1976,15 @@ export async function fetchCustomerPricing(customers: MasterCustomer[], customer
 }
 
 export function resolveProductPrice(product: MasterProduct, pricing: CustomerPricing): { price: number; label: string } {
-  // 1. 個別単価
+  // 1. 個別単価（customer_product_prices に登録がある場合）
   const individual = pricing.individualPrices.get(product.code);
   if (individual != null && individual > 0) {
     return { price: individual, label: "個別単価" };
   }
-  // 2. price_type別の標準価格
+  // 2. 得意先の price_type による価格区分
+  //    000 = 生産者・酒蔵向け（purchasePrice）
+  //    001 = 小売店向け（listPrice = 定価）
+  //    002 = 卸売向け（salePrice）
   switch (pricing.priceType) {
     case "000":
       if (product.purchasePrice > 0) return { price: product.purchasePrice, label: "生産者価格" };
@@ -1993,8 +1996,8 @@ export function resolveProductPrice(product: MasterProduct, pricing: CustomerPri
       if (product.salePrice > 0) return { price: product.salePrice, label: "卸価格" };
       break;
   }
-  // 3. フォールバック
-  return { price: product.salePrice || 0, label: "標準価格" };
+  // 3. price_type 未設定 → 卸価格をデフォルトとする
+  return { price: product.salePrice || 0, label: "卸価格" };
 }
 
 // ─── 商品力・営業効率 ───────────────────────────────────────────────────────

@@ -2803,12 +2803,26 @@ function bindEvents(root: HTMLElement): void {
   function buildProdListHtml(products: typeof state.masterStats.products, pricing: typeof state.quotePricing): string {
     if (!products.length) return `<p style="padding:10px 12px;color:var(--text-secondary);font-size:13px;">該当なし</p>`;
     return products.map(p => {
-      const resolved = pricing ? resolveProductPrice(p, pricing) : { price: p.salePrice || 0, label: "標準価格" };
-      const isSpecial = resolved.label !== "標準価格";
-      return `<button class="search-item" type="button" data-add-product="${qEsc(p.code)}" data-prod-name="${qEsc(p.name)}" data-prod-price="${resolved.price}" data-prod-jan="${qEsc(p.janCode ?? "")}" data-prod-unit="${qEsc(p.unit)}" data-prod-case="${p.caseQty ?? ""}">` +
+      // 納入価格: 得意先のpriceTypeに基づいて解決
+      const resolved = pricing ? resolveProductPrice(p, pricing) : { price: p.salePrice || 0, label: "卸価格" };
+      // 希望小売価格: 商品マスタのlistPrice（定価）
+      const retail = p.listPrice || 0;
+      const isSpecial = resolved.label !== "標準価格" && resolved.label !== "卸価格";
+      return `<button class="search-item" type="button"` +
+        ` data-add-product="${qEsc(p.code)}"` +
+        ` data-prod-name="${qEsc(p.name)}"` +
+        ` data-prod-price="${resolved.price}"` +
+        ` data-prod-retail="${retail}"` +
+        ` data-prod-jan="${qEsc(p.janCode ?? "")}"` +
+        ` data-prod-unit="${qEsc(p.unit)}"` +
+        ` data-prod-case="${p.caseQty ?? ""}">` +
         `<span class="mono">${qEsc(p.code)}</span>` +
         `<span style="font-size:13px;font-weight:600;line-height:1.4;">${qEsc(p.name)}</span>` +
-        `<span class="numeric"${isSpecial ? ' style="color:#2f855a;font-weight:700;"' : ""}>${resolved.price ? "¥" + resolved.price.toLocaleString("ja-JP") : "価格未設定"} <small style="font-weight:400;">(${qEsc(resolved.label)})</small></span>` +
+        `<span class="numeric"${isSpecial ? ' style="color:#2f855a;font-weight:700;"' : ""}>` +
+        `納入 ¥${resolved.price ? resolved.price.toLocaleString("ja-JP") : "未設定"}` +
+        `<small style="font-weight:400;margin-left:4px;">(${qEsc(resolved.label)})</small>` +
+        `${retail ? `　定価 ¥${retail.toLocaleString("ja-JP")}` : ""}` +
+        `</span>` +
         `</button>`;
     }).join("");
   }
@@ -2818,7 +2832,8 @@ function bindEvents(root: HTMLElement): void {
       btn.addEventListener("click", () => {
         const code = btn.dataset.addProduct ?? "";
         const name = btn.dataset.prodName ?? "";
-        const price = parseInt(btn.dataset.prodPrice ?? "0");
+        const price = parseInt(btn.dataset.prodPrice ?? "0");        // 納入価格
+        const retail = parseInt(btn.dataset.prodRetail ?? "0") || null; // 希望小売価格
         const jan = btn.dataset.prodJan ?? "";
         const unit = btn.dataset.prodUnit || "本";
         const caseQtyRaw = btn.dataset.prodCase ?? "";
@@ -2827,7 +2842,8 @@ function bindEvents(root: HTMLElement): void {
           productCode: code, productName: name,
           janCode: jan, caseQty,
           quantity: 1, unit,
-          unitPrice: price, retailPrice: null,
+          unitPrice: price,    // 納入価格（得意先priceTypeで解決済み）
+          retailPrice: retail, // 希望小売価格（listPrice）
           amount: price
         });
         state.quoteProductQuery = "";
@@ -2945,14 +2961,16 @@ function bindEvents(root: HTMLElement): void {
       const code = btn.dataset.addProduct ?? "";
       const name = btn.dataset.prodName ?? "";
       const price = parseInt(btn.dataset.prodPrice ?? "0");
+      const retail = parseInt(btn.dataset.prodRetail ?? "0") || null;
       const jan = btn.dataset.prodJan ?? "";
+      const unit = btn.dataset.prodUnit || "本";
       const caseQtyRaw = btn.dataset.prodCase ?? "";
       const caseQty = caseQtyRaw ? parseInt(caseQtyRaw) : null;
       state.quoteState.lines.push({
         productCode: code, productName: name,
         janCode: jan, caseQty,
-        quantity: 1, unit: "本",
-        unitPrice: price, retailPrice: null,
+        quantity: 1, unit,
+        unitPrice: price, retailPrice: retail,
         amount: price
       });
       state.quoteProductQuery = "";

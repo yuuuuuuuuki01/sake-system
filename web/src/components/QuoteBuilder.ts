@@ -468,11 +468,12 @@ export function renderQuoteBuilder(
         <input type="text" id="q-prod-search" value="${esc(productQuery)}" placeholder="商品名またはコードで検索して追加" />
       </div>
       ${filteredProducts.length > 0 ? `<div class="search-results">${filteredProducts.map(p => {
-        const resolved = pricing ? resolveProductPrice(p, pricing) : { price: p.salePrice || 0, label: "標準価格" };
-        const isSpecial = resolved.label !== "標準価格";
-        return `<button class="search-item" type="button" data-add-product="${p.code}" data-prod-name="${esc(p.name)}" data-prod-price="${resolved.price}" data-prod-jan="${esc((p as any).janCode ?? "")}" data-prod-case="${(p as any).caseQty ?? ""}">
+        const resolved = pricing ? resolveProductPrice(p, pricing) : { price: p.salePrice || 0, label: "卸価格" };
+        const retail = (p as any).listPrice || 0;
+        const isSpecial = resolved.label !== "標準価格" && resolved.label !== "卸価格";
+        return `<button class="search-item" type="button" data-add-product="${p.code}" data-prod-name="${esc(p.name)}" data-prod-price="${resolved.price}" data-prod-retail="${retail}" data-prod-jan="${esc((p as any).janCode ?? "")}" data-prod-unit="${esc((p as any).unit ?? "本")}" data-prod-case="${(p as any).caseQty ?? ""}">
           <span class="mono">${p.code}</span> ${esc(p.name)}
-          <span class="numeric" ${isSpecial ? 'style="color:#2f855a;font-weight:700;"' : ""}>${resolved.price ? fmt(resolved.price) : ""} <small>(${resolved.label})</small></span>
+          <span class="numeric" ${isSpecial ? 'style="color:#2f855a;font-weight:700;"' : ""}>納入 ${resolved.price ? fmt(resolved.price) : "未設定"} <small>(${resolved.label})</small>${retail ? `　定価 ${fmt(retail)}` : ""}</span>
         </button>`;
       }).join("")}</div>` : ""}
 
