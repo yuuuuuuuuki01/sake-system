@@ -3308,7 +3308,16 @@ function bindEvents(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>("[data-demand-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tab = btn.dataset.demandTab as DemandTab;
-      if (tab) { state.demandTab = tab; renderApp(); }
+      if (!tab) return;
+      state.demandTab = tab;
+      // カレンダータブなら今日を自動選択
+      if (tab === "calendar") {
+        const today = new Date().toISOString().slice(0, 10);
+        if (today.startsWith(state.demandPlanYearMonth)) {
+          state.calendarSelectedDate = today;
+        }
+      }
+      renderApp();
     });
   });
 

@@ -890,6 +890,7 @@ function renderCalendarTab(
     const dowLabel = dayOfWeekJa(selectedDate);
     const utilPct = Math.round(d.utilization * 100);
     const selShift = shifts.find(s => s.date === selectedDate);
+    const isToday = selectedDate === new Date().toISOString().slice(0, 10);
 
     const typeColorMap: Record<string, string> = {
       monthly: "#0F5B8D", november: "#B7791F", annual: "#6B46C1", make_to_order: "#999"
@@ -899,17 +900,17 @@ function renderCalendarTab(
     };
 
     const itemRows = d.items.map(it => `
-      <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
-        <span style="width:8px;height:8px;border-radius:50%;background:${typeColorMap[it.productionType] ?? "#999"};flex-shrink:0;"></span>
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--border);">
+        <span style="width:10px;height:10px;border-radius:50%;background:${typeColorMap[it.productionType] ?? "#999"};flex-shrink:0;"></span>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.productName}</div>
+          <div style="font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.productName}</div>
           <div style="font-size:11px;color:var(--text-secondary);">${typeLabelMap[it.productionType] ?? it.productionType}</div>
         </div>
-        <div style="font-size:14px;font-weight:700;white-space:nowrap;">${fmtQty(it.qty)}<span style="font-size:11px;font-weight:400;">本</span></div>
+        <div style="font-size:16px;font-weight:700;white-space:nowrap;">${fmtQty(it.qty)}<span style="font-size:12px;font-weight:400;">本</span></div>
       </div>
     `).join("");
 
-    const capBreakdown = `パート${d.partTimers}人×${PART_TIMER_CAPACITY} + 社員${d.employees}人×${EMPLOYEE_CAPACITY} = ${fmtQty(d.capacity)}本`;
+    const capBreakdown = `パ${d.partTimers} 社${d.employees} = ${fmtQty(d.capacity)}本キャパ`;
 
     // 必要人数の逆算
     const neededPartOnly = d.totalQty > 0 ? Math.ceil(d.totalQty / PART_TIMER_CAPACITY) : 0;
@@ -958,10 +959,14 @@ function renderCalendarTab(
     ` : "";
 
     return `
-      <section class="panel" style="margin-top:12px;border:2px solid #0F5B8D;">
-        <div class="panel-header" style="padding-bottom:8px;">
-          <h2>${dayNum}日（${dowLabel}）の生産内訳</h2>
-          <p class="panel-caption">${capBreakdown} ・ 稼働率${utilPct}%</p>
+      <section class="panel" style="margin-top:12px;border:2px solid ${isToday ? "#2f855a" : "#0F5B8D"};">
+        <div style="padding:12px 16px 8px;${isToday ? "background:rgba(47,133,90,0.06);" : ""}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            ${isToday ? `<span style="background:#2f855a;color:#fff;font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;">TODAY</span>` : ""}
+            <h2 style="margin:0;font-size:16px;">${dayNum}日（${dowLabel}）${isToday ? "" : "の生産内訳"}</h2>
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary);">${capBreakdown} ・ 稼働率${utilPct}%</div>
+          ${d.totalQty > 0 ? `<div style="font-size:20px;font-weight:700;margin-top:6px;">${fmtQty(d.totalQty)}<span style="font-size:13px;font-weight:400;">本</span> <span style="font-size:13px;font-weight:400;">/ ${d.items.length}品</span></div>` : ""}
         </div>
         ${recommendSection}
         <div style="display:flex;gap:12px;padding:0 4px 8px;flex-wrap:wrap;">
