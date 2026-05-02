@@ -118,7 +118,7 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 .q-customer { flex:1; }
 .q-customer-name { font-size:16px; font-weight:700; border-bottom:1px solid #333; padding-bottom:3px; margin-bottom:3px; }
 .q-customer-addr { font-size:10px; color:#555; }
-.q-seller { width:195px; background:${sellerBg}; border:1px solid ${sellerBorder}; border-radius:4px; padding:10px 12px; font-size:10px; min-height:90px; }
+.q-seller { width:195px; background:white; border:1px solid #ddd; border-radius:4px; padding:10px 12px; font-size:10px; min-height:90px; }
 .q-seller-name { font-size:13px; font-weight:700; margin-bottom:4px; }
 .q-seller-sub { color:#444; margin-top:1px; }
 .q-regno { color:#777; font-size:9px; }
@@ -163,7 +163,7 @@ function makeDocCssSpa(accent: string): string {
 .q-doc .q-customer { flex:1; }
 .q-doc .q-customer-name { font-size:18px; font-weight:700; border-bottom:1px solid #333; padding-bottom:4px; margin-bottom:4px; }
 .q-doc .q-customer-addr { font-size:12px; color:#555; }
-.q-doc .q-seller { width:200px; background:${sellerBg}; border:1px solid ${sellerBorder}; border-radius:4px; padding:12px; font-size:12px; min-height:90px; }
+.q-doc .q-seller { width:200px; background:white; border:1px solid #ddd; border-radius:4px; padding:12px; font-size:12px; min-height:90px; }
 .q-doc .q-seller-name { font-size:14px; font-weight:700; margin-bottom:4px; }
 .q-doc .q-seller-sub { color:#444; margin-top:2px; }
 .q-doc .q-regno { color:#777; font-size:11px; }
@@ -216,7 +216,7 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
   const sakeHeaders = isSake
     ? `<th style="width:90px;">JANコード</th><th style="width:40px;">入数</th><th style="width:70px;">希望小売価格</th>`
     : "";
-  const headColspan = isSake ? 8 : 5; // 金額列を削除したので -1
+  const headColspan = isSake ? 9 : 6; // No./品番/品名/(JAN/入数/希望小売価格)/数量/単位/納入価格
 
   const lineRows = quote.lines.map((l, i) => {
     const sakeColsSake = isSake
@@ -356,6 +356,7 @@ export function renderQuoteBuilder(
         <div class="meta-stack">
           <button class="button secondary" type="button" data-action="quote-edit-mode">← 編集に戻る</button>
           <button class="button primary" type="button" onclick="window.print()">🖨 印刷</button>
+          <button class="button secondary" type="button" data-action="quote-download-pdf">PDF</button>
           <button class="button secondary" type="button" data-action="save-quote">保存</button>
         </div>
       </section>
