@@ -3070,11 +3070,7 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
-  // PDF
-  root.querySelector<HTMLButtonElement>("[data-action='quote-download-pdf']")?.addEventListener("click", () => {
-    syncQuoteFormToState(state.quoteState);
-    generateQuotePdf(state.quoteState, state.quoteCompanySettings);
-  });
+  // PDF（旧方式: 削除済み。印刷はプレビューモードから window.print() で行う）
 
   // 保存
   root.querySelector<HTMLButtonElement>("[data-action='save-quote']")?.addEventListener("click", async () => {

@@ -216,7 +216,7 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
   const sakeHeaders = isSake
     ? `<th style="width:90px;">JANコード</th><th style="width:40px;">入数</th><th style="width:70px;">希望小売価格</th>`
     : "";
-  const headColspan = isSake ? 9 : 6;
+  const headColspan = isSake ? 8 : 5; // 金額列を削除したので -1
 
   const lineRows = quote.lines.map((l, i) => {
     const sakeColsSake = isSake
@@ -230,7 +230,6 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
       <td style="text-align:right;">${l.quantity.toLocaleString()}</td>
       <td style="text-align:center;">${esc(l.unit)}</td>
       <td style="text-align:right;">${fmt(l.unitPrice)}</td>
-      <td style="text-align:right;">${fmt(l.amount)}</td>
     </tr>`;
   }).join("") || `<tr><td colspan="${headColspan}" style="text-align:center;padding:16px;color:#999;">明細なし</td></tr>`;
 
@@ -304,7 +303,6 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
         <th style="width:42px;">数量</th>
         <th style="width:32px;">単位</th>
         <th style="width:80px;">${isSake ? "納入価格" : "単価"}</th>
-        <th style="width:90px;">金額</th>
       </tr>
     </thead>
     <tbody>${lineRows}</tbody>
@@ -353,15 +351,24 @@ export function renderQuoteBuilder(
   if (quote.previewMode) {
     const accent = settings.accentColor || "#0968e5";
     return `
-      <section class="page-head">
+      <section class="page-head q-print-hide">
         <div><p class="eyebrow">見積書</p><h1>プレビュー</h1></div>
         <div class="meta-stack">
           <button class="button secondary" type="button" data-action="quote-edit-mode">← 編集に戻る</button>
-          <button class="button primary" type="button" data-action="quote-download-pdf">PDF ダウンロード</button>
+          <button class="button primary" type="button" onclick="window.print()">🖨 印刷</button>
           <button class="button secondary" type="button" data-action="save-quote">保存</button>
         </div>
       </section>
-      <style>${makeDocCssSpa(accent)}</style>
+      <style>
+        ${makeDocCssSpa(accent)}
+        @media print {
+          .q-print-hide { display: none !important; }
+          .app-header   { display: none !important; }
+          .main-v2      { padding: 0 !important; }
+          body          { background: white !important; }
+          div[style*="background:white;border:1px solid #ddd"] { border: none !important; border-radius: 0 !important; padding: 0 !important; }
+        }
+      </style>
       <div style="background:white;border:1px solid #ddd;border-radius:10px;padding:20px 16px;margin-top:8px;overflow-x:hidden;">
         ${renderDocHtml(quote, settings)}
       </div>
@@ -398,8 +405,7 @@ export function renderQuoteBuilder(
       </div>
       <div class="meta-stack">
         <button class="button primary" type="button" data-action="save-quote">保存</button>
-        <button class="button secondary" type="button" data-action="quote-preview-mode">プレビュー</button>
-        <button class="button secondary" type="button" data-action="quote-download-pdf">PDF</button>
+        <button class="button secondary" type="button" data-action="quote-preview-mode">プレビュー・印刷</button>
         <button class="button secondary" type="button" data-action="quote-back-list">← 一覧</button>
       </div>
     </section>
