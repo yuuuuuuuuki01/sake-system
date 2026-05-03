@@ -655,7 +655,7 @@ function buildRiceProcurement(
         </td>
         <td style="font-size:11px;color:#6366f1;">麹米</td>
         <td style="text-align:right;">${fmtNum(kojiWhiteKg)}</td>
-        <td style="text-align:right;font-weight:600;">${fmtNum(kojiBrownKg)}</td>
+        <td style="text-align:right;font-weight:600;">${fmtNum(kojiBrownKg)}<span style="font-size:10px;color:var(--text-secondary);margin-left:2px;">${(kojiBrownKg/60).toFixed(1)}俵</span></td>
         <td style="font-size:10px;">${p.kojiVariety}</td>
         <td style="text-align:right;">
           <input type="number" min="0" step="10" value="${p.kojiPricePerKg}"
@@ -666,7 +666,7 @@ function buildRiceProcurement(
       <tr style="border-top:none;">
         <td style="font-size:11px;color:#b7791f;">掛米</td>
         <td style="text-align:right;">${fmtNum(kakeWhiteKg)}</td>
-        <td style="text-align:right;font-weight:600;">${fmtNum(kakeBrownKg)}</td>
+        <td style="text-align:right;font-weight:600;">${fmtNum(kakeBrownKg)}<span style="font-size:10px;color:var(--text-secondary);margin-left:2px;">${(kakeBrownKg/60).toFixed(1)}俵</span></td>
         <td style="font-size:10px;">${p.kakeVariety}</td>
         <td style="text-align:right;">
           <input type="number" min="0" step="10" value="${p.kakePricePerKg}"
@@ -709,7 +709,7 @@ function buildRiceProcurement(
               <td>合計</td><td></td><td></td><td></td><td></td>
               <td style="font-size:11px;color:#6366f1;">麹米</td>
               <td style="text-align:right;">${fmtNum(tKojiWhite)}</td>
-              <td style="text-align:right;">${fmtNum(tKojiBrown)}</td>
+              <td style="text-align:right;">${fmtNum(tKojiBrown)}<span style="font-size:10px;color:var(--text-secondary);margin-left:2px;">${(tKojiBrown/60).toFixed(1)}俵</span></td>
               <td></td><td></td>
               <td style="text-align:right;">¥${fmtNum(tKojiCost)}</td>
             </tr>
@@ -717,14 +717,14 @@ function buildRiceProcurement(
               <td></td><td></td><td></td><td></td><td></td>
               <td style="font-size:11px;color:#b7791f;">掛米</td>
               <td style="text-align:right;">${fmtNum(tKakWhite)}</td>
-              <td style="text-align:right;">${fmtNum(tKakBrown)}</td>
+              <td style="text-align:right;">${fmtNum(tKakBrown)}<span style="font-size:10px;color:var(--text-secondary);margin-left:2px;">${(tKakBrown/60).toFixed(1)}俵</span></td>
               <td></td><td></td>
               <td style="text-align:right;">¥${fmtNum(tKakCost)}</td>
             </tr>
             <tr style="font-weight:700;border-top:2px solid var(--border);">
               <td>総合計</td><td></td><td></td><td></td><td></td><td></td>
               <td style="text-align:right;">${fmtNum(tKojiWhite + tKakWhite)}</td>
-              <td style="text-align:right;">${fmtNum(totalBrown)}<span style="font-size:10px;color:var(--text-secondary);margin-left:2px;">(${(totalBrown/1000).toFixed(1)}t)</span></td>
+              <td style="text-align:right;">${fmtNum(totalBrown)}<span style="font-size:10px;color:var(--text-secondary);margin-left:2px;">${Math.ceil(totalBrown/60)}俵</span></td>
               <td></td><td></td>
               <td style="text-align:right;">¥${fmtNum(totalCost)}<span style="font-size:10px;color:var(--text-secondary);margin-left:2px;">(${(totalCost/10000).toFixed(0)}万)</span></td>
             </tr>
