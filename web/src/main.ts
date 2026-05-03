@@ -634,6 +634,7 @@ interface AppState {
   brewingTypeLinks: Record<string, string[]>;
   brewingAvailableTypes: string[];
   brewingAlcoholSettings: Record<string, import("./api").BrewingAlcoholSetting>;
+  brewingYearlyShipments: import("./api").BrewingYearlyShipment[];
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -956,6 +957,7 @@ const state: AppState = {
   brewingTypeLinks: {} as Record<string, string[]>,
   brewingAvailableTypes: [] as string[],
   brewingAlcoholSettings: {} as Record<string, import("./api").BrewingAlcoholSetting>,
+  brewingYearlyShipments: [] as import("./api").BrewingYearlyShipment[],
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1579,11 +1581,11 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-plan": {
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings] = await Promise.all([
+        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd),
           fetchBrewingMonthlyTrend(fyStart, fyEnd),
           fetchBrewingSchedule(fy),
@@ -1593,7 +1595,8 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           fetchAllBrewingStockEntries(),
           fetchCategoryTypeLinks(),
           fetchAvailableProductionTypes(),
-          fetchBrewingAlcoholSettings()
+          fetchBrewingAlcoholSettings(),
+          fetchBrewingYearlyShipments()
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
@@ -1604,6 +1607,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.brewingStockEntries = stockEntries;
         state.brewingTypeLinks = typeLinks;
         state.brewingAvailableTypes = availTypes;
+        state.brewingYearlyShipments = yearlyShipments;
         state.brewingAlcoholSettings = alcSettings;
         break;
       }
@@ -1901,7 +1905,7 @@ function renderView(): string {
         state.calendarCapacity
       );
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries, state.brewingAlcoholSettings);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries, state.brewingAlcoholSettings, state.brewingYearlyShipments);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)

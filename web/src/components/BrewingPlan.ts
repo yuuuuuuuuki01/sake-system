@@ -1,4 +1,4 @@
-import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry, BrewingCustomCategory, BrewingAlcoholSetting } from "../api";
+import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry, BrewingCustomCategory, BrewingAlcoholSetting, BrewingYearlyShipment } from "../api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -402,6 +402,138 @@ function buildDetailTable(data: BrewingPlanRow[]): string {
   `;
 }
 
+// ─── Forecast ──────────────────────────────────────────────────────────────��─
+
+function buildForecastSection(
+  yearlyShipments: BrewingYearlyShipment[],
+  stockEntries: BrewingStockEntry[],
+  alcoholSettings: Record<string, BrewingAlcoholSetting>,
+  customCategories: BrewingCustomCategory[]
+): string {
+  if (yearlyShipments.length === 0) return "";
+
+  // 区分ごとに年度別データを集計
+  const catData = new Map<string, Map<number, { shipL: number; annualL: number }>>();
+  for (const s of yearlyShipments) {
+    if (!catData.has(s.brewCategory)) catData.set(s.brewCategory, new Map());
+    catData.get(s.brewCategory)!.set(s.fy, { shipL: s.shipmentL, annualL: s.annualizedL });
+  }
+
+  const allFYs = [...new Set(yearlyShipments.map(s => s.fy))].sort();
+  const currentFY = allFYs[allFYs.length - 1];
+  const forecastFY = currentFY + 1;
+
+  // 全区分のリスト（標準 + カスタム）
+  const allCats = [...catData.keys()].sort((a, b) => {
+    const order = [...CATEGORY_ORDER, ...customCategories.map(c => c.name)];
+    return (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b));
+  });
+
+  const rows = allCats.map(cat => {
+    const data = catData.get(cat)!;
+    const fys = allFYs.filter(fy => data.has(fy));
+    const color = CATEGORY_COLORS[cat] ?? "#6366f1";
+
+    // 年換算値で増減率を計算（直近2年間のCAGR）
+    const vals = fys.map(fy => data.get(fy)!.annualL);
+    let growthRate = 0;
+    if (vals.length >= 2) {
+      const recent = vals[vals.length - 1];
+      const prev = vals[vals.length - 2];
+      growthRate = prev > 0 ? (recent - prev) / prev : 0;
+    }
+    if (vals.length >= 3) {
+      // 3年平均増減率
+      const rates: number[] = [];
+      for (let i = 1; i < vals.length; i++) {
+        if (vals[i - 1] > 0) rates.push((vals[i] - vals[i - 1]) / vals[i - 1]);
+      }
+      growthRate = rates.length > 0 ? rates.reduce((s, r) => s + r, 0) / rates.length : 0;
+    }
+
+    const latestAnnual = vals[vals.length - 1] ?? 0;
+    const forecastL = Math.round(latestAnnual * (1 + growthRate));
+
+    // 現在庫（タンク合計）
+    const stockL = stockEntries.filter(e => e.brewCategory === cat).reduce((s, e) => s + e.volumeL, 0);
+    // 加水後
+    const alc = alcoholSettings[cat];
+    const dilution = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
+    const effectiveStockL = Math.round(stockL * dilution);
+    // 必要醸造量
+    const needL = Math.max(0, forecastL - effectiveStockL);
+
+    const growthPct = Math.round(growthRate * 100);
+    const growthColor = growthPct > 0 ? "#22c55e" : growthPct < 0 ? "#ef4444" : "#6b7280";
+
+    return `
+      <tr>
+        <td style="color:${color};font-weight:600;">${cat}</td>
+        ${fys.map(fy => `<td style="text-align:right;">${fmtNum(Math.round(data.get(fy)!.annualL))}</td>`).join("")}
+        <td style="text-align:right;color:${growthColor};font-weight:600;">${growthPct >= 0 ? "+" : ""}${growthPct}%</td>
+        <td style="text-align:right;font-weight:700;">${fmtNum(forecastL)}</td>
+        <td style="text-align:right;">${fmtNum(effectiveStockL)}</td>
+        <td style="text-align:right;color:${needL > 0 ? "#ef4444" : "#22c55e"};font-weight:700;">${needL > 0 ? fmtNum(needL) : "—"}</td>
+      </tr>
+    `;
+  }).join("");
+
+  // 合計行
+  const totalsByFY = allFYs.map(fy =>
+    allCats.reduce((s, cat) => s + (catData.get(cat)?.get(fy)?.annualL ?? 0), 0)
+  );
+  const totalForecast = allCats.reduce((s, cat) => {
+    const data = catData.get(cat)!;
+    const vals = allFYs.filter(fy => data.has(fy)).map(fy => data.get(fy)!.annualL);
+    let gr = 0;
+    if (vals.length >= 2) {
+      const rates: number[] = [];
+      for (let i = 1; i < vals.length; i++) { if (vals[i-1] > 0) rates.push((vals[i]-vals[i-1])/vals[i-1]); }
+      gr = rates.length > 0 ? rates.reduce((a,b)=>a+b,0)/rates.length : 0;
+    }
+    return s + Math.round((vals[vals.length-1] ?? 0) * (1 + gr));
+  }, 0);
+  const totalStock = allCats.reduce((s, cat) => {
+    const stk = stockEntries.filter(e => e.brewCategory === cat).reduce((a, e) => a + e.volumeL, 0);
+    const alc = alcoholSettings[cat];
+    const dil = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
+    return s + Math.round(stk * dil);
+  }, 0);
+  const totalNeed = Math.max(0, totalForecast - totalStock);
+
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="font-size:14px;margin:0 0 4px 0;">${forecastFY}年度 醸造予測（${forecastFY}/10〜${forecastFY+1}/9）</h3>
+      <p style="font-size:11px;color:#6b7280;margin:0 0 12px;">直近${allFYs.length}年の年換算出荷量の平均増減率から予測。在庫は加水後ベース。</p>
+      <div class="table-wrap">
+        <table class="data-table" style="font-size:12px;">
+          <thead>
+            <tr>
+              <th>区分</th>
+              ${allFYs.map(fy => `<th style="text-align:right;">${fy}年度(L)</th>`).join("")}
+              <th style="text-align:right;">増減率</th>
+              <th style="text-align:right;">${forecastFY}予測(L)</th>
+              <th style="text-align:right;">現在庫(L)</th>
+              <th style="text-align:right;">必要醸造(L)</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr style="font-weight:700;background:var(--surface-alt);">
+              <td>合計</td>
+              ${totalsByFY.map(t => `<td style="text-align:right;">${fmtNum(Math.round(t))}</td>`).join("")}
+              <td></td>
+              <td style="text-align:right;">${fmtNum(totalForecast)}</td>
+              <td style="text-align:right;">${fmtNum(totalStock)}</td>
+              <td style="text-align:right;color:#ef4444;">${fmtNum(totalNeed)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 // ─── Stock Projection Bars ────────────────────────────────────────────────────
 
 function buildStockProjection(data: BrewingPlanRow[]): string {
@@ -699,7 +831,8 @@ export function renderBrewingPlan(
   customCategories: BrewingCustomCategory[] = [] as BrewingCustomCategory[],
   overrides: Record<string, string> = {},
   stockEntries: BrewingStockEntry[] = [],
-  alcoholSettings: Record<string, BrewingAlcoholSetting> = {}
+  alcoholSettings: Record<string, BrewingAlcoholSetting> = {},
+  yearlyShipments: BrewingYearlyShipment[] = []
 ): string {
   const now = new Date();
   const currentFY = now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1;
@@ -735,6 +868,8 @@ export function renderBrewingPlan(
       </div>
 
       ${buildSummaryCards(data, stockEntries, alcoholSettings, customCategories)}
+
+      ${buildForecastSection(yearlyShipments, stockEntries, alcoholSettings, customCategories)}
 
       ${buildStockProjection(data)}
 

@@ -1487,6 +1487,28 @@ export async function saveBrewingAlcoholSetting(brewCategory: string, rawPct: nu
   return resp.ok;
 }
 
+// ─── 醸造予測 ────────────────────────────────────────────────────────────────
+
+export interface BrewingYearlyShipment {
+  fy: number;
+  brewCategory: string;
+  shipmentL: number;
+  monthsElapsed: number;
+  annualizedL: number;
+}
+
+export async function fetchBrewingYearlyShipments(): Promise<BrewingYearlyShipment[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_brewing_yearly_shipments", {});
+  if (!result) return [];
+  return result.map(r => ({
+    fy: getNumber(r, ["fy"], 0),
+    brewCategory: getString(r, ["brew_category"], ""),
+    shipmentL: getNumber(r, ["shipment_l"], 0),
+    monthsElapsed: getNumber(r, ["months_elapsed"], 12),
+    annualizedL: getNumber(r, ["annualized_l"], 0)
+  }));
+}
+
 // ─── 醸造在庫エントリ（複数タンク管理） ──────────────────────────────────────
 
 export interface BrewingStockEntry {
