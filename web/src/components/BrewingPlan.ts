@@ -224,26 +224,41 @@ function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEnt
           </div>
 
           <div id="stock-edit-${catId}" style="display:none;margin-bottom:8px;">
-            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">タンク／在庫を追加（合計が現在庫になります）</div>
-            <div id="stock-entries-${catId}">
-              ${(entries ?? []).map(e => `
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;" data-entry-id="${e.id}">
-                  <input type="text" value="${e.label}" placeholder="タンク名"
-                    style="width:100px;height:26px;font-size:11px;border:1px solid var(--border);border-radius:4px;padding:0 6px;" disabled />
-                  <strong style="font-size:13px;min-width:50px;text-align:right;">${fmtNum(e.volumeL)}L</strong>
-                  <button data-action="brew-delete-entry" data-id="${e.id}" data-cat="${cat}"
-                    style="font-size:10px;padding:2px 6px;border:1px solid #ef4444;color:#ef4444;border-radius:4px;background:none;cursor:pointer;">×</button>
+            ${(() => {
+              const children = customCategories.filter(c => c.parentCategory === cat);
+              // 親＋子全部のタンクをまとめて表示
+              const allCatsForStock = [{ name: cat, label: cat }, ...children.map(c => ({ name: c.name, label: c.name }))];
+              const allEntries = allCatsForStock.flatMap(c => {
+                const es = stockEntries.filter(e => e.brewCategory === c.name);
+                return es.map(e => ({ ...e, catLabel: c.label }));
+              });
+              const targetOptions = allCatsForStock.map(c =>
+                `<option value="${c.name}">${c.label}</option>`
+              ).join("");
+              return `
+                <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">タンク／在庫（区分を選んで追加）</div>
+                <div>
+                  ${allEntries.map(e => `
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                      ${allCatsForStock.length > 1 ? `<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${e.brewCategory === cat ? "var(--surface-alt)" : "rgba(99,102,241,0.1)"};color:${e.brewCategory === cat ? "var(--text-secondary)" : "#6366f1"};">${e.catLabel}</span>` : ""}
+                      <span style="font-size:11px;flex:1;">${e.label || "タンク"}</span>
+                      <strong style="font-size:13px;">${fmtNum(e.volumeL)}L</strong>
+                      <button data-action="brew-delete-entry" data-id="${e.id}" data-cat="${e.brewCategory}"
+                        style="font-size:10px;padding:2px 6px;border:1px solid #ef4444;color:#ef4444;border-radius:4px;background:none;cursor:pointer;">×</button>
+                    </div>
+                  `).join("") || `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">タンクなし</div>`}
                 </div>
-              `).join("")}
-            </div>
-            <div style="display:flex;gap:4px;align-items:center;margin-top:4px;">
-              <input id="new-entry-label-${catId}" type="text" placeholder="タンク名"
-                style="width:90px;height:28px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
-              <input id="new-entry-vol-${catId}" type="number" min="0" step="1" placeholder="L"
-                style="width:70px;height:28px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
-              <button data-action="brew-add-entry" data-cat="${cat}" data-cat-id="${catId}"
-                style="font-size:11px;padding:4px 10px;border:none;border-radius:4px;background:#0F5B8D;color:#fff;cursor:pointer;white-space:nowrap;">追加</button>
-            </div>
+                <div style="display:flex;gap:4px;align-items:center;margin-top:6px;flex-wrap:wrap;">
+                  ${allCatsForStock.length > 1 ? `<select id="new-entry-target-${catId}" style="height:28px;font-size:11px;border:1px solid var(--border);border-radius:4px;padding:0 4px;">${targetOptions}</select>` : ""}
+                  <input id="new-entry-label-${catId}" type="text" placeholder="タンク名"
+                    style="width:80px;height:28px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
+                  <input id="new-entry-vol-${catId}" type="number" min="0" step="1" placeholder="L"
+                    style="width:60px;height:28px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
+                  <button data-action="brew-add-entry" data-cat="${cat}" data-cat-id="${catId}"
+                    style="font-size:11px;padding:4px 10px;border:none;border-radius:4px;background:#0F5B8D;color:#fff;cursor:pointer;white-space:nowrap;">追加</button>
+                </div>
+              `;
+            })()}
             <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">
               <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">アルコール度数（加水計算用）</div>
               <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">

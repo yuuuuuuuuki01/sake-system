@@ -6261,13 +6261,15 @@ function bindEvents(root: HTMLElement): void {
     btn.addEventListener("click", async () => {
       const cat = btn.dataset.cat ?? "";
       const catId = btn.dataset.catId ?? "";
+      const targetSelect = root.querySelector<HTMLSelectElement>(`#new-entry-target-${catId}`);
+      const targetCat = targetSelect?.value ?? cat;
       const labelInput = root.querySelector<HTMLInputElement>(`#new-entry-label-${catId}`);
       const volInput = root.querySelector<HTMLInputElement>(`#new-entry-vol-${catId}`);
       const label = labelInput?.value.trim() ?? "";
       const vol = parseFloat(volInput?.value ?? "0");
       if (vol <= 0) return;
       const { addBrewingStockEntry, fetchBrewingPlanSummary, fetchAllBrewingStockEntries } = await import("./api");
-      const ok = await addBrewingStockEntry(cat, label || `タンク${(state.brewingStockEntries.filter(e => e.brewCategory === cat).length + 1)}`, vol);
+      const ok = await addBrewingStockEntry(targetCat, label || `タンク${(state.brewingStockEntries.filter(e => e.brewCategory === targetCat).length + 1)}`, vol);
       if (ok) {
         const fy = state.brewingPlanFY;
         const [summary, entries] = await Promise.all([
