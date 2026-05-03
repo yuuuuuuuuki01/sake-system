@@ -239,10 +239,17 @@ function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEnt
                 <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">タンク／在庫（区分を選んで追加）</div>
                 <div>
                   ${allEntries.map(e => `
-                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
-                      ${allCatsForStock.length > 1 ? `<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${e.brewCategory === cat ? "var(--surface-alt)" : "rgba(99,102,241,0.1)"};color:${e.brewCategory === cat ? "var(--text-secondary)" : "#6366f1"};">${e.catLabel}</span>` : ""}
-                      <span style="font-size:11px;flex:1;">${e.label || "タンク"}</span>
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
+                      <span style="font-size:11px;flex:1;min-width:60px;">${e.label || "タンク"}</span>
                       <strong style="font-size:13px;">${fmtNum(e.volumeL)}L</strong>
+                      ${allCatsForStock.length > 1 ? `
+                        <select data-action="brew-reassign-entry" data-id="${e.id}"
+                          style="font-size:10px;padding:1px 4px;border:1px solid var(--border);border-radius:3px;max-width:100px;">
+                          ${allCatsForStock.map(c =>
+                            `<option value="${c.name}" ${c.name === e.brewCategory ? "selected" : ""}>${c.label}</option>`
+                          ).join("")}
+                        </select>
+                      ` : `<span style="font-size:10px;color:var(--text-secondary);">${e.catLabel}</span>`}
                       <button data-action="brew-delete-entry" data-id="${e.id}" data-cat="${e.brewCategory}"
                         style="font-size:10px;padding:2px 6px;border:1px solid #ef4444;color:#ef4444;border-radius:4px;background:none;cursor:pointer;">×</button>
                     </div>

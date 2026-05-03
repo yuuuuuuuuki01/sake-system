@@ -1528,6 +1528,20 @@ export async function addBrewingStockEntry(brewCategory: string, label: string, 
   return result !== null;
 }
 
+export async function reassignBrewingStockEntry(id: string, newCategory: string): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  const resp = await fetch(
+    `${SUPABASE_URL}/rest/v1/brewing_stock_entries?id=eq.${encodeURIComponent(id)}`,
+    {
+      method: "PATCH",
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ brew_category: newCategory })
+    }
+  );
+  return resp.ok;
+}
+
 export async function deleteBrewingStockEntry(id: string): Promise<boolean> {
   const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
   if (!SUPABASE_ANON_KEY) return false;

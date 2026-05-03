@@ -6293,6 +6293,40 @@ function bindEvents(root: HTMLElement): void {
   });
 
   // 醸造計画: タンクエントリ削除
+  // 醸造計画: タンクの区分変更（ドロップダウン）
+  root.querySelectorAll<HTMLSelectElement>("[data-action='brew-reassign-entry']").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const id = sel.dataset.id ?? "";
+      const newCat = sel.value;
+      if (!id || !newCat) return;
+      const { reassignBrewingStockEntry, fetchBrewingPlanSummary, fetchAllBrewingStockEntries } = await import("./api");
+      const ok = await reassignBrewingStockEntry(id, newCat);
+      if (ok) {
+        const fy = state.brewingPlanFY;
+        const [summary, entries] = await Promise.all([
+          fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+          fetchAllBrewingStockEntries()
+        ]);
+        state.brewingPlanData = summary;
+        state.brewingStockEntries = entries;
+      }
+      renderApp();
+      // 編集パネルを再表示
+      requestAnimationFrame(() => {
+        root.querySelectorAll<HTMLButtonElement>(".btn-edit-stock").forEach(b => {
+          const display = document.getElementById(`stock-display-${b.dataset.catId}`);
+          const edit = document.getElementById(`stock-edit-${b.dataset.catId}`);
+          // 変更元のカードの編集パネルを開き直す
+          if (edit && edit.querySelector(`[data-id="${id}"]`)) {
+            if (display) display.style.display = "none";
+            edit.style.display = "";
+            b.style.display = "none";
+          }
+        });
+      });
+    });
+  });
+
   root.querySelectorAll<HTMLButtonElement>("[data-action='brew-delete-entry']").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.id ?? "";
