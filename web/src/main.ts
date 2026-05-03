@@ -6256,6 +6256,31 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 調達計画: 醸造量直接編集 → スケジュール更新
+  root.querySelectorAll<HTMLInputElement>("[data-action='proc-edit-vol']").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const cat = input.dataset.cat ?? "";
+      const vol = parseFloat(input.value) || 0;
+      if (!cat) return;
+      // 既存スケジュールがあれば比率維持で更新、なければ10月に全量
+      const existing = state.brewingSchedule.filter(s => s.brewCategory === cat);
+      const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
+      if (existing.length > 0) {
+        const oldTotal = existing.reduce((s, r) => s + r.plannedVolumeL, 0) || 1;
+        const rows = existing.map(s => ({
+          brewMonth: s.brewMonth,
+          durationMonths: s.durationMonths,
+          plannedVolumeL: Math.round(s.plannedVolumeL / oldTotal * vol)
+        }));
+        await saveBrewingSchedule(cat, state.brewingPlanFY, rows);
+      } else {
+        await saveBrewingSchedule(cat, state.brewingPlanFY, [{ brewMonth: 10, durationMonths: 2, plannedVolumeL: vol }]);
+      }
+      state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
+      renderApp();
+    });
+  });
+
   // 調達計画: 米品種マスタ追加
   root.querySelector<HTMLButtonElement>("[data-action='proc-add-variety']")?.addEventListener("click", async () => {
     const nameInput = root.querySelector<HTMLInputElement>("#proc-variety-name");
@@ -6295,7 +6320,7 @@ function bindEvents(root: HTMLElement): void {
       const current = state.brewingRiceParams[cat] ?? {
         brewCategory: cat, polishingRatio: 0.70, ricePerLiterKg: 0.50,
         kojiRatio: 0.30, kojiVariety: "山田錦", kojiPricePerKg: 600,
-        kakeVariety: "一般米", kakePricePerKg: 350
+        kakeVariety: "一般米", kakePricePerKg: 350, alcoholAdditionRatio: 0
       };
       (current as any)[field] = variety;
       // 品種変更時にデフォルト単価も連動
@@ -6342,7 +6367,7 @@ function bindEvents(root: HTMLElement): void {
       const current = state.brewingRiceParams[cat] ?? {
         brewCategory: cat, polishingRatio: 0.70, ricePerLiterKg: 0.50,
         kojiRatio: 0.30, kojiVariety: "山田錦", kojiPricePerKg: 600,
-        kakeVariety: "一般米", kakePricePerKg: 350
+        kakeVariety: "一般米", kakePricePerKg: 350, alcoholAdditionRatio: 0
       };
       current.ricePerLiterKg = perL;
       current.kojiRatio = koji;
@@ -6362,7 +6387,7 @@ function bindEvents(root: HTMLElement): void {
       const current = state.brewingRiceParams[cat] ?? {
         brewCategory: cat, polishingRatio: 0.70, ricePerLiterKg: 0.50,
         kojiRatio: 0.30, kojiVariety: "山田錦", kojiPricePerKg: 600,
-        kakeVariety: "一般米", kakePricePerKg: 350
+        kakeVariety: "一般米", kakePricePerKg: 350, alcoholAdditionRatio: 0
       };
       (current as any)[field] = val;
       state.brewingRiceParams[cat] = current;

@@ -37,7 +37,7 @@ export function renderProcurement(
   const defaultP: BrewingRiceParams = {
     brewCategory: "", polishingRatio: 0.70, ricePerLiterKg: 0.50,
     kojiRatio: 0.30, kojiVariety: "山田錦", kojiPricePerKg: 600,
-    kakeVariety: "一般米", kakePricePerKg: 350
+    kakeVariety: "一般米", kakePricePerKg: 350, alcoholAdditionRatio: 0
   };
 
   // スケジュールを区分→月マップに
@@ -72,9 +72,13 @@ export function renderProcurement(
 
     // 杜氏の醸造予定量（スケジュールにplanned_volume_lがあればそれ、なければ必要醸造量を使用）
     const tojiTotalL = catSchedule.reduce((s, r) => s + r.plannedVolumeL, 0);
-    const effectiveL = tojiTotalL > 0 ? tojiTotalL : needL;
+    const brewingL = tojiTotalL > 0 ? tojiTotalL : needL;
 
-    const whiteKg = Math.round(effectiveL * p.ricePerLiterKg);
+    // アル添比率: この分は米由来ではない
+    const alcRatio = p.alcoholAdditionRatio ?? 0;
+    const riceBasedL = brewingL * (1 - alcRatio);
+
+    const whiteKg = Math.round(riceBasedL * p.ricePerLiterKg);
     const kojiWhiteKg = Math.round(whiteKg * p.kojiRatio);
     const kakeWhiteKg = whiteKg - kojiWhiteKg;
     const kojiBrownKg = Math.round(kojiWhiteKg / p.polishingRatio);
@@ -155,11 +159,20 @@ export function renderProcurement(
       <div class="card" style="border-top:3px solid ${color};margin-bottom:12px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:4px;">
           <h4 style="margin:0;font-size:14px;color:${color};">${cat}</h4>
-          <div style="font-size:12px;">
-            予測 ${fmtNum(Math.round(needL))}L
-            ${tojiTotalL > 0 ? `→ 杜氏予定 <strong>${fmtNum(Math.round(tojiTotalL))}L</strong>` : ""}
-            → 予算 <strong>¥${fmtNum(kojiCost + kakeCost)}</strong>
-          </div>
+          <div style="font-size:12px;">予算 <strong>¥${fmtNum(kojiCost + kakeCost)}</strong></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:8px;flex-wrap:wrap;align-items:center;font-size:12px;">
+          <label style="display:flex;align-items:center;gap:3px;">
+            醸造量
+            <input type="number" min="0" step="100" value="${Math.round(brewingL)}"
+              data-action="proc-edit-vol" data-cat="${cat}"
+              style="width:72px;height:26px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 4px;font-weight:600;" />L
+          </label>
+          ${alcRatio > 0 ? `
+            <span style="color:var(--text-secondary);">− アル添${Math.round(alcRatio * 100)}%</span>
+            <span style="font-weight:600;">= 米由来 ${fmtNum(Math.round(riceBasedL))}L</span>
+          ` : ""}
+          ${needL > 0 && needL !== brewingL ? `<span style="color:var(--text-secondary);">(予測: ${fmtNum(Math.round(needL))}L)</span>` : ""}
         </div>
 
         <div style="overflow-x:auto;margin-bottom:8px;">
@@ -170,10 +183,11 @@ export function renderProcurement(
         </div>
         ${scheduleInputs}
 
-        <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap;font-size:12px;">
+        <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;font-size:12px;">
           <label style="display:flex;align-items:center;gap:3px;">白米/L ${inp("ricePerLiterKg", cat, p.ricePerLiterKg, "52px", "0.01")}</label>
           <label style="display:flex;align-items:center;gap:3px;">麹比率 ${inp("kojiRatio", cat, p.kojiRatio, "52px", "0.01")}</label>
           <label style="display:flex;align-items:center;gap:3px;">精米歩合 ${inp("polishingRatio", cat, p.polishingRatio, "52px", "0.01")}</label>
+          <label style="display:flex;align-items:center;gap:3px;">アル添 ${inp("alcoholAdditionRatio", cat, p.alcoholAdditionRatio ?? 0, "48px", "0.01")}</label>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
