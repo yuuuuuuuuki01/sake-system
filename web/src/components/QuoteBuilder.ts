@@ -27,6 +27,7 @@ export interface QuoteState {
   customerAddress: string;
   isProspect?: boolean;   // true = 見込み顧客（統計に影響しない）
   prospectId?: string;    // prospects.id との紐付け
+  manualPriceType?: string; // 手動指定の販売区分（""=卸価格 / "000"=生産者 / "001"=小売 / "002"=卸）
   subject: string;
   lines: QuoteLine[];
   remarks: string;
@@ -491,6 +492,18 @@ export function renderQuoteBuilder(
         <div id="q-prospect-results"></div>
         ${quote.customerName && quote.isProspect ? `<div class="selected-item" style="border-left:3px solid #48bb78;"><span style="font-size:11px;background:#48bb78;color:white;border-radius:3px;padding:1px 5px;margin-right:6px;">見込</span> <strong>${esc(quote.customerName)}</strong>${quote.customerAddress ? `<br/><span style="color:var(--text-secondary);font-size:13px;">${esc(quote.customerAddress)}</span>` : ""}</div>` : ""}
       </div>
+
+      ${quote.customerName ? `
+      <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);">
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;font-weight:600;">販売区分（単価ベース）</p>
+        <select id="q-price-type" style="padding:6px 10px;border-radius:4px;border:1px solid var(--border);background:var(--surface);font-size:13px;width:100%;">
+          <option value=""   ${(quote.manualPriceType ?? "") === ""    ? "selected" : ""}>卸価格（デフォルト）</option>
+          <option value="002" ${quote.manualPriceType === "002" ? "selected" : ""}>002｜卸売・量販向け</option>
+          <option value="001" ${quote.manualPriceType === "001" ? "selected" : ""}>001｜小売店向け（定価）</option>
+          <option value="000" ${quote.manualPriceType === "000" ? "selected" : ""}>000｜生産者・酒蔵向け</option>
+        </select>
+        ${pricing ? `<p style="font-size:11px;color:var(--text-secondary);margin-top:4px;">現在の区分：<strong>${pricing.priceType === "000" ? "生産者価格" : pricing.priceType === "001" ? "小売価格（定価）" : "卸価格"}</strong>（得意先マスタ設定）</p>` : ""}
+      </div>` : ""}
     </section>
 
     <section class="panel">
