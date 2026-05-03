@@ -121,7 +121,7 @@ function buildMonthlyChart(trend: BrewingMonthlyTrend[]): string {
 
 // ─── Summary Cards ────────────────────────────────────────────────────────────
 
-function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEntry[], alcoholSettings: Record<string, BrewingAlcoholSetting>): string {
+function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEntry[], alcoholSettings: Record<string, BrewingAlcoholSetting>, customCategories: BrewingCustomCategory[]): string {
   // Group by brew category
   const grouped = new Map<string, { rows: BrewingPlanRow[]; totalMl: number; avgMl: number; stockL: number }>();
 
@@ -679,7 +679,7 @@ export function renderBrewingPlan(
         ${buildMonthlyChart(trend)}
       </div>
 
-      ${buildSummaryCards(data, stockEntries, alcoholSettings)}
+      ${buildSummaryCards(data, stockEntries, alcoholSettings, customCategories)}
 
       ${buildStockProjection(data)}
 
