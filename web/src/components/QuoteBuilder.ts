@@ -538,18 +538,63 @@ export function renderQuoteBuilder(
   `;
 }
 
-export function generateQuotePdf(quote: QuoteState, settings: QuoteCompanySettings): void {
-  const docHtml = renderDocHtml(quote, settings);
-  const win = window.open("", "_blank", "width=860,height=1100");
-  if (!win) { alert("ポップアップがブロックされました。許可してください。"); return; }
-  win.document.write(`<!DOCTYPE html>
-<html lang="ja"><head><meta charset="UTF-8" />
-<title>見積書 ${quote.quoteNo || ""}</title>
-<style>${makeDocCss(settings.accentColor || "#0968e5")}</style>
-</head><body>${docHtml}
-<script>window.onload=function(){window.print();}<\/script>
-</body></html>`);
-  win.document.close();
+export async function generateQuotePdf(quote: QuoteState, settings: QuoteCompanySettings): Promise<void> {
+  const accent = settings.accentColor || "#0968e5";
+
+  // A4 = 794px @ 96dpi
+  const container = document.createElement("div");
+  container.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:#fff;z-index:-1;";
+  container.innerHTML = `<style>${makeDocCss(accent)}</style>${renderDocHtml(quote, settings)}`;
+  document.body.appendChild(container);
+
+  try {
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+      import("html2canvas"),
+      import("jspdf")
+    ]);
+
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      logging: false,
+      windowWidth: 794
+    });
+
+    // A4: 210mm × 297mm
+    const PAGE_W_MM = 210;
+    const PAGE_H_MM = 297;
+    const pxPerMm = canvas.width / PAGE_W_MM;
+    const pageHeightPx = PAGE_H_MM * pxPerMm;
+
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+    let offsetY = 0;
+    let pageNum = 0;
+    while (offsetY < canvas.height) {
+      if (pageNum > 0) pdf.addPage();
+
+      const sliceH = Math.min(pageHeightPx, canvas.height - offsetY);
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = Math.ceil(sliceH);
+      const ctx = pageCanvas.getContext("2d")!;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+      ctx.drawImage(canvas, 0, offsetY, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
+
+      const imgData = pageCanvas.toDataURL("image/jpeg", 0.95);
+      const sliceHeightMm = (sliceH / pxPerMm);
+      pdf.addImage(imgData, "JPEG", 0, 0, PAGE_W_MM, sliceHeightMm);
+
+      offsetY += pageHeightPx;
+      pageNum++;
+    }
+
+    pdf.save(`見積書_${quote.quoteNo || "作成中"}.pdf`);
+  } finally {
+    document.body.removeChild(container);
+  }
 }
 
 // Sync form values back to state before save/preview/pdf

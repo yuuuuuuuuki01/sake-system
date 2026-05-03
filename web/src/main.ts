@@ -3227,10 +3227,18 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
-  // PDF ダウンロード（新規ウィンドウで印刷ダイアログ）
-  root.querySelector<HTMLButtonElement>("[data-action='quote-download-pdf']")?.addEventListener("click", () => {
+  // PDF ダウンロード
+  root.querySelector<HTMLButtonElement>("[data-action='quote-download-pdf']")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "生成中…";
     syncQuoteFormToState(state.quoteState);
-    generateQuotePdf(state.quoteState, state.quoteCompanySettings);
+    try {
+      await generateQuotePdf(state.quoteState, state.quoteCompanySettings);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "PDF";
+    }
   });
 
   // 保存
