@@ -209,6 +209,18 @@ function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEnt
                 <div style="color:#6b7280;">${alc.rawAlcoholPct}% → ${alc.targetAlcoholPct}%（×${dilutionRatio.toFixed(2)}）・残<strong>${monthsEffective.toFixed(1)}</strong>ヶ月</div>
               </div>
             ` : ""}
+            ${(() => {
+              const children = customCategories.filter(c => c.parentCategory === cat);
+              if (children.length === 0) return "";
+              return children.map(cc => {
+                const ccEntries = stockEntries.filter(e => e.brewCategory === cc.name);
+                const ccStock = ccEntries.reduce((s, e) => s + e.volumeL, 0);
+                return `<div style="font-size:11px;border-left:3px solid #6366f1;padding-left:8px;margin-bottom:4px;">
+                  <span style="color:#6366f1;font-weight:600;">${cc.name}</span>
+                  ${ccStock > 0 ? `<span style="margin-left:4px;">${fmtNum(ccStock)}L</span>` : `<span style="color:var(--text-secondary);margin-left:4px;">在庫未設定</span>`}
+                </div>`;
+              }).join("");
+            })()}
           </div>
 
           <div id="stock-edit-${catId}" style="display:none;margin-bottom:8px;">
@@ -463,25 +475,39 @@ function buildProductDetail(
   }
 
   // 標準区分のみ表示（カスタム区分は親の中にインライン）
+  // 子区分に入れる先の選択肢（親に子が複数ある場合）
+  const childSelectOptions = (parentCat: string, currentChild: string = "") => {
+    const children = childCatsOf.get(parentCat) ?? [];
+    if (children.length === 0) return "";
+    if (children.length === 1) return `<input type="hidden" value="${children[0].name}" />`;
+    return `<select style="font-size:10px;padding:1px 2px;border:1px solid var(--border);border-radius:3px;">
+      ${children.map(c => `<option value="${c.name}" ${c.name === currentChild ? "selected" : ""}>${c.name}</option>`).join("")}
+    </select>`;
+  };
+
   const sections = CATEGORY_ORDER
     .filter(cat => grouped.has(cat))
     .map(cat => {
       const items = grouped.get(cat) ?? [];
       const color = CATEGORY_COLORS[cat] ?? "#9ca3af";
       const children = childCatsOf.get(cat) ?? [];
+      const hasChildren = children.length > 0;
 
-      // この親に属する全商品（子含む）の合計
-      const allItems = items;
+      const allMl = items.reduce((s, p) => s + p.annualMl, 0);
+      const allMonthlyMl = items.reduce((s, p) => s + p.monthlyAvgMl, 0);
       const visibleItems = items.filter(p => !confirmedInChild.has(p.productCode));
-      const allMl = allItems.reduce((s, p) => s + p.annualMl, 0);
-      const allMonthlyMl = allItems.reduce((s, p) => s + p.monthlyAvgMl, 0);
       const visibleMl = visibleItems.reduce((s, p) => s + p.annualMl, 0);
       const visibleMonthlyMl = visibleItems.reduce((s, p) => s + p.monthlyAvgMl, 0);
 
-      // 親の残り商品行
+      // 親の商品行（子がある場合はチェックボックス付き）
       const parentRows = visibleItems.map(p => `
         <tr>
-          <td style="width:32px;"></td>
+          <td style="width:32px;text-align:center;">
+            ${hasChildren
+              ? `<input type="checkbox" checked data-action="brew-move-to-child" data-code="${p.productCode}" data-parent="${cat}"
+                  style="cursor:pointer;" title="チェックを外すと子区分へ" />`
+              : ""}
+          </td>
           <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}">${p.productName}</td>
           <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
           <td style="text-align:right;">${fmtL(p.annualMl)}</td>
@@ -489,16 +515,16 @@ function buildProductDetail(
         </tr>
       `).join("");
 
-      // 子区分セクション（親テーブル内にインライン）
+      // 子区分インラインセクション
       const childSections = children.map(cc => {
         const childItems = grouped.get(cc.name) ?? [];
-        const childCodes = new Set(childItems.map(p => p.productCode));
         const childMl = childItems.reduce((s, p) => s + p.annualMl, 0);
         const childMonthlyMl = childItems.reduce((s, p) => s + p.monthlyAvgMl, 0);
-        // 候補: 親の商品で、どの子にも入っていないもの
-        const candidates = items.filter(p => !childCodes.has(p.productCode) && !confirmedInChild.has(p.productCode));
+        const childEntries = stockEntries.filter(e => e.brewCategory === cc.name);
+        const childStockL = childEntries.reduce((s, e) => s + e.volumeL, 0);
+        const ccId = catToId(cc.name);
 
-        const confirmedRows = childItems.map(p => `
+        const childRows = childItems.map(p => `
           <tr style="background:rgba(99,102,241,0.04);">
             <td style="width:32px;text-align:center;">
               <input type="checkbox" checked data-action="brew-unconfirm" data-code="${p.productCode}" data-cat="${cc.name}"
@@ -511,34 +537,43 @@ function buildProductDetail(
           </tr>
         `).join("");
 
-        const candidateRows = candidates.map(p => `
-          <tr style="opacity:0.35;">
-            <td style="width:32px;text-align:center;">
-              <input type="checkbox" data-action="brew-confirm-to-child" data-code="${p.productCode}" data-cat="${cc.name}"
-                style="cursor:pointer;" />
-            </td>
-            <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}">${p.productName}</td>
-            <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
-            <td style="text-align:right;color:var(--text-secondary);">${fmtL(p.annualMl)}</td>
-            <td style="text-align:right;color:var(--text-secondary);">${fmtL(p.monthlyAvgMl)}</td>
-          </tr>
-        `).join("");
-
         return `
           <tr><td colspan="5" style="padding:0;">
             <div style="border-left:3px solid #6366f1;margin:8px 0 8px 16px;padding:6px 0 6px 12px;">
               <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
                 <strong style="font-size:12px;color:#6366f1;">${cc.name}</strong>
-                <span style="font-size:11px;color:var(--text-secondary);">${childItems.length}品確定 ・ ${fmtL(childMl)}L/年 ・ ${fmtL(childMonthlyMl)}L/月</span>
+                <span style="font-size:11px;color:var(--text-secondary);">${childItems.length}品 ・ ${fmtL(childMl)}L/年${childStockL > 0 ? ` ・ 在庫${fmtNum(childStockL)}L` : ""}</span>
+                <button class="btn-edit-stock" data-cat-id="${ccId}" data-cat="${cc.name}"
+                  style="font-size:9px;padding:1px 6px;border:1px solid var(--border);border-radius:3px;background:none;cursor:pointer;">在庫</button>
                 <button data-action="brew-delete-category" data-cat="${cc.name}"
                   style="font-size:9px;padding:1px 6px;border:1px solid #ef4444;color:#ef4444;border-radius:3px;background:none;cursor:pointer;">削除</button>
               </div>
-              <table class="data-table" style="font-size:11px;margin:0;">
-                <tbody>
-                  ${confirmedRows}
-                  ${candidateRows}
-                </tbody>
-              </table>
+              <div id="stock-edit-${ccId}" style="display:none;margin-bottom:6px;padding:4px;background:var(--surface-alt);border-radius:4px;">
+                <div style="font-size:10px;color:#6b7280;margin-bottom:3px;">タンク在庫</div>
+                ${childEntries.map(e => `
+                  <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;">
+                    <span style="font-size:11px;">${e.label || "タンク"}</span>
+                    <strong style="font-size:11px;">${fmtNum(e.volumeL)}L</strong>
+                    <button data-action="brew-delete-entry" data-id="${e.id}" data-cat="${cc.name}"
+                      style="font-size:9px;padding:1px 4px;border:1px solid #ef4444;color:#ef4444;border-radius:3px;background:none;cursor:pointer;">×</button>
+                  </div>
+                `).join("")}
+                <div style="display:flex;gap:3px;align-items:center;margin-top:3px;">
+                  <input id="new-entry-label-${ccId}" type="text" placeholder="名前" style="width:70px;height:22px;font-size:10px;border:1px solid var(--border);border-radius:3px;padding:0 4px;" />
+                  <input id="new-entry-vol-${ccId}" type="number" min="0" placeholder="L" style="width:50px;height:22px;font-size:10px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 4px;" />
+                  <button data-action="brew-add-entry" data-cat="${cc.name}" data-cat-id="${ccId}"
+                    style="font-size:9px;padding:2px 6px;border:none;border-radius:3px;background:#0F5B8D;color:#fff;cursor:pointer;">追加</button>
+                </div>
+                <button class="btn-cancel-stock" data-cat-id="${ccId}" style="font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:none;cursor:pointer;margin-top:3px;">閉じる</button>
+              </div>
+              ${childRows.length > 0 ? `
+                <table class="data-table" style="font-size:11px;margin:0;">
+                  <tbody>${childRows}</tbody>
+                  <tfoot><tr style="font-weight:600;"><td></td><td>計</td><td></td>
+                    <td style="text-align:right;">${fmtL(childMl)}</td><td style="text-align:right;">${fmtL(childMonthlyMl)}</td>
+                  </tr></tfoot>
+                </table>
+              ` : `<div style="font-size:10px;color:var(--text-secondary);padding:4px;">親からチェックを外すとここに移動します</div>`}
             </div>
           </td></tr>
         `;
@@ -550,33 +585,23 @@ function buildProductDetail(
             <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${color};"></span>
             <h4 style="margin:0;font-size:14px;">${cat}</h4>
             <span style="font-size:12px;color:var(--text-secondary);">
-              全${allItems.length}銘柄 ・ 年間${fmtL(allMl)}L
-              ${children.length > 0 ? `（内 ${children.map(c => {
-                const n = (grouped.get(c.name) ?? []).length;
-                return `${c.name}:${n}品`;
-              }).join(" / ")}）` : ""}
+              全${items.length}銘柄 ・ 年間${fmtL(allMl)}L
+              ${hasChildren ? `（内 ${children.map(c => `${c.name}:${(grouped.get(c.name) ?? []).length}品`).join(" / ")}）` : ""}
             </span>
           </div>
+          ${hasChildren ? `<div style="font-size:10px;color:var(--text-secondary);margin-bottom:4px;">チェックを外すと子区分へ移動</div>` : ""}
           <div class="table-wrap">
             <table class="data-table" style="font-size:12px;">
-              <thead>
-                <tr><th style="width:32px;"></th><th>銘柄</th><th>種別</th><th style="text-align:right;">年間(L)</th><th style="text-align:right;">月平均(L)</th></tr>
-              </thead>
+              <thead><tr><th style="width:32px;"></th><th>銘柄</th><th>種別</th><th style="text-align:right;">年間(L)</th><th style="text-align:right;">月平均(L)</th></tr></thead>
               <tbody>
                 ${parentRows}
                 ${childSections}
               </tbody>
               <tfoot>
-                <tr style="font-weight:600;background:var(--surface-alt);">
-                  <td></td><td>全体計</td><td></td>
-                  <td style="text-align:right;">${fmtL(allMl)}</td>
-                  <td style="text-align:right;">${fmtL(allMonthlyMl)}</td>
-                </tr>
-                ${children.length > 0 ? `<tr style="font-size:11px;color:var(--text-secondary);">
-                  <td></td><td>　内 残り（未振分）</td><td></td>
-                  <td style="text-align:right;">${fmtL(visibleMl)}</td>
-                  <td style="text-align:right;">${fmtL(visibleMonthlyMl)}</td>
-                </tr>` : ""}
+                <tr style="font-weight:600;background:var(--surface-alt);"><td></td><td>全体計</td><td></td>
+                  <td style="text-align:right;">${fmtL(allMl)}</td><td style="text-align:right;">${fmtL(allMonthlyMl)}</td></tr>
+                ${hasChildren ? `<tr style="font-size:11px;color:var(--text-secondary);"><td></td><td>　残り（未振分）</td><td></td>
+                  <td style="text-align:right;">${fmtL(visibleMl)}</td><td style="text-align:right;">${fmtL(visibleMonthlyMl)}</td></tr>` : ""}
               </tfoot>
             </table>
           </div>

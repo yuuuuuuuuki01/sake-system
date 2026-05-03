@@ -6050,6 +6050,32 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
+  // 醸造計画: 親でチェックOFF → 子区分へ移動（子が1つなら直接、複数なら最初の子へ）
+  root.querySelectorAll<HTMLInputElement>("[data-action='brew-move-to-child']").forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      if (cb.checked) return; // チェックONは何もしない
+      const code = cb.dataset.code ?? "";
+      const parentCat = cb.dataset.parent ?? "";
+      if (!code || !parentCat) return;
+      // 子区分を探す
+      const children = state.brewingCustomCategories.filter(c => c.parentCategory === parentCat);
+      if (children.length === 0) return;
+      const targetCat = children[0].name; // 最初の子区分
+      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
+      await setBrewingCategoryOverride(code, targetCat);
+      const fy = state.brewingPlanFY;
+      const [summary, products, overrides] = await Promise.all([
+        fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+        fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
+        fetchBrewingCategoryOverrides()
+      ]);
+      state.brewingPlanData = summary;
+      state.brewingProductDetail = products;
+      state.brewingOverrides = overrides;
+      renderApp();
+    });
+  });
+
   // 醸造計画: 子区分でチェックON → 確定（オーバーライド作成）
   root.querySelectorAll<HTMLInputElement>("[data-action='brew-confirm-to-child']").forEach((cb) => {
     cb.addEventListener("change", async () => {
