@@ -1,4 +1,4 @@
-import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail } from "../api";
+import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry } from "../api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -115,7 +115,7 @@ function buildMonthlyChart(trend: BrewingMonthlyTrend[]): string {
 
 // ─── Summary Cards ────────────────────────────────────────────────────────────
 
-function buildSummaryCards(data: BrewingPlanRow[]): string {
+function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEntry[]): string {
   // Group by brew category
   const grouped = new Map<string, { rows: BrewingPlanRow[]; totalMl: number; avgMl: number; stockL: number }>();
 
@@ -131,12 +131,20 @@ function buildSummaryCards(data: BrewingPlanRow[]): string {
     g.stockL = row.currentStockL;
   }
 
+  // Stock entries grouped by category
+  const entryMap = new Map<string, BrewingStockEntry[]>();
+  for (const e of stockEntries) {
+    if (!entryMap.has(e.brewCategory)) entryMap.set(e.brewCategory, []);
+    entryMap.get(e.brewCategory)!.push(e);
+  }
+
   const cards = CATEGORY_ORDER
     .filter(c => grouped.has(c))
     .map(cat => {
       const g = grouped.get(cat)!;
       const color = CATEGORY_COLORS[cat] ?? "#9ca3af";
       const catId = cat.replace(/[^a-zA-Z0-9]/g, "_");
+      const entries = entryMap.get(cat) ?? [];
 
       // 計算
       const stockMl = g.stockL * 1000;
@@ -181,18 +189,29 @@ function buildSummaryCards(data: BrewingPlanRow[]): string {
           </div>
 
           <div id="stock-edit-${catId}" style="display:none;margin-bottom:8px;">
-            <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-              <label style="font-size:11px;color:#6b7280;display:flex;align-items:center;gap:4px;">
-                現在庫(L)
-                <input id="stock-input-${catId}" type="number" min="0" step="1" value="${g.stockL}"
-                  style="width:80px;height:28px;font-size:13px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
-              </label>
+            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">タンク／在庫を追加（合計が現在庫になります）</div>
+            <div id="stock-entries-${catId}">
+              ${(entries ?? []).map(e => `
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;" data-entry-id="${e.id}">
+                  <input type="text" value="${e.label}" placeholder="タンク名"
+                    style="width:100px;height:26px;font-size:11px;border:1px solid var(--border);border-radius:4px;padding:0 6px;" disabled />
+                  <strong style="font-size:13px;min-width:50px;text-align:right;">${fmtNum(e.volumeL)}L</strong>
+                  <button data-action="brew-delete-entry" data-id="${e.id}" data-cat="${cat}"
+                    style="font-size:10px;padding:2px 6px;border:1px solid #ef4444;color:#ef4444;border-radius:4px;background:none;cursor:pointer;">×</button>
+                </div>
+              `).join("")}
             </div>
-            <div style="display:flex;gap:4px;">
-              <button class="btn-save-stock" data-cat="${cat}" data-cat-id="${catId}"
-                style="font-size:11px;padding:4px 12px;border:none;border-radius:4px;background:#0F5B8D;color:#fff;cursor:pointer;">保存</button>
+            <div style="display:flex;gap:4px;align-items:center;margin-top:4px;">
+              <input id="new-entry-label-${catId}" type="text" placeholder="タンク名"
+                style="width:90px;height:28px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
+              <input id="new-entry-vol-${catId}" type="number" min="0" step="1" placeholder="L"
+                style="width:70px;height:28px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
+              <button data-action="brew-add-entry" data-cat="${cat}" data-cat-id="${catId}"
+                style="font-size:11px;padding:4px 10px;border:none;border-radius:4px;background:#0F5B8D;color:#fff;cursor:pointer;white-space:nowrap;">追加</button>
+            </div>
+            <div style="margin-top:6px;">
               <button class="btn-cancel-stock" data-cat-id="${catId}"
-                style="font-size:11px;padding:4px 12px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;">取消</button>
+                style="font-size:11px;padding:4px 12px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;">閉じる</button>
             </div>
           </div>
 
@@ -496,7 +515,8 @@ export function renderBrewingPlan(
   productDetail: BrewingProductDetail[] = [],
   excludedProducts: Set<string> = new Set(),
   customCategories: string[] = [],
-  overrides: Record<string, string> = {}
+  overrides: Record<string, string> = {},
+  stockEntries: BrewingStockEntry[] = []
 ): string {
   const now = new Date();
   const currentFY = now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1;
@@ -531,7 +551,7 @@ export function renderBrewingPlan(
         ${buildMonthlyChart(trend)}
       </div>
 
-      ${buildSummaryCards(data)}
+      ${buildSummaryCards(data, stockEntries)}
 
       ${buildStockProjection(data)}
 

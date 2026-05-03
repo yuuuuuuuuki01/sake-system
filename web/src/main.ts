@@ -630,6 +630,7 @@ interface AppState {
   brewingExcludedProducts: Set<string>;
   brewingCustomCategories: string[];
   brewingOverrides: Record<string, string>;
+  brewingStockEntries: import("./api").BrewingStockEntry[];
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -948,6 +949,7 @@ const state: AppState = {
   brewingExcludedProducts: new Set<string>(),
   brewingCustomCategories: [] as string[],
   brewingOverrides: {} as Record<string, string>,
+  brewingStockEntries: [] as import("./api").BrewingStockEntry[],
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1384,6 +1386,10 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           state.quoteList = await fetchQuoteList();
           state.quoteListLoading = false;
         }
+        if (state.prospects.length === 0) {
+          const { fetchProspects } = await import("./api");
+          state.prospects = await fetchProspects();
+        }
         break;
       case "/invoice":
         if (state.invoiceRecords.length === 0) {
@@ -1567,17 +1573,18 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-plan": {
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule, products, customCats, overrides] = await Promise.all([
+        const [summary, trend, schedule, products, customCats, overrides, stockEntries] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd),
           fetchBrewingMonthlyTrend(fyStart, fyEnd),
           fetchBrewingSchedule(fy),
           fetchBrewingProductDetail(fyStart, fyEnd),
           fetchBrewingCustomCategories(),
-          fetchBrewingCategoryOverrides()
+          fetchBrewingCategoryOverrides(),
+          fetchAllBrewingStockEntries()
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
@@ -1585,6 +1592,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.brewingProductDetail = products;
         state.brewingCustomCategories = customCats;
         state.brewingOverrides = overrides;
+        state.brewingStockEntries = stockEntries;
         break;
       }
       case "/jikomi":
@@ -1881,7 +1889,7 @@ function renderView(): string {
         state.calendarCapacity
       );
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -2983,6 +2991,143 @@ function bindEvents(root: HTMLElement): void {
         amount: price
       });
       state.quoteProductQuery = "";
+      renderApp();
+    });
+  });
+
+  // ── 見込み顧客検索・選択 ──────────────────────────────────────────────
+  (() => {
+    const el = root.querySelector<HTMLInputElement>("#q-prospect-search");
+    if (!el) return;
+
+    function buildProspectResults(query: string) {
+      const resultsDiv = root.querySelector<HTMLElement>("#q-prospect-results");
+      if (!resultsDiv) return;
+      const q = query.trim();
+      const list = q.length === 0
+        ? state.prospects.slice(0, 8)
+        : state.prospects.filter(p =>
+            p.companyName.includes(q) ||
+            (p.contactName ?? "").includes(q)
+          ).slice(0, 8);
+      if (list.length === 0) {
+        resultsDiv.innerHTML = "";
+        resultsDiv.style.display = "none";
+        return;
+      }
+      resultsDiv.style.display = "block";
+      resultsDiv.className = "search-results";
+      resultsDiv.innerHTML = list.map(p =>
+        `<button class="search-item" type="button" data-select-prospect="${p.id}" ` +
+        `data-prospect-name="${qEsc(p.companyName)}" data-prospect-addr="${qEsc(p.address ?? "")}">` +
+        `<span style="font-size:13px;font-weight:600;">${qEsc(p.companyName)}</span>` +
+        `<span style="font-size:11px;color:var(--text-secondary);margin-left:8px;">${qEsc(p.contactName ?? "")} ${p.address ? "· " + p.address.slice(0, 20) : ""}</span>` +
+        `</button>`
+      ).join("");
+      resultsDiv.querySelectorAll<HTMLButtonElement>("[data-select-prospect]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          state.quoteState.customerCode = "";
+          state.quoteState.customerName = btn.dataset.prospectName ?? "";
+          state.quoteState.customerAddress = btn.dataset.prospectAddr ?? "";
+          state.quoteState.isProspect = true;
+          state.quoteState.prospectId = btn.dataset.selectProspect ?? "";
+          state.quotePricing = null;
+          el.value = "";
+          resultsDiv.innerHTML = "";
+          resultsDiv.style.display = "none";
+          renderApp();
+        });
+      });
+    }
+
+    el.addEventListener("focus", () => buildProspectResults(el.value));
+    el.addEventListener("input", (e) => {
+      if ((e as InputEvent).isComposing) return;
+      buildProspectResults(el.value);
+    });
+    el.addEventListener("compositionend", () => buildProspectResults(el.value));
+
+    document.addEventListener("click", (e) => {
+      if (!el.contains(e.target as Node) && !root.querySelector("#q-prospect-results")?.contains(e.target as Node)) {
+        const rd = root.querySelector<HTMLElement>("#q-prospect-results");
+        if (rd) { rd.innerHTML = ""; rd.style.display = "none"; }
+      }
+    }, { once: false, capture: true });
+  })();
+
+  // 見込み顧客から新規登録モーダル
+  root.querySelector<HTMLButtonElement>("[data-action='new-prospect-from-quote']")?.addEventListener("click", () => {
+    const prefilledName = root.querySelector<HTMLInputElement>("#q-prospect-search")?.value.trim() ?? "";
+    const overlay = document.createElement("div");
+    overlay.className = "modal-backdrop";
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;";
+    overlay.innerHTML = `
+      <div class="modal-panel" onclick="event.stopPropagation()" style="width:min(480px,96%);background:var(--surface);border-radius:12px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h3 style="margin:0;font-size:16px;">新規見込み顧客を登録</h3>
+          <button id="prospect-quick-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-secondary);">×</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <label class="field">
+            <span style="font-size:13px;font-weight:600;">会社名 <span style="color:var(--danger);">*</span></span>
+            <input id="pq-company" type="text" value="${prefilledName.replace(/"/g,'&quot;')}" placeholder="株式会社〇〇" style="margin-top:4px;" />
+          </label>
+          <label class="field">
+            <span style="font-size:13px;font-weight:600;">担当者名</span>
+            <input id="pq-contact" type="text" placeholder="山田 太郎" style="margin-top:4px;" />
+          </label>
+          <label class="field">
+            <span style="font-size:13px;font-weight:600;">住所</span>
+            <input id="pq-address" type="text" placeholder="神奈川県〇〇市…" style="margin-top:4px;" />
+          </label>
+          <label class="field">
+            <span style="font-size:13px;font-weight:600;">電話番号</span>
+            <input id="pq-phone" type="tel" placeholder="045-000-0000" style="margin-top:4px;" />
+          </label>
+          <label class="field">
+            <span style="font-size:13px;font-weight:600;">メモ</span>
+            <textarea id="pq-note" rows="2" placeholder="商談状況など" style="margin-top:4px;width:100%;box-sizing:border-box;"></textarea>
+          </label>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
+          <button id="prospect-quick-close2" class="button secondary">キャンセル</button>
+          <button id="prospect-quick-save" class="button primary">登録して見積に使用</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    (overlay.querySelector("#pq-company") as HTMLInputElement)?.focus();
+
+    const closeModal = () => overlay.remove();
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
+    overlay.querySelector("#prospect-quick-close")?.addEventListener("click", closeModal);
+    overlay.querySelector("#prospect-quick-close2")?.addEventListener("click", closeModal);
+    overlay.querySelector("#prospect-quick-save")?.addEventListener("click", async () => {
+      const companyName = (overlay.querySelector<HTMLInputElement>("#pq-company")?.value ?? "").trim();
+      if (!companyName) { showToast("会社名は必須です", "warning"); return; }
+      const newProspect: import("./api").Prospect = {
+        id: `p_${Date.now()}`,
+        companyName,
+        contactName: overlay.querySelector<HTMLInputElement>("#pq-contact")?.value.trim() || undefined,
+        address: overlay.querySelector<HTMLInputElement>("#pq-address")?.value.trim() || undefined,
+        phone: overlay.querySelector<HTMLInputElement>("#pq-phone")?.value.trim() || undefined,
+        note: overlay.querySelector<HTMLTextAreaElement>("#pq-note")?.value.trim() || undefined,
+        stage: "warm",
+        expectedAmount: 0,
+        probability: 30
+      };
+      const { saveProspect, fetchProspects } = await import("./api");
+      const saved = await saveProspect(newProspect);
+      if (!saved) { showToast("登録失敗", "error"); return; }
+      state.prospects = await fetchProspects();
+      state.quoteState.customerCode = "";
+      state.quoteState.customerName = saved.companyName;
+      state.quoteState.customerAddress = saved.address ?? "";
+      state.quoteState.isProspect = true;
+      state.quoteState.prospectId = saved.id;
+      state.quotePricing = null;
+      closeModal();
+      showToast(`${saved.companyName} を見込み顧客として登録しました`, "success");
       renderApp();
     });
   });
@@ -5362,6 +5507,24 @@ function bindEvents(root: HTMLElement): void {
       }
     });
   });
+  // 見込み顧客から見積作成
+  root.querySelectorAll<HTMLButtonElement>("[data-action='prospect-quote-create']").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id ?? "";
+      const name = btn.dataset.name ?? "";
+      const addr = btn.dataset.addr ?? "";
+      state.quoteState = makeDefaultQuoteState(state.quoteCompanySettings);
+      state.quoteState.customerCode = "";
+      state.quoteState.customerName = name;
+      state.quoteState.customerAddress = addr;
+      state.quoteState.isProspect = true;
+      state.quoteState.prospectId = id;
+      state.quotePricing = null;
+      state.quoteEditId = "new";
+      navigate("/quote");
+    });
+  });
   root.querySelector<HTMLButtonElement>("[data-action='prospect-add-activity']")?.addEventListener("click", async () => {
     const pid = (root.querySelector<HTMLButtonElement>("[data-action='prospect-add-activity']")?.dataset.id) ?? "";
     const type = root.querySelector<HTMLSelectElement>("#prospect-activity-type")?.value ?? "call";
@@ -5833,19 +5996,21 @@ function bindEvents(root: HTMLElement): void {
   root.querySelector<HTMLSelectElement>("#brewing-fy-select")?.addEventListener("change", async (e) => {
     const fy = parseInt((e.target as HTMLSelectElement).value);
     state.brewingPlanFY = fy;
-    const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides } = await import("./api");
-    const [summary, trend, schedule, products, customCats, overrides] = await Promise.all([
+    const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries } = await import("./api");
+    const [summary, trend, schedule, products, customCats, overrides, stockEntries] = await Promise.all([
       fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
       fetchBrewingMonthlyTrend(`${fy}-10-01`, `${fy + 1}-09-30`),
       fetchBrewingSchedule(fy),
       fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
       fetchBrewingCustomCategories(),
-      fetchBrewingCategoryOverrides()
+      fetchBrewingCategoryOverrides(),
+      fetchAllBrewingStockEntries()
     ]);
     state.brewingPlanData = summary;
     state.brewingMonthlyTrend = trend;
     state.brewingSchedule = schedule;
     state.brewingProductDetail = products;
+    state.brewingStockEntries = stockEntries;
     state.brewingCustomCategories = customCats;
     state.brewingOverrides = overrides;
     state.brewingExcludedProducts = new Set();
@@ -5935,6 +6100,69 @@ function bindEvents(root: HTMLElement): void {
         showToast(`「${name}」を削除しました`);
       }
       renderApp();
+    });
+  });
+
+  // 醸造計画: タンクエントリ追加
+  root.querySelectorAll<HTMLButtonElement>("[data-action='brew-add-entry']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const cat = btn.dataset.cat ?? "";
+      const catId = btn.dataset.catId ?? "";
+      const labelInput = root.querySelector<HTMLInputElement>(`#new-entry-label-${catId}`);
+      const volInput = root.querySelector<HTMLInputElement>(`#new-entry-vol-${catId}`);
+      const label = labelInput?.value.trim() ?? "";
+      const vol = parseFloat(volInput?.value ?? "0");
+      if (vol <= 0) return;
+      const { addBrewingStockEntry, fetchBrewingPlanSummary, fetchAllBrewingStockEntries } = await import("./api");
+      const ok = await addBrewingStockEntry(cat, label || `タンク${(state.brewingStockEntries.filter(e => e.brewCategory === cat).length + 1)}`, vol);
+      if (ok) {
+        const fy = state.brewingPlanFY;
+        const [summary, entries] = await Promise.all([
+          fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+          fetchAllBrewingStockEntries()
+        ]);
+        state.brewingPlanData = summary;
+        state.brewingStockEntries = entries;
+      }
+      renderApp();
+      // 編集パネルを再表示
+      requestAnimationFrame(() => {
+        const display = document.getElementById(`stock-display-${catId}`);
+        const edit = document.getElementById(`stock-edit-${catId}`);
+        const editBtn = document.querySelector<HTMLButtonElement>(`.btn-edit-stock[data-cat-id="${catId}"]`);
+        if (display) display.style.display = "none";
+        if (edit) edit.style.display = "";
+        if (editBtn) editBtn.style.display = "none";
+      });
+    });
+  });
+
+  // 醸造計画: タンクエントリ削除
+  root.querySelectorAll<HTMLButtonElement>("[data-action='brew-delete-entry']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      const cat = btn.dataset.cat ?? "";
+      const catId = cat.replace(/[^a-zA-Z0-9]/g, "_");
+      const { deleteBrewingStockEntry, fetchBrewingPlanSummary, fetchAllBrewingStockEntries } = await import("./api");
+      const ok = await deleteBrewingStockEntry(id);
+      if (ok) {
+        const fy = state.brewingPlanFY;
+        const [summary, entries] = await Promise.all([
+          fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+          fetchAllBrewingStockEntries()
+        ]);
+        state.brewingPlanData = summary;
+        state.brewingStockEntries = entries;
+      }
+      renderApp();
+      requestAnimationFrame(() => {
+        const display = document.getElementById(`stock-display-${catId}`);
+        const edit = document.getElementById(`stock-edit-${catId}`);
+        const editBtn = document.querySelector<HTMLButtonElement>(`.btn-edit-stock[data-cat-id="${catId}"]`);
+        if (display) display.style.display = "none";
+        if (edit) edit.style.display = "";
+        if (editBtn) editBtn.style.display = "none";
+      });
     });
   });
 

@@ -1408,6 +1408,57 @@ export async function upsertBrewingStock(brewCategory: string, stockL: number, c
   return result !== null;
 }
 
+// ─── 醸造在庫エントリ（複数タンク管理） ──────────────────────────────────────
+
+export interface BrewingStockEntry {
+  id: string;
+  brewCategory: string;
+  label: string;
+  volumeL: number;
+}
+
+export async function fetchBrewingStockEntries(brewCategory: string): Promise<BrewingStockEntry[]> {
+  const rows = await supabaseQuery<LooseRow>("brewing_stock_entries", {
+    brew_category: `eq.${brewCategory}`,
+    order: "created_at.asc"
+  });
+  return (rows ?? []).map(r => ({
+    id: getString(r, ["id"], ""),
+    brewCategory: getString(r, ["brew_category"], ""),
+    label: getString(r, ["label"], ""),
+    volumeL: getNumber(r, ["volume_l"], 0)
+  }));
+}
+
+export async function fetchAllBrewingStockEntries(): Promise<BrewingStockEntry[]> {
+  const rows = await supabaseQuery<LooseRow>("brewing_stock_entries", {
+    order: "brew_category.asc,created_at.asc"
+  });
+  return (rows ?? []).map(r => ({
+    id: getString(r, ["id"], ""),
+    brewCategory: getString(r, ["brew_category"], ""),
+    label: getString(r, ["label"], ""),
+    volumeL: getNumber(r, ["volume_l"], 0)
+  }));
+}
+
+export async function addBrewingStockEntry(brewCategory: string, label: string, volumeL: number): Promise<boolean> {
+  const result = await supabaseInsert("brewing_stock_entries", {
+    brew_category: brewCategory, label, volume_l: volumeL
+  });
+  return result !== null;
+}
+
+export async function deleteBrewingStockEntry(id: string): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  const resp = await fetch(
+    `${SUPABASE_URL}/rest/v1/brewing_stock_entries?id=eq.${encodeURIComponent(id)}`,
+    { method: "DELETE", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+  );
+  return resp.ok;
+}
+
 // カスタム醸造区分の取得
 export async function fetchBrewingCustomCategories(): Promise<string[]> {
   const rows = await supabaseQuery<LooseRow>("brewing_custom_categories", {
@@ -2218,8 +2269,8 @@ export async function fetchCustomerEfficiency(): Promise<CustomerEfficiency[]> {
   }));
 }
 
-export async function fetchCustomerEfficiencyByYear(fiscalYear: number): Promise<CustomerEfficiency[]> {
-  const rows = await supabaseRpc<Record<string, unknown>[]>("get_customer_efficiency", { p_fiscal_year: fiscalYear });
+export async function fetchCustomerEfficiencyByYear(fiscalYear: number, groupBy: 'billing' | 'delivery' = 'billing'): Promise<CustomerEfficiency[]> {
+  const rows = await supabaseRpc<Record<string, unknown>[]>("get_customer_efficiency", { p_fiscal_year: fiscalYear, p_group_by: groupBy });
   if (!rows) return [];
   return rows.map((r) => ({
     code: String(r.legacy_customer_code ?? ""),
