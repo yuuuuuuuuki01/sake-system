@@ -107,7 +107,7 @@ function makeDocCss(accent: string): string {
   const accentMidTint = lighten(accent, 0.96);
   return `
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11px; color:#1a1a2e; padding:16mm 18mm; }
+body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11px; color:#1a1a2e; padding:20mm 18mm 16mm; }
 .q-doc { max-width: 720px; margin: 0 auto; }
 /* タイトル行: 左=御見積書、右=見積番号・日付（右寄せ） */
 .q-title-row { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid ${accent}; padding-bottom:8px; margin-bottom:12px; }
@@ -543,7 +543,8 @@ export async function generateQuotePdf(quote: QuoteState, settings: QuoteCompany
 
   // A4 = 794px @ 96dpi
   const container = document.createElement("div");
-  container.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:#fff;z-index:-1;";
+  // A4 at 96dpi: 20mm top≈76px, 18mm sides≈68px, 16mm bottom≈60px
+  container.style.cssText = "position:fixed;left:-9999px;top:0;width:794px;background:#fff;z-index:-1;padding:76px 68px 60px;box-sizing:border-box;";
   container.innerHTML = `<style>${makeDocCss(accent)}</style>${renderDocHtml(quote, settings)}`;
   document.body.appendChild(container);
 
