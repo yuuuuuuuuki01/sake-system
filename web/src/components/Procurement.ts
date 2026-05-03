@@ -1,4 +1,4 @@
-import type { BrewingRiceParams, BrewingCustomCategory, BrewingScheduleRow } from "../api";
+import type { BrewingRiceParams, BrewingCustomCategory, BrewingScheduleRow, RiceVariety } from "../api";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "純米大吟醸": "#7c3aed", "大吟醸": "#a855f7", "純米吟醸": "#2563eb",
@@ -18,7 +18,8 @@ export function renderProcurement(
   riceParams: Record<string, BrewingRiceParams>,
   customCategories: BrewingCustomCategory[],
   schedule: BrewingScheduleRow[] = [],
-  fy: number = 2026
+  fy: number = 2026,
+  riceVarieties: RiceVariety[] = []
 ): string {
   // needByCategoryにある区分 + スケジュールだけ入っている区分（新規ブランド等）を統合
   const catSet = new Set([
@@ -46,12 +47,16 @@ export function renderProcurement(
     scheduleMap.get(s.brewCategory)!.push(s);
   }
 
-  const inp = (field: string, cat: string, val: number | string, w: string, step: string, isText = false) =>
-    isText
-      ? `<input type="text" value="${val}" data-action="brew-rice-edit" data-cat="${cat}" data-field="${field}"
-          style="width:${w};height:26px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />`
-      : `<input type="number" step="${step}" value="${val}" data-action="brew-rice-edit" data-cat="${cat}" data-field="${field}"
-          style="width:${w};height:26px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 4px;" />`;
+  const inp = (field: string, cat: string, val: number, w: string, step: string) =>
+    `<input type="number" step="${step}" value="${val}" data-action="brew-rice-edit" data-cat="${cat}" data-field="${field}"
+        style="width:${w};height:26px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 4px;" />`;
+
+  const varietySelect = (field: string, cat: string, current: string) =>
+    `<select data-action="brew-rice-variety-select" data-cat="${cat}" data-field="${field}"
+        style="height:26px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:0 4px;max-width:110px;">
+      ${riceVarieties.map(v => `<option value="${v.name}" ${v.name === current ? "selected" : ""}>${v.name}${v.region ? ` (${v.region})` : ""}</option>`).join("")}
+      ${!riceVarieties.some(v => v.name === current) && current ? `<option value="${current}" selected>${current}</option>` : ""}
+    </select>`;
 
   let tKojiWhite = 0, tKakWhite = 0, tKojiBrown = 0, tKakBrown = 0, tKojiCost = 0, tKakCost = 0;
   // 月別集計
@@ -175,7 +180,7 @@ export function renderProcurement(
           <div style="border:1px solid var(--border);border-radius:6px;padding:10px;">
             <div style="font-size:11px;color:#6366f1;font-weight:600;margin-bottom:4px;">麹米</div>
             <div style="display:flex;gap:6px;margin-bottom:4px;flex-wrap:wrap;font-size:12px;">
-              <label style="display:flex;align-items:center;gap:3px;">品種 ${inp("kojiVariety", cat, p.kojiVariety, "76px", "", true)}</label>
+              <label style="display:flex;align-items:center;gap:3px;">品種 ${varietySelect("kojiVariety", cat, p.kojiVariety)}</label>
               <label style="display:flex;align-items:center;gap:3px;">円/kg ${inp("kojiPricePerKg", cat, p.kojiPricePerKg, "52px", "10")}</label>
             </div>
             <div style="font-size:12px;">玄米 <strong>${fmtNum(kojiBrownKg)}kg</strong> <span style="color:var(--text-secondary);">(${(kojiBrownKg/60).toFixed(1)}俵)</span></div>
@@ -184,7 +189,7 @@ export function renderProcurement(
           <div style="border:1px solid var(--border);border-radius:6px;padding:10px;">
             <div style="font-size:11px;color:#b7791f;font-weight:600;margin-bottom:4px;">掛米</div>
             <div style="display:flex;gap:6px;margin-bottom:4px;flex-wrap:wrap;font-size:12px;">
-              <label style="display:flex;align-items:center;gap:3px;">品種 ${inp("kakeVariety", cat, p.kakeVariety, "76px", "", true)}</label>
+              <label style="display:flex;align-items:center;gap:3px;">品種 ${varietySelect("kakeVariety", cat, p.kakeVariety)}</label>
               <label style="display:flex;align-items:center;gap:3px;">円/kg ${inp("kakePricePerKg", cat, p.kakePricePerKg, "52px", "10")}</label>
             </div>
             <div style="font-size:12px;">玄米 <strong>${fmtNum(kakeBrownKg)}kg</strong> <span style="color:var(--text-secondary);">(${(kakeBrownKg/60).toFixed(1)}俵)</span></div>
@@ -310,6 +315,29 @@ export function renderProcurement(
           <div style="font-size:12px;margin-top:6px;">玄米 <strong>${fmtNum(totalBrown)}kg</strong> <span style="color:var(--text-secondary);">(${Math.ceil(totalBrown/60)}俵)</span></div>
           <div style="font-size:22px;font-weight:700;margin-top:4px;">¥${fmtNum(totalCost)}<span style="font-size:13px;font-weight:400;margin-left:4px;">(${(totalCost/10000).toFixed(0)}万)</span></div>
         </div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top:16px;">
+      <div class="panel-header"><h2>米品種マスタ</h2><p class="panel-caption">プルダウンに表示される品種の追加・削除</p></div>
+      <div style="margin-bottom:8px;">
+        ${riceVarieties.map(v => `
+          <div style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;margin:2px;border:1px solid var(--border);border-radius:4px;font-size:12px;">
+            <strong>${v.name}</strong>
+            <span style="color:var(--text-secondary);">¥${fmtNum(v.defaultPricePerKg)}/kg</span>
+            ${v.region ? `<span style="color:var(--text-secondary);font-size:10px;">${v.region}</span>` : ""}
+            <button data-action="proc-delete-variety" data-id="${v.id}"
+              style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:12px;padding:0 2px;">×</button>
+          </div>
+        `).join("")}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <input id="proc-variety-name" type="text" placeholder="品種名"
+          style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;width:120px;" />
+        <input id="proc-variety-price" type="number" step="10" placeholder="円/kg"
+          style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;width:80px;text-align:right;" />
+        <button data-action="proc-add-variety" class="button primary"
+          style="font-size:12px;padding:6px 12px;">追加</button>
       </div>
     </section>
 

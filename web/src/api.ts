@@ -1615,6 +1615,40 @@ export async function fetchBrewingSeasonalPattern(): Promise<BrewingSeasonalPatt
   }));
 }
 
+// ─── 米品種マスタ ─────────────────────────────────────────────────────────────
+
+export interface RiceVariety {
+  id: string;
+  name: string;
+  defaultPricePerKg: number;
+  region: string;
+}
+
+export async function fetchRiceVarieties(): Promise<RiceVariety[]> {
+  const rows = await supabaseQuery<LooseRow>("rice_varieties", { order: "sort_order.asc,name.asc" });
+  return (rows ?? []).map(r => ({
+    id: getString(r, ["id"], ""),
+    name: getString(r, ["name"], ""),
+    defaultPricePerKg: getNumber(r, ["default_price_per_kg"], 400),
+    region: getString(r, ["region"], "")
+  }));
+}
+
+export async function addRiceVariety(name: string, pricePerKg: number, region: string = ""): Promise<boolean> {
+  const result = await supabaseInsert("rice_varieties", { name, default_price_per_kg: pricePerKg, region });
+  return result !== null;
+}
+
+export async function deleteRiceVariety(id: string): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  const resp = await fetch(
+    `${SUPABASE_URL}/rest/v1/rice_varieties?id=eq.${encodeURIComponent(id)}`,
+    { method: "DELETE", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+  );
+  return resp.ok;
+}
+
 // ─── 醸造在庫エントリ（複数タンク管理） ──────────────────────────────────────
 
 export interface BrewingStockEntry {

@@ -642,6 +642,7 @@ interface AppState {
   brewingSeasonalPattern: import("./api").BrewingSeasonalPattern[];
   brewingForecastOverrides: Record<string, number>;
   brewingRiceParams: Record<string, import("./api").BrewingRiceParams>;
+  riceVarieties: import("./api").RiceVariety[];
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -969,6 +970,7 @@ const state: AppState = {
   brewingSeasonalPattern: [] as import("./api").BrewingSeasonalPattern[],
   brewingForecastOverrides: {} as Record<string, number>,
   brewingRiceParams: {} as Record<string, import("./api").BrewingRiceParams>,
+  riceVarieties: [] as import("./api").RiceVariety[],
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1593,11 +1595,11 @@ async function loadRouteData(route: RoutePath): Promise<void> {
       }
       case "/procurement":
       case "/brewing-plan": {
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments, fetchBrewingSeasonalPattern, fetchBrewingForecastOverrides, fetchBrewingRiceParams } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments, fetchBrewingSeasonalPattern, fetchBrewingForecastOverrides, fetchBrewingRiceParams, fetchRiceVarieties } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal, forecastOvr, riceParams] = await Promise.all([
+        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal, forecastOvr, riceParams, riceVars] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd),
           fetchBrewingMonthlyTrend(fyStart, fyEnd),
           fetchBrewingSchedule(fy),
@@ -1611,7 +1613,8 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           fetchBrewingYearlyShipments(),
           fetchBrewingSeasonalPattern(),
           fetchBrewingForecastOverrides(),
-          fetchBrewingRiceParams()
+          fetchBrewingRiceParams(),
+          fetchRiceVarieties()
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
@@ -1626,6 +1629,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.brewingSeasonalPattern = seasonal;
         state.brewingForecastOverrides = forecastOvr;
         state.brewingRiceParams = riceParams;
+        state.riceVarieties = riceVars;
         state.brewingAlcoholSettings = alcSettings;
         break;
       }
@@ -1967,7 +1971,7 @@ function renderView(): string {
           needByCategory[cat] = Math.max(0, fc - projOct);
         }
       }
-      return renderProcurement(needByCategory, state.brewingRiceParams, state.brewingCustomCategories, state.brewingSchedule, state.brewingPlanFY);
+      return renderProcurement(needByCategory, state.brewingRiceParams, state.brewingCustomCategories, state.brewingSchedule, state.brewingPlanFY, state.riceVarieties);
     }
     case "/churn-alert":
       return state.churnAlert
@@ -6248,6 +6252,61 @@ function bindEvents(root: HTMLElement): void {
       const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
       await saveBrewingSchedule(cat, state.brewingPlanFY, rows);
       state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
+      renderApp();
+    });
+  });
+
+  // 調達計画: 米品種マスタ追加
+  root.querySelector<HTMLButtonElement>("[data-action='proc-add-variety']")?.addEventListener("click", async () => {
+    const nameInput = root.querySelector<HTMLInputElement>("#proc-variety-name");
+    const priceInput = root.querySelector<HTMLInputElement>("#proc-variety-price");
+    const name = nameInput?.value.trim() ?? "";
+    const price = parseFloat(priceInput?.value ?? "400") || 400;
+    if (!name) return;
+    const { addRiceVariety, fetchRiceVarieties } = await import("./api");
+    const ok = await addRiceVariety(name, price);
+    if (ok) {
+      state.riceVarieties = await fetchRiceVarieties();
+      if (nameInput) nameInput.value = "";
+      if (priceInput) priceInput.value = "";
+      showToast(`「${name}」を追加しました`);
+    }
+    renderApp();
+  });
+
+  // 調達計画: 米品種マスタ削除
+  root.querySelectorAll<HTMLButtonElement>("[data-action='proc-delete-variety']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      const { deleteRiceVariety, fetchRiceVarieties } = await import("./api");
+      const ok = await deleteRiceVariety(id);
+      if (ok) state.riceVarieties = await fetchRiceVarieties();
+      renderApp();
+    });
+  });
+
+  // 調達計画: 品種プルダウン変更 → riceParams保存
+  root.querySelectorAll<HTMLSelectElement>("[data-action='brew-rice-variety-select']").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const cat = sel.dataset.cat ?? "";
+      const field = sel.dataset.field ?? "";
+      const variety = sel.value;
+      if (!cat || !field) return;
+      const current = state.brewingRiceParams[cat] ?? {
+        brewCategory: cat, polishingRatio: 0.70, ricePerLiterKg: 0.50,
+        kojiRatio: 0.30, kojiVariety: "山田錦", kojiPricePerKg: 600,
+        kakeVariety: "一般米", kakePricePerKg: 350
+      };
+      (current as any)[field] = variety;
+      // 品種変更時にデフォルト単価も連動
+      const v = state.riceVarieties.find(r => r.name === variety);
+      if (v) {
+        if (field === "kojiVariety") current.kojiPricePerKg = v.defaultPricePerKg;
+        if (field === "kakeVariety") current.kakePricePerKg = v.defaultPricePerKg;
+      }
+      state.brewingRiceParams[cat] = current;
+      const { saveBrewingRiceParams } = await import("./api");
+      await saveBrewingRiceParams(cat, current);
       renderApp();
     });
   });
