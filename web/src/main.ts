@@ -5204,6 +5204,25 @@ function bindEvents(root: HTMLElement): void {
     const memoEl = root.querySelector<HTMLTextAreaElement>("#mo-memo");
     state.mobileOrder.memo = memoEl?.value ?? "";
     const docNo = "MO" + Date.now().toString().slice(-8);
+    const btn = root.querySelector<HTMLButtonElement>("[data-action='mo-submit']");
+    if (btn) { btn.disabled = true; btn.textContent = "送信中…"; }
+    const cartTotal = state.mobileOrder.cart.reduce((s, l) => s + l.amount, 0);
+    try {
+      const { saveStoreOrder } = await import("./api");
+      await saveStoreOrder(
+        docNo,
+        state.mobileOrder.selectedCustomer?.name ?? "不明",
+        state.mobileOrder.selectedCustomer?.code ?? null,
+        cartTotal,
+        state.mobileOrder.memo,
+        state.mobileOrder.cart
+      );
+    } catch (e) {
+      console.error("受注保存失敗:", e);
+      showToast("送信に失敗しました", "error");
+      if (btn) { btn.disabled = false; btn.textContent = "受注を送信"; }
+      return;
+    }
     state.mobileOrder.submittedDocNo = docNo;
     state.mobileOrder.step = "done";
     renderApp();

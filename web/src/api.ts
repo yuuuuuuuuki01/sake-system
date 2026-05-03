@@ -3238,6 +3238,41 @@ export async function fetchStoreOrders(): Promise<StoreOrder[]> {
   return [];
 }
 
+export async function saveStoreOrder(
+  orderNo: string,
+  customerName: string,
+  legacyCustomerCode: string | null,
+  totalAmount: number,
+  remarks: string,
+  lines: NewInvoiceLine[]
+): Promise<string | null> {
+  const row = await supabaseInsert<{ id: string }>("store_orders", {
+    order_no: orderNo,
+    order_date: new Date().toISOString().slice(0, 10),
+    channel: "mobile",
+    customer_name: customerName,
+    legacy_customer_code: legacyCustomerCode || null,
+    total_amount: totalAmount,
+    status: "new",
+    remarks: remarks || null
+  });
+  if (!row) return null;
+  const orderId = (row as unknown as { id: string }).id;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    await supabaseInsert("store_order_lines", {
+      order_id: orderId,
+      line_no: i + 1,
+      product_code: l.productCode,
+      product_name: l.productName,
+      quantity: l.quantity,
+      unit_price: l.unitPrice,
+      amount: l.amount
+    });
+  }
+  return orderId;
+}
+
 export async function saveEmailCampaign(campaign: EmailCampaign): Promise<EmailCampaign> {
   const row = await supabaseInsert<{
     id?: string;
