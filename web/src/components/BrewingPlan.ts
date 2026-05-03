@@ -462,30 +462,46 @@ function buildProductDetail(
     parentProducts.set(cat, grouped.get(cat) ?? []);
   }
 
-  const sections = allCategories
+  // 標準区分のみ表示（カスタム区分は親の中にインライン）
+  const sections = CATEGORY_ORDER
     .filter(cat => grouped.has(cat))
     .map(cat => {
-      const color = CATEGORY_COLORS[cat] ?? "#6366f1";
-      const customCat = customCategories.find(c => c.name === cat);
-      const isCustom = !!customCat;
-      const parentCat = customCat?.parentCategory ?? "";
-      const hasChildren = childCatsOf.has(cat);
+      const items = grouped.get(cat) ?? [];
+      const color = CATEGORY_COLORS[cat] ?? "#9ca3af";
+      const children = childCatsOf.get(cat) ?? [];
 
-      if (isCustom) {
-        // ── カスタム区分: 確定済み + 親の全商品を候補表示 ──
-        const confirmedItems = grouped.get(cat) ?? [];
-        const confirmedCodes = new Set(confirmedItems.map(p => p.productCode));
-        // 親区分の商品（確定済みのものは除く、他の子区分に確定済みのものも除く）
-        const parentItems = parentProducts.get(parentCat) ?? [];
-        const candidates = parentItems.filter(p => !confirmedCodes.has(p.productCode) && !confirmedInChild.has(p.productCode));
+      // この親に属する全商品（子含む）の合計
+      const allItems = items;
+      const visibleItems = items.filter(p => !confirmedInChild.has(p.productCode));
+      const allMl = allItems.reduce((s, p) => s + p.annualMl, 0);
+      const allMonthlyMl = allItems.reduce((s, p) => s + p.monthlyAvgMl, 0);
+      const visibleMl = visibleItems.reduce((s, p) => s + p.annualMl, 0);
+      const visibleMonthlyMl = visibleItems.reduce((s, p) => s + p.monthlyAvgMl, 0);
 
-        const totalMl = confirmedItems.reduce((s, p) => s + p.annualMl, 0);
-        const monthlyMl = confirmedItems.reduce((s, p) => s + p.monthlyAvgMl, 0);
+      // 親の残り商品行
+      const parentRows = visibleItems.map(p => `
+        <tr>
+          <td style="width:32px;"></td>
+          <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}">${p.productName}</td>
+          <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
+          <td style="text-align:right;">${fmtL(p.annualMl)}</td>
+          <td style="text-align:right;">${fmtL(p.monthlyAvgMl)}</td>
+        </tr>
+      `).join("");
 
-        const confirmedRows = confirmedItems.map(p => `
-          <tr>
+      // 子区分セクション（親テーブル内にインライン）
+      const childSections = children.map(cc => {
+        const childItems = grouped.get(cc.name) ?? [];
+        const childCodes = new Set(childItems.map(p => p.productCode));
+        const childMl = childItems.reduce((s, p) => s + p.annualMl, 0);
+        const childMonthlyMl = childItems.reduce((s, p) => s + p.monthlyAvgMl, 0);
+        // 候補: 親の商品で、どの子にも入っていないもの
+        const candidates = items.filter(p => !childCodes.has(p.productCode) && !confirmedInChild.has(p.productCode));
+
+        const confirmedRows = childItems.map(p => `
+          <tr style="background:rgba(99,102,241,0.04);">
             <td style="width:32px;text-align:center;">
-              <input type="checkbox" checked data-action="brew-unconfirm" data-code="${p.productCode}" data-cat="${cat}"
+              <input type="checkbox" checked data-action="brew-unconfirm" data-code="${p.productCode}" data-cat="${cc.name}"
                 style="cursor:pointer;accent-color:#2563eb;" />
             </td>
             <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}"><strong>${p.productName}</strong></td>
@@ -496,99 +512,76 @@ function buildProductDetail(
         `).join("");
 
         const candidateRows = candidates.map(p => `
-          <tr style="opacity:0.45;">
+          <tr style="opacity:0.35;">
             <td style="width:32px;text-align:center;">
-              <input type="checkbox" data-action="brew-confirm-to-child" data-code="${p.productCode}" data-cat="${cat}"
+              <input type="checkbox" data-action="brew-confirm-to-child" data-code="${p.productCode}" data-cat="${cc.name}"
                 style="cursor:pointer;" />
             </td>
             <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}">${p.productName}</td>
             <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
-            <td style="text-align:right;">${fmtL(p.annualMl)}</td>
-            <td style="text-align:right;">${fmtL(p.monthlyAvgMl)}</td>
+            <td style="text-align:right;color:var(--text-secondary);">${fmtL(p.annualMl)}</td>
+            <td style="text-align:right;color:var(--text-secondary);">${fmtL(p.monthlyAvgMl)}</td>
           </tr>
         `).join("");
 
         return `
-          <div style="margin-bottom:20px;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
-              <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${color};"></span>
-              <h4 style="margin:0;font-size:14px;">${cat}<span style="font-size:11px;font-weight:400;color:var(--text-secondary);margin-left:4px;">(${parentCat}系)</span></h4>
-              <button data-action="brew-delete-category" data-cat="${cat}"
-                style="font-size:10px;padding:2px 8px;border:1px solid #ef4444;color:#ef4444;border-radius:4px;background:none;cursor:pointer;">削除</button>
-              <span style="font-size:12px;color:var(--text-secondary);">
-                <strong>${confirmedItems.length}</strong>品確定 ・ 年間${fmtL(totalMl)}L ・ 月平均${fmtL(monthlyMl)}L
-              </span>
-            </div>
-            <div style="font-size:10px;color:var(--text-secondary);margin-bottom:6px;">チェックを入れると確定（親から移動）、外すと親に戻ります</div>
-            <div class="table-wrap">
-              <table class="data-table" style="font-size:12px;">
-                <thead>
-                  <tr><th style="width:32px;"></th><th>銘柄</th><th>種別</th><th style="text-align:right;">年間(L)</th><th style="text-align:right;">月平均(L)</th></tr>
-                </thead>
+          <tr><td colspan="5" style="padding:0;">
+            <div style="border-left:3px solid #6366f1;margin:8px 0 8px 16px;padding:6px 0 6px 12px;">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap;">
+                <strong style="font-size:12px;color:#6366f1;">${cc.name}</strong>
+                <span style="font-size:11px;color:var(--text-secondary);">${childItems.length}品確定 ・ ${fmtL(childMl)}L/年 ・ ${fmtL(childMonthlyMl)}L/月</span>
+                <button data-action="brew-delete-category" data-cat="${cc.name}"
+                  style="font-size:9px;padding:1px 6px;border:1px solid #ef4444;color:#ef4444;border-radius:3px;background:none;cursor:pointer;">削除</button>
+              </div>
+              <table class="data-table" style="font-size:11px;margin:0;">
                 <tbody>
                   ${confirmedRows}
-                  ${candidateRows || `<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);padding:8px;">候補なし</td></tr>`}
+                  ${candidateRows}
                 </tbody>
-                ${confirmedItems.length > 0 ? `<tfoot>
-                  <tr style="font-weight:600;background:var(--surface-alt);">
-                    <td></td><td>確定分計</td><td></td>
-                    <td style="text-align:right;">${fmtL(totalMl)}</td>
-                    <td style="text-align:right;">${fmtL(monthlyMl)}</td>
-                  </tr>
-                </tfoot>` : ""}
               </table>
             </div>
-          </div>
+          </td></tr>
         `;
-      } else {
-        // ── 標準区分 ──
-        const items = grouped.get(cat) ?? [];
-        // 子区分に確定済みの商品は親から除外して表示
-        const visibleItems = items.filter(p => !confirmedInChild.has(p.productCode));
-        const totalMl = visibleItems.reduce((s, p) => s + p.annualMl, 0);
-        const monthlyMl = visibleItems.reduce((s, p) => s + p.monthlyAvgMl, 0);
-        const movedCount = items.length - visibleItems.length;
+      }).join("");
 
-        const rows = visibleItems.map(p => `
-          <tr>
-            <td style="width:32px;"></td>
-            <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}">${p.productName}</td>
-            <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
-            <td style="text-align:right;">${fmtL(p.annualMl)}</td>
-            <td style="text-align:right;">${fmtL(p.monthlyAvgMl)}</td>
-          </tr>
-        `).join("");
-
-        return `
-          <div style="margin-bottom:20px;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
-              <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${color};"></span>
-              <h4 style="margin:0;font-size:14px;">${cat}</h4>
-              <span style="font-size:12px;color:var(--text-secondary);">
-                ${visibleItems.length}銘柄 ・ 年間${fmtL(totalMl)}L ・ 月平均${fmtL(monthlyMl)}L
-                ${movedCount > 0 ? `<span style="color:#2563eb;">（${movedCount}品を子区分へ移動済）</span>` : ""}
-              </span>
-            </div>
-            ${visibleItems.length > 0 ? `
-              <div class="table-wrap">
-                <table class="data-table" style="font-size:12px;">
-                  <thead>
-                    <tr><th style="width:32px;"></th><th>銘柄</th><th>種別</th><th style="text-align:right;">年間(L)</th><th style="text-align:right;">月平均(L)</th></tr>
-                  </thead>
-                  <tbody>${rows}</tbody>
-                  <tfoot>
-                    <tr style="font-weight:600;background:var(--surface-alt);">
-                      <td></td><td>計</td><td></td>
-                      <td style="text-align:right;">${fmtL(totalMl)}</td>
-                      <td style="text-align:right;">${fmtL(monthlyMl)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            ` : ""}
+      return `
+        <div style="margin-bottom:20px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
+            <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${color};"></span>
+            <h4 style="margin:0;font-size:14px;">${cat}</h4>
+            <span style="font-size:12px;color:var(--text-secondary);">
+              全${allItems.length}銘柄 ・ 年間${fmtL(allMl)}L
+              ${children.length > 0 ? `（内 ${children.map(c => {
+                const n = (grouped.get(c.name) ?? []).length;
+                return `${c.name}:${n}品`;
+              }).join(" / ")}）` : ""}
+            </span>
           </div>
-        `;
-      }
+          <div class="table-wrap">
+            <table class="data-table" style="font-size:12px;">
+              <thead>
+                <tr><th style="width:32px;"></th><th>銘柄</th><th>種別</th><th style="text-align:right;">年間(L)</th><th style="text-align:right;">月平均(L)</th></tr>
+              </thead>
+              <tbody>
+                ${parentRows}
+                ${childSections}
+              </tbody>
+              <tfoot>
+                <tr style="font-weight:600;background:var(--surface-alt);">
+                  <td></td><td>全体計</td><td></td>
+                  <td style="text-align:right;">${fmtL(allMl)}</td>
+                  <td style="text-align:right;">${fmtL(allMonthlyMl)}</td>
+                </tr>
+                ${children.length > 0 ? `<tr style="font-size:11px;color:var(--text-secondary);">
+                  <td></td><td>　内 残り（未振分）</td><td></td>
+                  <td style="text-align:right;">${fmtL(visibleMl)}</td>
+                  <td style="text-align:right;">${fmtL(visibleMonthlyMl)}</td>
+                </tr>` : ""}
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      `;
     }).join("");
 
   return `
