@@ -1450,6 +1450,43 @@ export async function fetchAvailableProductionTypes(): Promise<string[]> {
   return unique.filter(t => !t.startsWith("セット品") && !t.startsWith("その他(酒以外"));
 }
 
+// ─── 醸造アルコール度数設定 ───────────────────────────────────────────────────
+
+export interface BrewingAlcoholSetting {
+  brewCategory: string;
+  rawAlcoholPct: number;
+  targetAlcoholPct: number;
+}
+
+export async function fetchBrewingAlcoholSettings(): Promise<Record<string, BrewingAlcoholSetting>> {
+  const rows = await supabaseQuery<LooseRow>("brewing_alcohol_settings", {});
+  const map: Record<string, BrewingAlcoholSetting> = {};
+  for (const r of rows ?? []) {
+    const cat = getString(r, ["brew_category"], "");
+    if (cat) map[cat] = {
+      brewCategory: cat,
+      rawAlcoholPct: getNumber(r, ["raw_alcohol_pct"], 18),
+      targetAlcoholPct: getNumber(r, ["target_alcohol_pct"], 15)
+    };
+  }
+  return map;
+}
+
+export async function saveBrewingAlcoholSetting(brewCategory: string, rawPct: number, targetPct: number): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/brewing_alcohol_settings`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify({ brew_category: brewCategory, raw_alcohol_pct: rawPct, target_alcohol_pct: targetPct, updated_at: new Date().toISOString() })
+  });
+  return resp.ok;
+}
+
 // ─── 醸造在庫エントリ（複数タンク管理） ──────────────────────────────────────
 
 export interface BrewingStockEntry {

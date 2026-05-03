@@ -1,4 +1,4 @@
-import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry, BrewingCustomCategory } from "../api";
+import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry, BrewingCustomCategory, BrewingAlcoholSetting } from "../api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -121,7 +121,7 @@ function buildMonthlyChart(trend: BrewingMonthlyTrend[]): string {
 
 // ─── Summary Cards ────────────────────────────────────────────────────────────
 
-function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEntry[]): string {
+function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEntry[], alcoholSettings: Record<string, BrewingAlcoholSetting>): string {
   // Group by brew category
   const grouped = new Map<string, { rows: BrewingPlanRow[]; totalMl: number; avgMl: number; stockL: number }>();
 
@@ -152,28 +152,39 @@ function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEnt
       const catId = catToId(cat);
       const entries = entryMap.get(cat) ?? [];
 
-      // 計算
+      // アルコール度数設定
+      const alc = alcoholSettings[cat] ?? { rawAlcoholPct: 18, targetAlcoholPct: 15 };
+      const dilutionRatio = alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
+
+      // 計算（原酒ベース）
       const stockMl = g.stockL * 1000;
       const annualMl = g.totalMl;
       const monthlyAvgMl = g.avgMl;
       const annualL = annualMl / 1000;
-      const monthsRemaining = monthlyAvgMl > 0 ? Math.round(stockMl / monthlyAvgMl * 10) / 10 : 0;
 
-      // 年間ベースの過不足: 在庫 - 年間出荷量
-      const surplusL = g.stockL - annualL;
-      // 安全在庫 = 2ヶ月分
+      // 加水後の実効容量
+      const effectiveStockL = Math.round(g.stockL * dilutionRatio * 10) / 10;
+      const effectiveStockMl = effectiveStockL * 1000;
+
+      // 残月数（加水後ベース）
+      const monthsRaw = monthlyAvgMl > 0 ? Math.round(stockMl / monthlyAvgMl * 10) / 10 : 0;
+      const monthsEffective = monthlyAvgMl > 0 ? Math.round(effectiveStockMl / monthlyAvgMl * 10) / 10 : 0;
+
+      // 年間ベースの過不足（加水後）
+      const surplusL = effectiveStockL - annualL;
       const safetyStockL = monthlyAvgMl > 0 ? Math.round(monthlyAvgMl * 2 / 1000 * 10) / 10 : 0;
-      const isBelowSafety = g.stockL < safetyStockL;
+      const isBelowSafety = effectiveStockL < safetyStockL;
 
-      const sc = stockColor(monthsRemaining);
-      const sl = stockLabel(monthsRemaining);
-      const progressPct = Math.min(monthsRemaining / 12 * 100, 100);
+      const sc = stockColor(monthsEffective);
+      const sl = stockLabel(monthsEffective);
+      const progressPct = Math.min(monthsEffective / 12 * 100, 100);
 
-      // 過不足のラベル
       const surplusColor = surplusL >= 0 ? "#22c55e" : "#ef4444";
       const surplusLabel = surplusL >= 0
         ? `+${fmtNum(Math.round(surplusL))}L 余裕`
         : `${fmtNum(Math.round(surplusL))}L 不足`;
+
+      const showDilution = dilutionRatio > 1.001;
 
       return `
         <div class="card" style="border-top:3px solid ${color};min-width:260px;flex:1;">
@@ -187,11 +198,17 @@ function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEnt
           </div>
 
           <div id="stock-display-${catId}">
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:11px;margin-bottom:8px;">
-              <div><span style="color:#6b7280;">現在庫</span><br><strong style="font-size:15px;">${fmtNum(g.stockL)}L</strong></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:11px;margin-bottom:4px;">
+              <div><span style="color:#6b7280;">原酒在庫</span><br><strong style="font-size:15px;">${fmtNum(g.stockL)}L</strong></div>
               <div><span style="color:#6b7280;">年間出荷</span><br><strong style="font-size:15px;">${fmtNum(Math.round(annualL))}L</strong></div>
               <div><span style="color:#6b7280;">月平均</span><br><strong style="font-size:15px;">${fmtL(monthlyAvgMl)}L</strong></div>
             </div>
+            ${showDilution ? `
+              <div style="background:rgba(37,99,235,0.06);border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11px;">
+                <div style="color:#2563eb;font-weight:600;">加水後 ${fmtNum(effectiveStockL)}L</div>
+                <div style="color:#6b7280;">${alc.rawAlcoholPct}% → ${alc.targetAlcoholPct}%（×${dilutionRatio.toFixed(2)}）・残<strong>${monthsEffective.toFixed(1)}</strong>ヶ月</div>
+              </div>
+            ` : ""}
           </div>
 
           <div id="stock-edit-${catId}" style="display:none;margin-bottom:8px;">
@@ -215,6 +232,24 @@ function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEnt
               <button data-action="brew-add-entry" data-cat="${cat}" data-cat-id="${catId}"
                 style="font-size:11px;padding:4px 10px;border:none;border-radius:4px;background:#0F5B8D;color:#fff;cursor:pointer;white-space:nowrap;">追加</button>
             </div>
+            <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px;">
+              <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">アルコール度数（加水計算用）</div>
+              <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;">
+                  原酒
+                  <input id="alc-raw-${catId}" type="number" min="1" max="30" step="0.1" value="${alc.rawAlcoholPct}"
+                    style="width:52px;height:26px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 4px;" />%
+                </label>
+                <span style="color:#6b7280;">→</span>
+                <label style="font-size:11px;display:flex;align-items:center;gap:3px;">
+                  出荷
+                  <input id="alc-target-${catId}" type="number" min="1" max="30" step="0.1" value="${alc.targetAlcoholPct}"
+                    style="width:52px;height:26px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 4px;" />%
+                </label>
+                <button data-action="brew-alc-save" data-cat="${cat}"
+                  style="font-size:10px;padding:3px 8px;border:none;border-radius:4px;background:#2563eb;color:#fff;cursor:pointer;">保存</button>
+              </div>
+            </div>
             <div style="margin-top:6px;">
               <button class="btn-cancel-stock" data-cat-id="${catId}"
                 style="font-size:11px;padding:4px 12px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;">閉じる</button>
@@ -227,8 +262,8 @@ function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEnt
           </div>
 
           <div style="margin-bottom:4px;display:flex;justify-content:space-between;font-size:11px;">
-            <span style="color:#6b7280;">残月数</span>
-            <span style="font-weight:600;color:${sc};">${monthsRemaining.toFixed(1)}ヶ月</span>
+            <span style="color:#6b7280;">残月数${showDilution ? "（加水後）" : ""}</span>
+            <span style="font-weight:600;color:${sc};">${monthsEffective.toFixed(1)}ヶ月</span>
           </div>
           <div style="background:#e5e7eb;border-radius:4px;height:8px;overflow:hidden;">
             <div style="background:${sc};height:100%;width:${progressPct}%;border-radius:4px;transition:width 0.3s;"></div>
@@ -544,7 +579,8 @@ export function renderBrewingPlan(
   excludedProducts: Set<string> = new Set(),
   customCategories: BrewingCustomCategory[] = [] as BrewingCustomCategory[],
   overrides: Record<string, string> = {},
-  stockEntries: BrewingStockEntry[] = []
+  stockEntries: BrewingStockEntry[] = [],
+  alcoholSettings: Record<string, BrewingAlcoholSetting> = {}
 ): string {
   const now = new Date();
   const currentFY = now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1;
@@ -579,7 +615,7 @@ export function renderBrewingPlan(
         ${buildMonthlyChart(trend)}
       </div>
 
-      ${buildSummaryCards(data, stockEntries)}
+      ${buildSummaryCards(data, stockEntries, alcoholSettings)}
 
       ${buildStockProjection(data)}
 

@@ -633,6 +633,7 @@ interface AppState {
   brewingStockEntries: import("./api").BrewingStockEntry[];
   brewingTypeLinks: Record<string, string[]>;
   brewingAvailableTypes: string[];
+  brewingAlcoholSettings: Record<string, import("./api").BrewingAlcoholSetting>;
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -954,6 +955,7 @@ const state: AppState = {
   brewingStockEntries: [] as import("./api").BrewingStockEntry[],
   brewingTypeLinks: {} as Record<string, string[]>,
   brewingAvailableTypes: [] as string[],
+  brewingAlcoholSettings: {} as Record<string, import("./api").BrewingAlcoholSetting>,
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1577,11 +1579,11 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-plan": {
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes] = await Promise.all([
+        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd),
           fetchBrewingMonthlyTrend(fyStart, fyEnd),
           fetchBrewingSchedule(fy),
@@ -1590,7 +1592,8 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           fetchBrewingCategoryOverrides(),
           fetchAllBrewingStockEntries(),
           fetchCategoryTypeLinks(),
-          fetchAvailableProductionTypes()
+          fetchAvailableProductionTypes(),
+          fetchBrewingAlcoholSettings()
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
@@ -1601,6 +1604,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.brewingStockEntries = stockEntries;
         state.brewingTypeLinks = typeLinks;
         state.brewingAvailableTypes = availTypes;
+        state.brewingAlcoholSettings = alcSettings;
         break;
       }
       case "/jikomi":
@@ -1897,7 +1901,7 @@ function renderView(): string {
         state.calendarCapacity
       );
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries, state.brewingAlcoholSettings);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -2974,10 +2978,25 @@ function bindEvents(root: HTMLElement): void {
       state.quoteState.customerCode = code;
       state.quoteState.customerName = btn.dataset.custName ?? "";
       state.quoteState.customerAddress = btn.dataset.custAddr ?? "";
+      state.quoteState.isProspect = false;
+      state.quoteState.manualPriceType = undefined; // マスタ設定に戻す
       state.quoteCustomerQuery = "";
       state.quotePricing = await fetchCustomerPricing(state.masterStats?.customers ?? [], code);
       renderApp();
     });
+  });
+
+  // 販売区分（手動単価ベース）切り替え
+  root.querySelector<HTMLSelectElement>("#q-price-type")?.addEventListener("change", (e) => {
+    const priceType = (e.target as HTMLSelectElement).value as import("./api").PriceType;
+    state.quoteState.manualPriceType = priceType;
+    // quotePricing を手動区分で上書き（個別単価は既存のものを維持）
+    if (state.quotePricing) {
+      state.quotePricing = { ...state.quotePricing, priceType };
+    } else {
+      state.quotePricing = { priceType, priceGroup: "", individualPrices: new Map() };
+    }
+    renderApp();
   });
 
   // 商品追加（初期レンダリング時にすでに表示されている場合）
@@ -3039,7 +3058,9 @@ function bindEvents(root: HTMLElement): void {
           state.quoteState.customerAddress = btn.dataset.prospectAddr ?? "";
           state.quoteState.isProspect = true;
           state.quoteState.prospectId = btn.dataset.selectProspect ?? "";
-          state.quotePricing = null;
+          // 販売区分が手動設定済みなら維持、なければ初期化
+          const pt = (state.quoteState.manualPriceType ?? "") as import("./api").PriceType;
+          state.quotePricing = { priceType: pt, priceGroup: "", individualPrices: new Map() };
           el.value = "";
           if (resultsDiv) resultsDiv.innerHTML = "";
           renderApp();
@@ -3128,7 +3149,8 @@ function bindEvents(root: HTMLElement): void {
       state.quoteState.customerAddress = saved.address ?? "";
       state.quoteState.isProspect = true;
       state.quoteState.prospectId = saved.id;
-      state.quotePricing = null;
+      const pt2 = (state.quoteState.manualPriceType ?? "") as import("./api").PriceType;
+      state.quotePricing = { priceType: pt2, priceGroup: "", individualPrices: new Map() };
       closeModal();
       showToast(`${saved.companyName} を見込み顧客として登録しました`, "success");
       renderApp();
@@ -6036,6 +6058,24 @@ function bindEvents(root: HTMLElement): void {
         state.brewingExcludedProducts.delete(code);
       } else {
         state.brewingExcludedProducts.add(code);
+      }
+      renderApp();
+    });
+  });
+
+  // 醸造計画: アルコール度数変更
+  root.querySelectorAll<HTMLInputElement>("[data-action='brew-alc-save']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const cat = btn.dataset.cat ?? "";
+      const catId = "bc-" + encodeURIComponent(cat).replace(/%/g, "-");
+      const rawInput = root.querySelector<HTMLInputElement>(`#alc-raw-${catId}`);
+      const targetInput = root.querySelector<HTMLInputElement>(`#alc-target-${catId}`);
+      const rawPct = parseFloat(rawInput?.value ?? "18") || 18;
+      const targetPct = parseFloat(targetInput?.value ?? "15") || 15;
+      const { saveBrewingAlcoholSetting } = await import("./api");
+      const ok = await saveBrewingAlcoholSetting(cat, rawPct, targetPct);
+      if (ok) {
+        state.brewingAlcoholSettings[cat] = { brewCategory: cat, rawAlcoholPct: rawPct, targetAlcoholPct: targetPct };
       }
       renderApp();
     });
