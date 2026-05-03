@@ -117,26 +117,18 @@ function buildMonthlyChart(trend: BrewingMonthlyTrend[]): string {
 
 function buildSummaryCards(data: BrewingPlanRow[]): string {
   // Group by brew category
-  const grouped = new Map<string, { rows: BrewingPlanRow[]; totalMl: number; avgMl: number; stockL: number; months: number }>();
+  const grouped = new Map<string, { rows: BrewingPlanRow[]; totalMl: number; avgMl: number; stockL: number }>();
 
   for (const row of data) {
     const cat = row.brewCategory;
     if (!grouped.has(cat)) {
-      grouped.set(cat, { rows: [], totalMl: 0, avgMl: 0, stockL: 0, months: 0 });
+      grouped.set(cat, { rows: [], totalMl: 0, avgMl: 0, stockL: 0 });
     }
     const g = grouped.get(cat)!;
     g.rows.push(row);
     g.totalMl += row.totalShipmentMl;
     g.avgMl += row.monthlyAvgMl;
-    g.stockL = row.currentStockL; // Same for all sub-categories
-    g.months = row.monthsRemaining; // Use the max from sub-categories
-  }
-
-  // Recalculate months remaining at category level
-  for (const [, g] of grouped) {
-    if (g.avgMl > 0) {
-      g.months = Math.round(g.stockL * 1000 / g.avgMl * 10) / 10;
-    }
+    g.stockL = row.currentStockL;
   }
 
   const cards = CATEGORY_ORDER
@@ -144,13 +136,33 @@ function buildSummaryCards(data: BrewingPlanRow[]): string {
     .map(cat => {
       const g = grouped.get(cat)!;
       const color = CATEGORY_COLORS[cat] ?? "#9ca3af";
-      const sc = stockColor(g.months);
-      const sl = stockLabel(g.months);
-      const progressPct = Math.min(g.months / 6 * 100, 100);
-
       const catId = cat.replace(/[^a-zA-Z0-9]/g, "_");
+
+      // 計算
+      const stockMl = g.stockL * 1000;
+      const annualMl = g.totalMl;
+      const monthlyAvgMl = g.avgMl;
+      const annualL = annualMl / 1000;
+      const monthsRemaining = monthlyAvgMl > 0 ? Math.round(stockMl / monthlyAvgMl * 10) / 10 : 0;
+
+      // 年間ベースの過不足: 在庫 - 年間出荷量
+      const surplusL = g.stockL - annualL;
+      // 安全在庫 = 2ヶ月分
+      const safetyStockL = monthlyAvgMl > 0 ? Math.round(monthlyAvgMl * 2 / 1000 * 10) / 10 : 0;
+      const isBelowSafety = g.stockL < safetyStockL;
+
+      const sc = stockColor(monthsRemaining);
+      const sl = stockLabel(monthsRemaining);
+      const progressPct = Math.min(monthsRemaining / 12 * 100, 100);
+
+      // 過不足のラベル
+      const surplusColor = surplusL >= 0 ? "#22c55e" : "#ef4444";
+      const surplusLabel = surplusL >= 0
+        ? `+${fmtNum(Math.round(surplusL))}L 余裕`
+        : `${fmtNum(Math.round(surplusL))}L 不足`;
+
       return `
-        <div class="card" style="border-top:3px solid ${color};min-width:220px;flex:1;">
+        <div class="card" style="border-top:3px solid ${color};min-width:260px;flex:1;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
             <h4 style="margin:0;font-size:14px;color:${color};">${cat}</h4>
             <div style="display:flex;gap:4px;align-items:center;">
@@ -159,30 +171,39 @@ function buildSummaryCards(data: BrewingPlanRow[]): string {
                 style="font-size:10px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;">編集</button>
             </div>
           </div>
+
           <div id="stock-display-${catId}">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px;margin-bottom:8px;">
-              <div><span style="color:#6b7280;">現在庫</span><br><strong>${fmtNum(g.stockL)}L</strong></div>
-              <div><span style="color:#6b7280;">月平均移出</span><br><strong>${fmtL(g.avgMl)}L</strong></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:11px;margin-bottom:8px;">
+              <div><span style="color:#6b7280;">現在庫</span><br><strong style="font-size:15px;">${fmtNum(g.stockL)}L</strong></div>
+              <div><span style="color:#6b7280;">年間出荷</span><br><strong style="font-size:15px;">${fmtNum(Math.round(annualL))}L</strong></div>
+              <div><span style="color:#6b7280;">月平均</span><br><strong style="font-size:15px;">${fmtL(monthlyAvgMl)}L</strong></div>
             </div>
           </div>
+
           <div id="stock-edit-${catId}" style="display:none;margin-bottom:8px;">
             <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
               <label style="font-size:11px;color:#6b7280;display:flex;align-items:center;gap:4px;">
                 現在庫(L)
                 <input id="stock-input-${catId}" type="number" min="0" step="1" value="${g.stockL}"
-                  style="width:70px;height:26px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 4px;" />
+                  style="width:80px;height:28px;font-size:13px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
               </label>
             </div>
             <div style="display:flex;gap:4px;">
               <button class="btn-save-stock" data-cat="${cat}" data-cat-id="${catId}"
-                style="font-size:11px;padding:3px 10px;border:none;border-radius:4px;background:#0F5B8D;color:#fff;cursor:pointer;">保存</button>
+                style="font-size:11px;padding:4px 12px;border:none;border-radius:4px;background:#0F5B8D;color:#fff;cursor:pointer;">保存</button>
               <button class="btn-cancel-stock" data-cat-id="${catId}"
-                style="font-size:11px;padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;">取消</button>
+                style="font-size:11px;padding:4px 12px;border:1px solid var(--border);border-radius:4px;background:none;cursor:pointer;">取消</button>
             </div>
           </div>
+
+          <div style="display:flex;gap:8px;margin-bottom:6px;font-size:11px;flex-wrap:wrap;">
+            <span style="color:${surplusColor};font-weight:600;">年間比 ${surplusLabel}</span>
+            <span style="color:${isBelowSafety ? "#ef4444" : "#6b7280"};">安全在庫${fmtNum(safetyStockL)}L${isBelowSafety ? " ⚠下回り" : " ✓"}</span>
+          </div>
+
           <div style="margin-bottom:4px;display:flex;justify-content:space-between;font-size:11px;">
             <span style="color:#6b7280;">残月数</span>
-            <span style="font-weight:600;color:${sc};">${g.months.toFixed(1)}ヶ月</span>
+            <span style="font-weight:600;color:${sc};">${monthsRemaining.toFixed(1)}ヶ月</span>
           </div>
           <div style="background:#e5e7eb;border-radius:4px;height:8px;overflow:hidden;">
             <div style="background:${sc};height:100%;width:${progressPct}%;border-radius:4px;transition:width 0.3s;"></div>
@@ -290,13 +311,14 @@ function buildDetailTable(data: BrewingPlanRow[]): string {
 // ─── Stock Projection Bars ────────────────────────────────────────────────────
 
 function buildStockProjection(data: BrewingPlanRow[]): string {
-  // Aggregate per category
-  const cats = new Map<string, { avgMl: number; stockL: number }>();
+  const cats = new Map<string, { avgMl: number; totalMl: number; stockL: number }>();
   for (const r of data) {
     if (!cats.has(r.brewCategory)) {
-      cats.set(r.brewCategory, { avgMl: 0, stockL: r.currentStockL });
+      cats.set(r.brewCategory, { avgMl: 0, totalMl: 0, stockL: r.currentStockL });
     }
-    cats.get(r.brewCategory)!.avgMl += r.monthlyAvgMl;
+    const c = cats.get(r.brewCategory)!;
+    c.avgMl += r.monthlyAvgMl;
+    c.totalMl += r.totalShipmentMl;
   }
 
   const bars = CATEGORY_ORDER
@@ -304,28 +326,34 @@ function buildStockProjection(data: BrewingPlanRow[]): string {
     .map(cat => {
       const g = cats.get(cat)!;
       const months = g.avgMl > 0 ? Math.round(g.stockL * 1000 / g.avgMl * 10) / 10 : 0;
+      const annualL = g.totalMl / 1000;
+      const coveragePct = annualL > 0 ? Math.round(g.stockL / annualL * 100) : 0;
       const color = CATEGORY_COLORS[cat] ?? "#9ca3af";
       const sc = stockColor(months);
-      const pct = Math.min(months / 8 * 100, 100);
+      const pct = Math.min(months / 12 * 100, 100);
 
       return `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span style="width:80px;font-size:12px;font-weight:500;color:${color};text-align:right;">${cat}</span>
-          <div style="flex:1;background:#e5e7eb;border-radius:4px;height:20px;overflow:hidden;position:relative;">
+          <div style="flex:1;background:#e5e7eb;border-radius:4px;height:24px;overflow:hidden;position:relative;">
             <div style="background:${sc};height:100%;width:${pct}%;border-radius:4px;transition:width 0.3s;"></div>
-            <span style="position:absolute;top:2px;left:8px;font-size:11px;font-weight:600;color:#374151;">${months.toFixed(1)}ヶ月</span>
+            <span style="position:absolute;top:3px;left:8px;font-size:11px;font-weight:600;color:#374151;">
+              ${months.toFixed(1)}ヶ月 / 年間の${coveragePct}%
+            </span>
           </div>
+          <span style="width:60px;font-size:11px;text-align:right;color:${g.stockL > 0 ? "var(--text)" : "#ef4444"};">${fmtNum(g.stockL)}L</span>
         </div>
       `;
     }).join("");
 
   return `
     <div class="card" style="margin-bottom:16px;">
-      <h3 style="font-size:14px;margin:0 0 12px 0;">在庫残月数プロジェクション</h3>
-      <div style="font-size:11px;color:#6b7280;margin-bottom:8px;display:flex;gap:16px;">
+      <h3 style="font-size:14px;margin:0 0 12px 0;">在庫 vs 年間出荷</h3>
+      <div style="font-size:11px;color:#6b7280;margin-bottom:8px;display:flex;gap:16px;flex-wrap:wrap;">
         <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ef4444;"></span> &lt;2ヶ月 要醸造</span>
         <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#eab308;"></span> 2-4ヶ月 注意</span>
-        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#22c55e;"></span> &gt;4ヶ月 余裕あり</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#22c55e;"></span> &gt;4ヶ月 余裕</span>
+        <span style="color:#9ca3af;">| 安全在庫=2ヶ月分</span>
       </div>
       ${bars}
     </div>
