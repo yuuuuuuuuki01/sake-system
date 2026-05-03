@@ -1,4 +1,4 @@
-import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry } from "../api";
+import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry, BrewingCustomCategory } from "../api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -390,7 +390,7 @@ function buildStockProjection(data: BrewingPlanRow[]): string {
 function buildProductDetail(
   products: BrewingProductDetail[],
   excluded: Set<string>,
-  customCategories: string[],
+  customCategories: BrewingCustomCategory[],
   overrides: Record<string, string>,
   typeLinks: Record<string, string[]> = {},
   availableTypes: string[] = []
@@ -398,7 +398,8 @@ function buildProductDetail(
   if (products.length === 0) return "";
 
   // All possible categories (standard + custom)
-  const allCategories = [...CATEGORY_ORDER, ...customCategories];
+  const customNames = customCategories.map(c => c.name);
+  const allCategories = [...CATEGORY_ORDER, ...customNames];
 
   // Group by brew category
   const grouped = new Map<string, BrewingProductDetail[]>();
@@ -407,7 +408,7 @@ function buildProductDetail(
     grouped.get(p.brewCategory)!.push(p);
   }
   // Ensure custom categories appear even if empty
-  for (const cc of customCategories) {
+  for (const cc of customNames) {
     if (!grouped.has(cc)) grouped.set(cc, []);
   }
 
@@ -422,7 +423,8 @@ function buildProductDetail(
     .map(cat => {
       const items = grouped.get(cat)!;
       const color = CATEGORY_COLORS[cat] ?? "#6366f1";
-      const isCustom = customCategories.includes(cat);
+      const customCat = customCategories.find(c => c.name === cat);
+      const isCustom = !!customCat;
 
       const included = items.filter(p => !excluded.has(p.productCode));
       const totalMl = included.reduce((s, p) => s + p.annualMl, 0);
@@ -454,9 +456,20 @@ function buildProductDetail(
 
       // カスタム区分の製成種別タグ
       const linkedTypes = typeLinks[cat] ?? [];
-      // 紐づけ可能な製成種別（既に他で使われていないもの）
+      const parentCat = customCat?.parentCategory ?? "";
+      // 紐づけ可能: 同じ親区分に属する製成種別のみ（既に他で使われていないもの）
       const allLinked = Object.values(typeLinks).flat();
-      const unlinkedTypes = availableTypes.filter(t =>
+      // 親区分の商品から製成種別を取得（productDetailから逆引き）
+      const parentTypes = parentCat
+        ? [...new Set(products.filter(p => {
+            // オーバーライドされていない & 親区分に属する商品
+            const origCat = !(p.productCode in overrides) ? p.brewCategory : null;
+            return origCat === parentCat;
+          }).map(p => p.subCategory))]
+        : [];
+      // 既にリンク済みのタイプも親に含める
+      const parentAndLinkedTypes = [...new Set([...parentTypes, ...linkedTypes])];
+      const unlinkedTypes = parentAndLinkedTypes.filter(t =>
         !allLinked.includes(t) && !["値引","運賃","容器","P箱/木箱","酒粕","原料用ｱﾙｺｰﾙ","107","109"].includes(t)
       );
 
@@ -483,7 +496,7 @@ function buildProductDetail(
         <div style="margin-bottom:20px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
             <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${color};"></span>
-            <h4 style="margin:0;font-size:14px;">${cat}</h4>
+            <h4 style="margin:0;font-size:14px;">${cat}${isCustom && parentCat ? `<span style="font-size:11px;font-weight:400;color:var(--text-secondary);margin-left:4px;">(${parentCat}系)</span>` : ""}</h4>
             ${isCustom ? `<button data-action="brew-delete-category" data-cat="${cat}"
               style="font-size:10px;padding:2px 8px;border:1px solid #ef4444;color:#ef4444;border-radius:4px;background:none;cursor:pointer;"
               title="この区分を削除">削除</button>` : ""}
@@ -530,9 +543,13 @@ function buildProductDetail(
           <h3 style="font-size:14px;margin:0;">製成種別 × 銘柄明細</h3>
           <p style="font-size:11px;color:var(--text-secondary);margin:4px 0 0;">チェックで除外、ドロップダウンで別区分に移動できます</p>
         </div>
-        <div style="display:flex;align-items:center;gap:6px;">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <select id="brew-new-category-parent" style="font-size:12px;padding:4px;border:1px solid var(--border);border-radius:4px;">
+            <option value="">親区分</option>
+            ${CATEGORY_ORDER.filter(c => c !== "その他").map(c => `<option value="${c}">${c}</option>`).join("")}
+          </select>
           <input id="brew-new-category-name" type="text" placeholder="新しい区分名"
-            style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;width:140px;" />
+            style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;width:120px;" />
           <button data-action="brew-add-category" class="button primary"
             style="font-size:12px;padding:4px 12px;">追加</button>
         </div>
@@ -550,7 +567,7 @@ export function renderBrewingPlan(
   fy: number,
   productDetail: BrewingProductDetail[] = [],
   excludedProducts: Set<string> = new Set(),
-  customCategories: string[] = [],
+  customCategories: BrewingCustomCategory[] = [] as BrewingCustomCategory[],
   overrides: Record<string, string> = {},
   stockEntries: BrewingStockEntry[] = [],
   typeLinks: Record<string, string[]> = {},
