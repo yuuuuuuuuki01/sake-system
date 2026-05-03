@@ -1,4 +1,4 @@
-import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry, BrewingCustomCategory, BrewingAlcoholSetting, BrewingYearlyShipment } from "../api";
+import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry, BrewingCustomCategory, BrewingAlcoholSetting, BrewingYearlyShipment, BrewingSeasonalPattern } from "../api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -408,42 +408,54 @@ function buildForecastSection(
   yearlyShipments: BrewingYearlyShipment[],
   stockEntries: BrewingStockEntry[],
   alcoholSettings: Record<string, BrewingAlcoholSetting>,
-  customCategories: BrewingCustomCategory[]
+  customCategories: BrewingCustomCategory[],
+  seasonalPattern: BrewingSeasonalPattern[]
 ): string {
   if (yearlyShipments.length === 0) return "";
 
-  // 区分ごとに年度別データを集計
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1; // 1-12
+  const currentFYStart = currentMonth >= 10 ? now.getFullYear() : now.getFullYear() - 1;
+  const forecastFY = currentFYStart + 1; // 来年度
+
+  // 区分ごとに年度別データ
   const catData = new Map<string, Map<number, { shipL: number; annualL: number }>>();
   for (const s of yearlyShipments) {
     if (!catData.has(s.brewCategory)) catData.set(s.brewCategory, new Map());
     catData.get(s.brewCategory)!.set(s.fy, { shipL: s.shipmentL, annualL: s.annualizedL });
   }
 
-  const allFYs = [...new Set(yearlyShipments.map(s => s.fy))].sort();
-  const currentFY = allFYs[allFYs.length - 1];
-  const forecastFY = currentFY + 1;
+  // 季節パターン: 区分×月 → 平均出荷L
+  const seasonMap = new Map<string, Map<number, number>>();
+  for (const sp of seasonalPattern) {
+    if (!seasonMap.has(sp.brewCategory)) seasonMap.set(sp.brewCategory, new Map());
+    seasonMap.get(sp.brewCategory)!.set(sp.monthNum, sp.avgMonthlyL);
+  }
 
-  // 全区分のリスト（標準 + カスタム）
+  const allFYs = [...new Set(yearlyShipments.map(s => s.fy))].sort();
   const allCats = [...catData.keys()].sort((a, b) => {
     const order = [...CATEGORY_ORDER, ...customCategories.map(c => c.name)];
     return (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b));
   });
 
+  // 残り月（今月〜9月）
+  const remainingMonths: number[] = [];
+  for (let m = currentMonth; m <= 9; m++) remainingMonths.push(m);
+  // 今月が10月以降なら来年の1-9月も含む（ただし通常は10月以降はforecast年度の話）
+  if (currentMonth >= 10) {
+    for (let m = 1; m <= 9; m++) remainingMonths.push(m);
+  }
+
   const rows = allCats.map(cat => {
     const data = catData.get(cat)!;
     const fys = allFYs.filter(fy => data.has(fy));
     const color = CATEGORY_COLORS[cat] ?? "#6366f1";
+    const seasonal = seasonMap.get(cat) ?? new Map();
 
-    // 年換算値で増減率を計算（直近2年間のCAGR）
+    // 平均増減率
     const vals = fys.map(fy => data.get(fy)!.annualL);
     let growthRate = 0;
     if (vals.length >= 2) {
-      const recent = vals[vals.length - 1];
-      const prev = vals[vals.length - 2];
-      growthRate = prev > 0 ? (recent - prev) / prev : 0;
-    }
-    if (vals.length >= 3) {
-      // 3年平均増減率
       const rates: number[] = [];
       for (let i = 1; i < vals.length; i++) {
         if (vals[i - 1] > 0) rates.push((vals[i] - vals[i - 1]) / vals[i - 1]);
@@ -451,80 +463,98 @@ function buildForecastSection(
       growthRate = rates.length > 0 ? rates.reduce((s, r) => s + r, 0) / rates.length : 0;
     }
 
+    // 今月〜9月の残り出荷量（季節パターンベース）
+    const remainingShipL = remainingMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
+
+    // 現在庫（加水後）
+    const stockL = stockEntries.filter(e => e.brewCategory === cat).reduce((s, e) => s + e.volumeL, 0);
+    const alc = alcoholSettings[cat];
+    const dilution = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
+    const effectiveStockNow = Math.round(stockL * dilution);
+
+    // 10月時点の予想在庫
+    const projectedStockOct = Math.max(0, effectiveStockNow - Math.round(remainingShipL));
+
+    // 翌年度の出荷予測
     const latestAnnual = vals[vals.length - 1] ?? 0;
     const forecastL = Math.round(latestAnnual * (1 + growthRate));
 
-    // 現在庫（タンク合計）
-    const stockL = stockEntries.filter(e => e.brewCategory === cat).reduce((s, e) => s + e.volumeL, 0);
-    // 加水後
-    const alc = alcoholSettings[cat];
-    const dilution = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
-    const effectiveStockL = Math.round(stockL * dilution);
-    // 必要醸造量
-    const needL = Math.max(0, forecastL - effectiveStockL);
+    // 必要醸造量 = 翌年度出荷予測 - 10月時点予想在庫
+    const needL = Math.max(0, forecastL - projectedStockOct);
 
     const growthPct = Math.round(growthRate * 100);
     const growthColor = growthPct > 0 ? "#22c55e" : growthPct < 0 ? "#ef4444" : "#6b7280";
 
     return `
       <tr>
-        <td style="color:${color};font-weight:600;">${cat}</td>
-        ${fys.map(fy => `<td style="text-align:right;">${fmtNum(Math.round(data.get(fy)!.annualL))}</td>`).join("")}
-        <td style="text-align:right;color:${growthColor};font-weight:600;">${growthPct >= 0 ? "+" : ""}${growthPct}%</td>
-        <td style="text-align:right;font-weight:700;">${fmtNum(forecastL)}</td>
-        <td style="text-align:right;">${fmtNum(effectiveStockL)}</td>
-        <td style="text-align:right;color:${needL > 0 ? "#ef4444" : "#22c55e"};font-weight:700;">${needL > 0 ? fmtNum(needL) : "—"}</td>
+        <td style="color:${color};font-weight:600;white-space:nowrap;">${cat}</td>
+        <td style="text-align:right;">${fmtNum(effectiveStockNow)}</td>
+        <td style="text-align:right;color:var(--text-secondary);">-${fmtNum(Math.round(remainingShipL))}</td>
+        <td style="text-align:right;font-weight:600;">${fmtNum(projectedStockOct)}</td>
+        <td style="text-align:right;color:${growthColor};">${growthPct >= 0 ? "+" : ""}${growthPct}%</td>
+        <td style="text-align:right;">${fmtNum(forecastL)}</td>
+        <td style="text-align:right;color:${needL > 0 ? "#ef4444" : "#22c55e"};font-weight:700;">${needL > 0 ? fmtNum(needL) : "余裕"}</td>
       </tr>
     `;
   }).join("");
 
-  // 合計行
-  const totalsByFY = allFYs.map(fy =>
-    allCats.reduce((s, cat) => s + (catData.get(cat)?.get(fy)?.annualL ?? 0), 0)
-  );
-  const totalForecast = allCats.reduce((s, cat) => {
+  // 合計
+  let totalStockNow = 0, totalRemaining = 0, totalProjectedOct = 0, totalForecast = 0, totalNeed = 0;
+  for (const cat of allCats) {
     const data = catData.get(cat)!;
-    const vals = allFYs.filter(fy => data.has(fy)).map(fy => data.get(fy)!.annualL);
+    const fys = allFYs.filter(fy => data.has(fy));
+    const vals = fys.map(fy => data.get(fy)!.annualL);
+    const seasonal = seasonMap.get(cat) ?? new Map();
     let gr = 0;
     if (vals.length >= 2) {
       const rates: number[] = [];
       for (let i = 1; i < vals.length; i++) { if (vals[i-1] > 0) rates.push((vals[i]-vals[i-1])/vals[i-1]); }
       gr = rates.length > 0 ? rates.reduce((a,b)=>a+b,0)/rates.length : 0;
     }
-    return s + Math.round((vals[vals.length-1] ?? 0) * (1 + gr));
-  }, 0);
-  const totalStock = allCats.reduce((s, cat) => {
     const stk = stockEntries.filter(e => e.brewCategory === cat).reduce((a, e) => a + e.volumeL, 0);
     const alc = alcoholSettings[cat];
     const dil = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
-    return s + Math.round(stk * dil);
-  }, 0);
-  const totalNeed = Math.max(0, totalForecast - totalStock);
+    const effNow = Math.round(stk * dil);
+    const rem = remainingMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
+    const projOct = Math.max(0, effNow - Math.round(rem));
+    const fc = Math.round((vals[vals.length-1] ?? 0) * (1 + gr));
+    totalStockNow += effNow;
+    totalRemaining += Math.round(rem);
+    totalProjectedOct += projOct;
+    totalForecast += fc;
+    totalNeed += Math.max(0, fc - projOct);
+  }
+
+  const monthLabel = currentMonth <= 9 ? `${currentMonth}月〜9月` : `${currentMonth}月〜翌9月`;
 
   return `
     <div class="card" style="margin-bottom:16px;">
-      <h3 style="font-size:14px;margin:0 0 4px 0;">${forecastFY}年度 醸造予測（${forecastFY}/10〜${forecastFY+1}/9）</h3>
-      <p style="font-size:11px;color:#6b7280;margin:0 0 12px;">直近${allFYs.length}年の年換算出荷量の平均増減率から予測。在庫は加水後ベース。</p>
+      <h3 style="font-size:14px;margin:0 0 4px 0;">${forecastFY}年度 必要醸造量（${forecastFY}/10〜${forecastFY+1}/9）</h3>
+      <p style="font-size:11px;color:#6b7280;margin:0 0 12px;">
+        現在庫 → ${monthLabel}の季節出荷を差引 → 10月時点予想在庫 → 翌年度予測出荷 → 必要醸造量
+      </p>
       <div class="table-wrap">
         <table class="data-table" style="font-size:12px;">
           <thead>
             <tr>
               <th>区分</th>
-              ${allFYs.map(fy => `<th style="text-align:right;">${fy}年度(L)</th>`).join("")}
-              <th style="text-align:right;">増減率</th>
-              <th style="text-align:right;">${forecastFY}予測(L)</th>
               <th style="text-align:right;">現在庫(L)</th>
-              <th style="text-align:right;">必要醸造(L)</th>
+              <th style="text-align:right;">${monthLabel}出荷</th>
+              <th style="text-align:right;">10月予想在庫</th>
+              <th style="text-align:right;">増減率</th>
+              <th style="text-align:right;">${forecastFY}年度予測</th>
+              <th style="text-align:right;">必要醸造量</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
           <tfoot>
             <tr style="font-weight:700;background:var(--surface-alt);">
               <td>合計</td>
-              ${totalsByFY.map(t => `<td style="text-align:right;">${fmtNum(Math.round(t))}</td>`).join("")}
+              <td style="text-align:right;">${fmtNum(totalStockNow)}</td>
+              <td style="text-align:right;color:var(--text-secondary);">-${fmtNum(totalRemaining)}</td>
+              <td style="text-align:right;">${fmtNum(totalProjectedOct)}</td>
               <td></td>
               <td style="text-align:right;">${fmtNum(totalForecast)}</td>
-              <td style="text-align:right;">${fmtNum(totalStock)}</td>
               <td style="text-align:right;color:#ef4444;">${fmtNum(totalNeed)}</td>
             </tr>
           </tfoot>
@@ -832,7 +862,8 @@ export function renderBrewingPlan(
   overrides: Record<string, string> = {},
   stockEntries: BrewingStockEntry[] = [],
   alcoholSettings: Record<string, BrewingAlcoholSetting> = {},
-  yearlyShipments: BrewingYearlyShipment[] = []
+  yearlyShipments: BrewingYearlyShipment[] = [],
+  seasonalPattern: BrewingSeasonalPattern[] = []
 ): string {
   const now = new Date();
   const currentFY = now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1;
@@ -869,7 +900,7 @@ export function renderBrewingPlan(
 
       ${buildSummaryCards(data, stockEntries, alcoholSettings, customCategories)}
 
-      ${buildForecastSection(yearlyShipments, stockEntries, alcoholSettings, customCategories)}
+      ${buildForecastSection(yearlyShipments, stockEntries, alcoholSettings, customCategories, seasonalPattern)}
 
       ${buildStockProjection(data)}
 

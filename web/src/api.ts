@@ -1509,6 +1509,22 @@ export async function fetchBrewingYearlyShipments(): Promise<BrewingYearlyShipme
   }));
 }
 
+export interface BrewingSeasonalPattern {
+  brewCategory: string;
+  monthNum: number;
+  avgMonthlyL: number;
+}
+
+export async function fetchBrewingSeasonalPattern(): Promise<BrewingSeasonalPattern[]> {
+  const result = await supabaseRpc<LooseRow[]>("get_brewing_seasonal_pattern", {});
+  if (!result) return [];
+  return result.map(r => ({
+    brewCategory: getString(r, ["brew_category"], ""),
+    monthNum: getNumber(r, ["month_num"], 0),
+    avgMonthlyL: getNumber(r, ["avg_monthly_l"], 0)
+  }));
+}
+
 // ─── 醸造在庫エントリ（複数タンク管理） ──────────────────────────────────────
 
 export interface BrewingStockEntry {
