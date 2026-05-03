@@ -6142,7 +6142,7 @@ function bindEvents(root: HTMLElement): void {
     btn.addEventListener("click", async () => {
       const id = btn.dataset.id ?? "";
       const cat = btn.dataset.cat ?? "";
-      const catId = cat.replace(/[^a-zA-Z0-9]/g, "_");
+      const catId = "bc-" + encodeURIComponent(cat).replace(/%/g, "-");
       const { deleteBrewingStockEntry, fetchBrewingPlanSummary, fetchAllBrewingStockEntries } = await import("./api");
       const ok = await deleteBrewingStockEntry(id);
       if (ok) {
@@ -6242,7 +6242,7 @@ function bindEvents(root: HTMLElement): void {
   root.querySelectorAll<HTMLTableRowElement>("[data-toggle-cat]").forEach((row) => {
     row.addEventListener("click", () => {
       const cat = row.dataset.toggleCat ?? "";
-      const className = `sub-row-${cat.replace(/[^a-zA-Z0-9]/g, "_")}`;
+      const className = `sub-row-${"bc-" + encodeURIComponent(cat).replace(/%/g, "-")}`;
       const subRows = root.querySelectorAll<HTMLTableRowElement>(`.${className}`);
       const icon = row.querySelector<HTMLSpanElement>(".toggle-icon");
       const isOpen = subRows[0]?.style.display !== "none";

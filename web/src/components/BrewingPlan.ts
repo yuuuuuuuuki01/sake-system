@@ -37,6 +37,12 @@ function stockLabel(months: number): string {
   return "余裕あり";
 }
 
+/** 日本語カテゴリ名をDOM IDに安全に変換 */
+function catToId(cat: string): string {
+  // encodeURIComponent で一意性を保証し、%をハイフンに置換
+  return "bc-" + encodeURIComponent(cat).replace(/%/g, "-");
+}
+
 // ─── Chart ────────────────────────────────────────────────────────────────────
 
 function buildMonthlyChart(trend: BrewingMonthlyTrend[]): string {
@@ -143,7 +149,7 @@ function buildSummaryCards(data: BrewingPlanRow[], stockEntries: BrewingStockEnt
     .map(cat => {
       const g = grouped.get(cat)!;
       const color = CATEGORY_COLORS[cat] ?? "#9ca3af";
-      const catId = cat.replace(/[^a-zA-Z0-9]/g, "_");
+      const catId = catToId(cat);
       const entries = entryMap.get(cat) ?? [];
 
       // 計算
@@ -301,7 +307,7 @@ function buildDetailTable(data: BrewingPlanRow[]): string {
     if (hasSubs) {
       for (const r of rows) {
         bodyRows.push(`
-          <tr class="sub-row-${cat.replace(/[^a-zA-Z0-9]/g, "_")}" style="display:none;font-size:12px;">
+          <tr class="sub-row-${catToId(cat)}" style="display:none;font-size:12px;">
             <td></td>
             <td style="padding-left:24px;">${r.subCategory}</td>
             <td style="text-align:right;">${r.productCount}</td>
