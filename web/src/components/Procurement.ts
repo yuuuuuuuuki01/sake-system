@@ -56,6 +56,8 @@ export function renderProcurement(
   let tKojiWhite = 0, tKakWhite = 0, tKojiBrown = 0, tKakBrown = 0, tKojiCost = 0, tKakCost = 0;
   // 月別集計
   const monthlyBrownKg: number[] = FY_MONTHS.map(() => 0);
+  // 品種別集計
+  const varietyMap = new Map<string, { brownKg: number; pricePerKg: number; cost: number; usage: Array<{ cat: string; type: string; kg: number }> }>();
 
   const sections = allCats.map(cat => {
     const needL = needByCategory[cat] ?? 0;
@@ -79,6 +81,20 @@ export function renderProcurement(
     tKojiWhite += kojiWhiteKg; tKakWhite += kakeWhiteKg;
     tKojiBrown += kojiBrownKg; tKakBrown += kakeBrownKg;
     tKojiCost += kojiCost; tKakCost += kakeCost;
+
+    // 品種別に蓄積
+    for (const [variety, kg, price, type] of [
+      [p.kojiVariety, kojiBrownKg, p.kojiPricePerKg, "麹米"] as const,
+      [p.kakeVariety, kakeBrownKg, p.kakePricePerKg, "掛米"] as const
+    ]) {
+      if (kg <= 0) continue;
+      if (!varietyMap.has(variety)) varietyMap.set(variety, { brownKg: 0, pricePerKg: price, cost: 0, usage: [] });
+      const v = varietyMap.get(variety)!;
+      v.brownKg += kg;
+      v.cost += Math.round(kg * price);
+      v.pricePerKg = Math.round((v.cost) / v.brownKg); // 加重平均単価
+      v.usage.push({ cat, type, kg });
+    }
 
     // 月別の醸造量配分（スケジュールがあればそれに従う、なければ均等配分）
     const monthlyL: number[] = FY_MONTHS.map(() => 0);
@@ -229,6 +245,52 @@ export function renderProcurement(
     </section>
 
     ${sections}
+
+    <section class="panel" style="margin-bottom:16px;">
+      <div class="panel-header"><h2>品種別 仕入リスト</h2><p class="panel-caption">どの品種の米をどれくらい仕入れるか</p></div>
+      <div class="table-wrap">
+        <table class="data-table" style="font-size:12px;">
+          <thead>
+            <tr>
+              <th>品種</th>
+              <th style="text-align:right;">玄米(kg)</th>
+              <th style="text-align:right;">俵数</th>
+              <th style="text-align:right;">平均単価</th>
+              <th style="text-align:right;">金額</th>
+              <th>用途内訳</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${[...varietyMap.entries()].sort((a, b) => b[1].brownKg - a[1].brownKg).map(([variety, v]) => {
+              const bales = (v.brownKg / 60).toFixed(1);
+              const breakdown = v.usage.map(u =>
+                `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${u.type === "麹米" ? "rgba(99,102,241,0.08)" : "rgba(183,121,31,0.08)"};margin-right:3px;">${u.cat}/${u.type} ${fmtNum(u.kg)}kg</span>`
+              ).join("");
+              return `
+                <tr>
+                  <td style="font-weight:600;">${variety}</td>
+                  <td style="text-align:right;font-weight:600;">${fmtNum(v.brownKg)}</td>
+                  <td style="text-align:right;">${bales}</td>
+                  <td style="text-align:right;">¥${fmtNum(v.pricePerKg)}/kg</td>
+                  <td style="text-align:right;font-weight:700;">¥${fmtNum(v.cost)}</td>
+                  <td style="max-width:300px;overflow-x:auto;">${breakdown}</td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+          <tfoot>
+            <tr style="font-weight:700;background:var(--surface-alt);">
+              <td>合計</td>
+              <td style="text-align:right;">${fmtNum(totalBrown)}</td>
+              <td style="text-align:right;">${Math.ceil(totalBrown / 60)}</td>
+              <td></td>
+              <td style="text-align:right;">¥${fmtNum(totalCost)}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
 
     <section class="panel">
       <div class="panel-header"><h2>集計</h2></div>
