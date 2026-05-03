@@ -1089,7 +1089,7 @@ export function renderBrewingPlan(
       ${(() => {
         // 予測セ���ション + 調達計画を連続描画（必要醸造量を共有）
         const forecastResult = buildForecastWithNeed(yearlyShipments, stockEntries, alcoholSettings, customCategories, seasonalPattern, forecastOverrides);
-        return forecastResult.html + buildRiceProcurement(forecastResult.needByCategory, riceParams, customCategories);
+        return forecastResult.html;
       })()}
 
       ${buildStockProjection(data)}

@@ -188,6 +188,7 @@ import { renderRawBrowser, type RawTableInfo, type RawRecord } from "./component
 import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromSchedule, renderDeliveryCalendarWidget, defaultDemandForecastState, type DemandForecastState, type DeliveryCalendarEntry, type ProductionSegment } from "./components/DemandForecast";
 import { renderDemandPlanning, buildDefaultShifts, optimizeShifts, DEFAULT_PART_CAPACITY, DEFAULT_EMP_CAPACITY, type DemandTab, type DemandSortState, type DayShift, type CalendarCapacity } from "./components/DemandPlanning";
 import { renderBrewingPlan } from "./components/BrewingPlan";
+import { renderProcurement } from "./components/Procurement";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { CHURN_REASONS } from "./api";
 const CHURN_REASONS_MAP: Record<string, string> = Object.fromEntries(CHURN_REASONS.map((r) => [r.value, r.label]));
@@ -260,7 +261,8 @@ type RoutePath =
   | "/visit-planner"
   | "/demand"
   | "/shipment-calendar"
-  | "/brewing-plan";
+  | "/brewing-plan"
+  | "/procurement";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
 
@@ -333,7 +335,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/visit-planner",
   "/demand",
   "/shipment-calendar",
-  "/brewing-plan"
+  "/brewing-plan",
+  "/procurement"
 ];
 
 let EMAIL_RECIPIENTS: EmailRecipientRecord[] = [];
@@ -401,7 +404,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/visit-planner", title: "訪問計画・ルート最適化" },
   { path: "/demand", title: "需要分析・安全在庫・生産計画" },
   { path: "/shipment-calendar", title: "出荷カレンダー" },
-  { path: "/brewing-plan", title: "醸造計画" }
+  { path: "/brewing-plan", title: "醸造計画" },
+  { path: "/procurement", title: "調達計画" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -702,6 +706,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/tax":
     case "/demand":
     case "/brewing-plan":
+    case "/procurement":
       return "brewery";
     case "/master":
     case "/calendar":
@@ -1586,6 +1591,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         }
         break;
       }
+      case "/procurement":
       case "/brewing-plan": {
         const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments, fetchBrewingSeasonalPattern, fetchBrewingForecastOverrides, fetchBrewingRiceParams } = await import("./api");
         const fy = state.brewingPlanFY;
@@ -1918,6 +1924,51 @@ function renderView(): string {
       );
     case "/brewing-plan":
       return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries, state.brewingAlcoholSettings, state.brewingYearlyShipments, state.brewingSeasonalPattern, state.brewingForecastOverrides, state.brewingRiceParams);
+    case "/procurement": {
+      // 必要醸造量を計算（forecastと同じロジック）
+      const needByCategory: Record<string, number> = {};
+      if (state.brewingYearlyShipments.length > 0) {
+        const now = new Date();
+        const curMonth = now.getMonth() + 1;
+        const curFYStart = curMonth >= 10 ? now.getFullYear() : now.getFullYear() - 1;
+        const completedFYs = [...new Set(state.brewingYearlyShipments.map(s => s.fy))].filter(fy => fy < curFYStart).sort();
+        const seasonMap = new Map<string, Map<number, number>>();
+        for (const sp of state.brewingSeasonalPattern) {
+          if (!seasonMap.has(sp.brewCategory)) seasonMap.set(sp.brewCategory, new Map());
+          seasonMap.get(sp.brewCategory)!.set(sp.monthNum, sp.avgMonthlyL);
+        }
+        const remainMonths: number[] = [];
+        for (let m = curMonth; m <= 9; m++) remainMonths.push(m);
+        if (curMonth >= 10) for (let m = 1; m <= 9; m++) remainMonths.push(m);
+
+        const catData = new Map<string, Map<number, { shipL: number; annualL: number }>>();
+        for (const s of state.brewingYearlyShipments) {
+          if (!catData.has(s.brewCategory)) catData.set(s.brewCategory, new Map());
+          catData.get(s.brewCategory)!.set(s.fy, { shipL: s.shipmentL, annualL: s.annualizedL });
+        }
+        for (const [cat, data] of catData) {
+          const cVals = completedFYs.filter(fy => data.has(fy)).map(fy => data.get(fy)!.shipL);
+          let gr = 0;
+          if (cVals.length >= 2) {
+            const rates: number[] = [];
+            for (let i = 1; i < cVals.length; i++) { if (cVals[i-1] > 0) rates.push((cVals[i]-cVals[i-1])/cVals[i-1]); }
+            gr = rates.length > 0 ? rates.reduce((a,b)=>a+b,0)/rates.length : 0;
+          }
+          const effGr = (cat in state.brewingForecastOverrides) ? state.brewingForecastOverrides[cat] : gr;
+          const base = cVals.length > 0 ? cVals[cVals.length-1] : (data.get(curFYStart)?.annualL ?? 0);
+          const seasonal = seasonMap.get(cat) ?? new Map();
+          const rem = remainMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
+          const stk = state.brewingStockEntries.filter(e => e.brewCategory === cat).reduce((a, e) => a + e.volumeL, 0);
+          const alc = state.brewingAlcoholSettings[cat];
+          const dil = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
+          const effStock = Math.round(stk * dil);
+          const projOct = Math.max(0, effStock - Math.round(rem));
+          const fc = Math.round(base * (1 + effGr));
+          needByCategory[cat] = Math.max(0, fc - projOct);
+        }
+      }
+      return renderProcurement(needByCategory, state.brewingRiceParams, state.brewingCustomCategories);
+    }
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -2217,6 +2268,7 @@ function renderHome(): string {
         card("/tax", "📋", "酒税申告", "酒税申告書の作成"),
         card("/demand", "📆", "需要・生産計画", "需要予測・生産計画"),
         card("/brewing-plan", "🗓️", "醸造計画", "年間醸造スケジュール"),
+        card("/procurement", "🌾", "調達計画", "原料米の調達・予算"),
       ].join(""),
     },
     {
@@ -2299,6 +2351,7 @@ function renderShell(): string {
     "/tax": "酒税申告",
     "/demand": "需要・生産計画",
     "/brewing-plan": "醸造計画",
+    "/procurement": "調達計画",
     "/master": "マスタ管理",
     "/calendar": "カレンダー",
     "/store": "店舗・直売所",
