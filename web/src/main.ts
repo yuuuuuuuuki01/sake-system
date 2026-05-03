@@ -631,6 +631,8 @@ interface AppState {
   brewingCustomCategories: string[];
   brewingOverrides: Record<string, string>;
   brewingStockEntries: import("./api").BrewingStockEntry[];
+  brewingTypeLinks: Record<string, string[]>;
+  brewingAvailableTypes: string[];
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -950,6 +952,8 @@ const state: AppState = {
   brewingCustomCategories: [] as string[],
   brewingOverrides: {} as Record<string, string>,
   brewingStockEntries: [] as import("./api").BrewingStockEntry[],
+  brewingTypeLinks: {} as Record<string, string[]>,
+  brewingAvailableTypes: [] as string[],
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1573,18 +1577,20 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-plan": {
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule, products, customCats, overrides, stockEntries] = await Promise.all([
+        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd),
           fetchBrewingMonthlyTrend(fyStart, fyEnd),
           fetchBrewingSchedule(fy),
           fetchBrewingProductDetail(fyStart, fyEnd),
           fetchBrewingCustomCategories(),
           fetchBrewingCategoryOverrides(),
-          fetchAllBrewingStockEntries()
+          fetchAllBrewingStockEntries(),
+          fetchCategoryTypeLinks(),
+          fetchAvailableProductionTypes()
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
@@ -1593,6 +1599,8 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.brewingCustomCategories = customCats;
         state.brewingOverrides = overrides;
         state.brewingStockEntries = stockEntries;
+        state.brewingTypeLinks = typeLinks;
+        state.brewingAvailableTypes = availTypes;
         break;
       }
       case "/jikomi":
@@ -1889,7 +1897,7 @@ function renderView(): string {
         state.calendarCapacity
       );
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries, state.brewingTypeLinks, state.brewingAvailableTypes);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -3000,8 +3008,10 @@ function bindEvents(root: HTMLElement): void {
     const el = root.querySelector<HTMLInputElement>("#q-prospect-search");
     if (!el) return;
 
+    const openOutsideClose = attachOutsideClose(el, "q-prospect-results");
+
     function buildProspectResults(query: string) {
-      const resultsDiv = root.querySelector<HTMLElement>("#q-prospect-results");
+      let resultsDiv = document.getElementById("q-prospect-results") as HTMLElement | null;
       if (!resultsDiv) return;
       const q = query.trim();
       const list = q.length === 0
@@ -3012,10 +3022,8 @@ function bindEvents(root: HTMLElement): void {
           ).slice(0, 8);
       if (list.length === 0) {
         resultsDiv.innerHTML = "";
-        resultsDiv.style.display = "none";
         return;
       }
-      resultsDiv.style.display = "block";
       resultsDiv.className = "search-results";
       resultsDiv.innerHTML = list.map(p =>
         `<button class="search-item" type="button" data-select-prospect="${p.id}" ` +
@@ -3033,26 +3041,21 @@ function bindEvents(root: HTMLElement): void {
           state.quoteState.prospectId = btn.dataset.selectProspect ?? "";
           state.quotePricing = null;
           el.value = "";
-          resultsDiv.innerHTML = "";
-          resultsDiv.style.display = "none";
+          if (resultsDiv) resultsDiv.innerHTML = "";
           renderApp();
         });
       });
     }
 
-    el.addEventListener("focus", () => buildProspectResults(el.value));
+    el.addEventListener("focus", () => {
+      buildProspectResults(el.value);
+      openOutsideClose();
+    });
     el.addEventListener("input", (e) => {
       if ((e as InputEvent).isComposing) return;
       buildProspectResults(el.value);
     });
     el.addEventListener("compositionend", () => buildProspectResults(el.value));
-
-    document.addEventListener("click", (e) => {
-      if (!el.contains(e.target as Node) && !root.querySelector("#q-prospect-results")?.contains(e.target as Node)) {
-        const rd = root.querySelector<HTMLElement>("#q-prospect-results");
-        if (rd) { rd.innerHTML = ""; rd.style.display = "none"; }
-      }
-    }, { once: false, capture: true });
   })();
 
   // 見込み顧客から新規登録モーダル
@@ -3060,29 +3063,29 @@ function bindEvents(root: HTMLElement): void {
     const prefilledName = root.querySelector<HTMLInputElement>("#q-prospect-search")?.value.trim() ?? "";
     const overlay = document.createElement("div");
     overlay.className = "modal-backdrop";
-    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;";
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;z-index:9999;overflow-y:auto;padding:16px 0;";
     overlay.innerHTML = `
-      <div class="modal-panel" onclick="event.stopPropagation()" style="width:min(480px,96%);background:var(--surface);border-radius:12px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+      <div class="modal-panel" onclick="event.stopPropagation()" style="width:min(480px,96%);background:var(--surface);border-radius:12px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.3);margin:auto;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
           <h3 style="margin:0;font-size:16px;">新規見込み顧客を登録</h3>
-          <button id="prospect-quick-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-secondary);">×</button>
+          <button id="prospect-quick-close" style="background:none;border:none;font-size:24px;line-height:1;cursor:pointer;color:var(--text-secondary);padding:4px 8px;min-width:44px;min-height:44px;">×</button>
         </div>
         <div style="display:flex;flex-direction:column;gap:12px;">
           <label class="field">
             <span style="font-size:13px;font-weight:600;">会社名 <span style="color:var(--danger);">*</span></span>
-            <input id="pq-company" type="text" value="${prefilledName.replace(/"/g,'&quot;')}" placeholder="株式会社〇〇" style="margin-top:4px;" />
+            <input id="pq-company" type="text" value="${prefilledName.replace(/"/g,'&quot;')}" placeholder="株式会社〇〇" style="margin-top:4px;" autocomplete="organization" />
           </label>
           <label class="field">
             <span style="font-size:13px;font-weight:600;">担当者名</span>
-            <input id="pq-contact" type="text" placeholder="山田 太郎" style="margin-top:4px;" />
+            <input id="pq-contact" type="text" placeholder="山田 太郎" style="margin-top:4px;" autocomplete="name" />
           </label>
           <label class="field">
             <span style="font-size:13px;font-weight:600;">住所</span>
-            <input id="pq-address" type="text" placeholder="神奈川県〇〇市…" style="margin-top:4px;" />
+            <input id="pq-address" type="text" placeholder="神奈川県〇〇市…" style="margin-top:4px;" autocomplete="street-address" />
           </label>
           <label class="field">
             <span style="font-size:13px;font-weight:600;">電話番号</span>
-            <input id="pq-phone" type="tel" placeholder="045-000-0000" style="margin-top:4px;" />
+            <input id="pq-phone" type="tel" placeholder="045-000-0000" style="margin-top:4px;" autocomplete="tel" />
           </label>
           <label class="field">
             <span style="font-size:13px;font-weight:600;">メモ</span>
@@ -3090,8 +3093,8 @@ function bindEvents(root: HTMLElement): void {
           </label>
         </div>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
-          <button id="prospect-quick-close2" class="button secondary">キャンセル</button>
-          <button id="prospect-quick-save" class="button primary">登録して見積に使用</button>
+          <button id="prospect-quick-close2" class="button secondary" style="min-height:44px;">キャンセル</button>
+          <button id="prospect-quick-save" class="button primary" style="min-height:44px;">登録して見積に使用</button>
         </div>
       </div>
     `;
@@ -6050,6 +6053,52 @@ function bindEvents(root: HTMLElement): void {
         state.brewingProductDetail = products;
         state.brewingOverrides = overrides;
       }
+      renderApp();
+    });
+  });
+
+  // 醸造計画: 製成種別をカスタム区分に紐づけ
+  root.querySelectorAll<HTMLSelectElement>("[data-action='brew-link-type']").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const cat = sel.dataset.cat ?? "";
+      const typeName = sel.value;
+      if (!cat || !typeName) return;
+      const { linkTypeToCategory, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides, fetchCategoryTypeLinks } = await import("./api");
+      await linkTypeToCategory(cat, typeName);
+      const fy = state.brewingPlanFY;
+      const [summary, products, overrides, typeLinks] = await Promise.all([
+        fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+        fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
+        fetchBrewingCategoryOverrides(),
+        fetchCategoryTypeLinks()
+      ]);
+      state.brewingPlanData = summary;
+      state.brewingProductDetail = products;
+      state.brewingOverrides = overrides;
+      state.brewingTypeLinks = typeLinks;
+      renderApp();
+    });
+  });
+
+  // 醸造計画: 製成種別の紐づけ解除
+  root.querySelectorAll<HTMLButtonElement>("[data-action='brew-unlink-type']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const cat = btn.dataset.cat ?? "";
+      const typeName = btn.dataset.type ?? "";
+      if (!cat || !typeName) return;
+      const { unlinkTypeFromCategory, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides, fetchCategoryTypeLinks } = await import("./api");
+      await unlinkTypeFromCategory(cat, typeName);
+      const fy = state.brewingPlanFY;
+      const [summary, products, overrides, typeLinks] = await Promise.all([
+        fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+        fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
+        fetchBrewingCategoryOverrides(),
+        fetchCategoryTypeLinks()
+      ]);
+      state.brewingPlanData = summary;
+      state.brewingProductDetail = products;
+      state.brewingOverrides = overrides;
+      state.brewingTypeLinks = typeLinks;
       renderApp();
     });
   });

@@ -391,7 +391,9 @@ function buildProductDetail(
   products: BrewingProductDetail[],
   excluded: Set<string>,
   customCategories: string[],
-  overrides: Record<string, string>
+  overrides: Record<string, string>,
+  typeLinks: Record<string, string[]> = {},
+  availableTypes: string[] = []
 ): string {
   if (products.length === 0) return "";
 
@@ -450,9 +452,36 @@ function buildProductDetail(
         `;
       }).join("");
 
+      // カスタム区分の製成種別タグ
+      const linkedTypes = typeLinks[cat] ?? [];
+      // 紐づけ可能な製成種別（既に他で使われていないもの）
+      const allLinked = Object.values(typeLinks).flat();
+      const unlinkedTypes = availableTypes.filter(t =>
+        !allLinked.includes(t) && !["値引","運賃","容器","P箱/木箱","酒粕","原料用ｱﾙｺｰﾙ","107","109"].includes(t)
+      );
+
+      const typeTagsHtml = isCustom ? `
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;align-items:center;">
+          ${linkedTypes.map(t => `
+            <span style="display:inline-flex;align-items:center;gap:2px;padding:2px 8px;background:rgba(99,102,241,0.1);border-radius:12px;font-size:11px;">
+              ${t}
+              <button data-action="brew-unlink-type" data-cat="${cat}" data-type="${t}"
+                style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:12px;padding:0 2px;line-height:1;">×</button>
+            </span>
+          `).join("")}
+          ${unlinkedTypes.length > 0 ? `
+            <select data-action="brew-link-type" data-cat="${cat}"
+              style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;color:var(--text-secondary);">
+              <option value="">+製成種別を追加</option>
+              ${unlinkedTypes.map(t => `<option value="${t}">${t}</option>`).join("")}
+            </select>
+          ` : ""}
+        </div>
+      ` : "";
+
       return `
         <div style="margin-bottom:20px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
             <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${color};"></span>
             <h4 style="margin:0;font-size:14px;">${cat}</h4>
             ${isCustom ? `<button data-action="brew-delete-category" data-cat="${cat}"
@@ -462,6 +491,7 @@ function buildProductDetail(
               ${included.length}銘柄 ・ 年間${fmtL(totalMl)}L ・ 月平均${fmtL(monthlyMl)}L
             </span>
           </div>
+          ${typeTagsHtml}
           ${items.length > 0 ? `
             <div class="table-wrap">
               <table class="data-table" style="font-size:12px;">
@@ -522,7 +552,9 @@ export function renderBrewingPlan(
   excludedProducts: Set<string> = new Set(),
   customCategories: string[] = [],
   overrides: Record<string, string> = {},
-  stockEntries: BrewingStockEntry[] = []
+  stockEntries: BrewingStockEntry[] = [],
+  typeLinks: Record<string, string[]> = {},
+  availableTypes: string[] = []
 ): string {
   const now = new Date();
   const currentFY = now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1;
@@ -561,7 +593,7 @@ export function renderBrewingPlan(
 
       ${buildStockProjection(data)}
 
-      ${buildProductDetail(productDetail, excludedProducts, customCategories, overrides)}
+      ${buildProductDetail(productDetail, excludedProducts, customCategories, overrides, typeLinks, availableTypes)}
 
       <div class="card">
         <h3 style="font-size:14px;margin:0 0 8px 0;">区分別出荷明細</h3>

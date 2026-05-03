@@ -1408,6 +1408,48 @@ export async function upsertBrewingStock(brewCategory: string, stockL: number, c
   return result !== null;
 }
 
+// ─── カスタム区分 × 製成種別 紐づけ ──────────────────────────────────────────
+
+export async function fetchCategoryTypeLinks(): Promise<Record<string, string[]>> {
+  const rows = await supabaseQuery<LooseRow>("brewing_custom_category_type_links", {
+    order: "category_name.asc,production_type_name.asc"
+  });
+  const map: Record<string, string[]> = {};
+  for (const r of rows ?? []) {
+    const cat = getString(r, ["category_name"], "");
+    const type = getString(r, ["production_type_name"], "");
+    if (!cat || !type) continue;
+    if (!map[cat]) map[cat] = [];
+    map[cat].push(type);
+  }
+  return map;
+}
+
+export async function linkTypeToCategory(category: string, typeName: string): Promise<boolean> {
+  const result = await supabaseRpc("link_type_to_custom_category", {
+    p_category: category, p_type_name: typeName
+  });
+  return result !== null;
+}
+
+export async function unlinkTypeFromCategory(category: string, typeName: string): Promise<boolean> {
+  const result = await supabaseRpc("unlink_type_from_custom_category", {
+    p_category: category, p_type_name: typeName
+  });
+  return result !== null;
+}
+
+// 利用可能な製成種別一覧（出荷実績があるもの）
+export async function fetchAvailableProductionTypes(): Promise<string[]> {
+  const rows = await supabaseQuery<LooseRow>("products", {
+    select: "production_type_name",
+    "production_type_name": "not.is.null",
+    order: "production_type_name.asc"
+  });
+  const unique = [...new Set((rows ?? []).map(r => getString(r, ["production_type_name"], "")).filter(Boolean))];
+  return unique.filter(t => !t.startsWith("セット品") && !t.startsWith("その他(酒以外"));
+}
+
 // ─── 醸造在庫エントリ（複数タンク管理） ──────────────────────────────────────
 
 export interface BrewingStockEntry {
