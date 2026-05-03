@@ -446,22 +446,32 @@ function buildForecastSection(
     for (let m = 1; m <= 9; m++) remainingMonths.push(m);
   }
 
+  // 完了年度（12ヶ月フルのデータがある年度）と当年度を分離
+  const completedFYs = allFYs.filter(fy => {
+    // 当年度 = currentFYStart。それ以前は完了年度
+    return fy < currentFYStart;
+  });
+  const currentFYData = allFYs.includes(currentFYStart);
+
   const rows = allCats.map(cat => {
     const data = catData.get(cat)!;
     const fys = allFYs.filter(fy => data.has(fy));
     const color = CATEGORY_COLORS[cat] ?? "#6366f1";
     const seasonal = seasonMap.get(cat) ?? new Map();
 
-    // 平均増減率
-    const vals = fys.map(fy => data.get(fy)!.annualL);
+    // 完了年度の実績値だけで増減率を計算
+    const completedVals = completedFYs.filter(fy => data.has(fy)).map(fy => data.get(fy)!.shipL);
     let growthRate = 0;
-    if (vals.length >= 2) {
+    if (completedVals.length >= 2) {
       const rates: number[] = [];
-      for (let i = 1; i < vals.length; i++) {
-        if (vals[i - 1] > 0) rates.push((vals[i] - vals[i - 1]) / vals[i - 1]);
+      for (let i = 1; i < completedVals.length; i++) {
+        if (completedVals[i - 1] > 0) rates.push((completedVals[i] - completedVals[i - 1]) / completedVals[i - 1]);
       }
       growthRate = rates.length > 0 ? rates.reduce((s, r) => s + r, 0) / rates.length : 0;
     }
+
+    // 予測のベース = 直近の完了年度の実績
+    const baseAnnual = completedVals.length > 0 ? completedVals[completedVals.length - 1] : (data.get(currentFYStart)?.annualL ?? 0);
 
     // 今月〜9月の残り出荷量（季節パターンベース）
     const remainingShipL = remainingMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
@@ -475,23 +485,27 @@ function buildForecastSection(
     // 10月時点の予想在庫
     const projectedStockOct = Math.max(0, effectiveStockNow - Math.round(remainingShipL));
 
-    // 翌年度の出荷予測
-    const latestAnnual = vals[vals.length - 1] ?? 0;
-    const forecastL = Math.round(latestAnnual * (1 + growthRate));
+    // 翌年度の出荷予測 = 直近完了年度 × (1 + 増減率)
+    const forecastL = Math.round(baseAnnual * (1 + growthRate));
 
-    // 必要醸造量 = 翌年度出荷予測 - 10月時点予想在庫
+    // 必要醸造量
     const needL = Math.max(0, forecastL - projectedStockOct);
 
     const growthPct = Math.round(growthRate * 100);
     const growthColor = growthPct > 0 ? "#22c55e" : growthPct < 0 ? "#ef4444" : "#6b7280";
 
+    // 当年度の年換算値（参考表示）
+    const currentFYAnnualized = data.get(currentFYStart)?.annualL ?? 0;
+
     return `
       <tr>
         <td style="color:${color};font-weight:600;white-space:nowrap;">${cat}</td>
+        ${completedFYs.map(fy => `<td style="text-align:right;">${data.has(fy) ? fmtNum(Math.round(data.get(fy)!.shipL)) : "—"}</td>`).join("")}
+        ${currentFYData ? `<td style="text-align:right;color:var(--text-secondary);" title="年換算">${fmtNum(Math.round(currentFYAnnualized))}*</td>` : ""}
+        <td style="text-align:right;color:${growthColor};font-weight:600;">${growthPct >= 0 ? "+" : ""}${growthPct}%</td>
         <td style="text-align:right;">${fmtNum(effectiveStockNow)}</td>
         <td style="text-align:right;color:var(--text-secondary);">-${fmtNum(Math.round(remainingShipL))}</td>
         <td style="text-align:right;font-weight:600;">${fmtNum(projectedStockOct)}</td>
-        <td style="text-align:right;color:${growthColor};">${growthPct >= 0 ? "+" : ""}${growthPct}%</td>
         <td style="text-align:right;">${fmtNum(forecastL)}</td>
         <td style="text-align:right;color:${needL > 0 ? "#ef4444" : "#22c55e"};font-weight:700;">${needL > 0 ? fmtNum(needL) : "余裕"}</td>
       </tr>
@@ -502,22 +516,22 @@ function buildForecastSection(
   let totalStockNow = 0, totalRemaining = 0, totalProjectedOct = 0, totalForecast = 0, totalNeed = 0;
   for (const cat of allCats) {
     const data = catData.get(cat)!;
-    const fys = allFYs.filter(fy => data.has(fy));
-    const vals = fys.map(fy => data.get(fy)!.annualL);
     const seasonal = seasonMap.get(cat) ?? new Map();
+    const cVals = completedFYs.filter(fy => data.has(fy)).map(fy => data.get(fy)!.shipL);
     let gr = 0;
-    if (vals.length >= 2) {
+    if (cVals.length >= 2) {
       const rates: number[] = [];
-      for (let i = 1; i < vals.length; i++) { if (vals[i-1] > 0) rates.push((vals[i]-vals[i-1])/vals[i-1]); }
+      for (let i = 1; i < cVals.length; i++) { if (cVals[i-1] > 0) rates.push((cVals[i]-cVals[i-1])/cVals[i-1]); }
       gr = rates.length > 0 ? rates.reduce((a,b)=>a+b,0)/rates.length : 0;
     }
+    const base = cVals.length > 0 ? cVals[cVals.length - 1] : (data.get(currentFYStart)?.annualL ?? 0);
     const stk = stockEntries.filter(e => e.brewCategory === cat).reduce((a, e) => a + e.volumeL, 0);
     const alc = alcoholSettings[cat];
     const dil = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
     const effNow = Math.round(stk * dil);
     const rem = remainingMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
     const projOct = Math.max(0, effNow - Math.round(rem));
-    const fc = Math.round((vals[vals.length-1] ?? 0) * (1 + gr));
+    const fc = Math.round(base * (1 + gr));
     totalStockNow += effNow;
     totalRemaining += Math.round(rem);
     totalProjectedOct += projOct;
@@ -531,29 +545,33 @@ function buildForecastSection(
     <div class="card" style="margin-bottom:16px;">
       <h3 style="font-size:14px;margin:0 0 4px 0;">${forecastFY}年度 必要醸造量（${forecastFY}/10〜${forecastFY+1}/9）</h3>
       <p style="font-size:11px;color:#6b7280;margin:0 0 12px;">
-        現在庫 → ${monthLabel}の季節出荷を差引 → 10月時点予想在庫 → 翌年度予測出荷 → 必要醸造量
+        増減率は完了年度（12ヶ月分）のみで算出。当年度(*)は年換算参考値。
       </p>
       <div class="table-wrap">
         <table class="data-table" style="font-size:12px;">
           <thead>
             <tr>
               <th>区分</th>
-              <th style="text-align:right;">現在庫(L)</th>
-              <th style="text-align:right;">${monthLabel}出荷</th>
-              <th style="text-align:right;">10月予想在庫</th>
+              ${completedFYs.map(fy => `<th style="text-align:right;">${fy}(L)</th>`).join("")}
+              ${currentFYData ? `<th style="text-align:right;">${currentFYStart}*</th>` : ""}
               <th style="text-align:right;">増減率</th>
-              <th style="text-align:right;">${forecastFY}年度予測</th>
-              <th style="text-align:right;">必要醸造量</th>
+              <th style="text-align:right;">現在庫</th>
+              <th style="text-align:right;">${monthLabel}</th>
+              <th style="text-align:right;">10月予想</th>
+              <th style="text-align:right;">${forecastFY}予測</th>
+              <th style="text-align:right;">必要醸造</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
           <tfoot>
             <tr style="font-weight:700;background:var(--surface-alt);">
               <td>合計</td>
+              ${completedFYs.map(() => `<td></td>`).join("")}
+              ${currentFYData ? `<td></td>` : ""}
+              <td></td>
               <td style="text-align:right;">${fmtNum(totalStockNow)}</td>
               <td style="text-align:right;color:var(--text-secondary);">-${fmtNum(totalRemaining)}</td>
               <td style="text-align:right;">${fmtNum(totalProjectedOct)}</td>
-              <td></td>
               <td style="text-align:right;">${fmtNum(totalForecast)}</td>
               <td style="text-align:right;color:#ef4444;">${fmtNum(totalNeed)}</td>
             </tr>
