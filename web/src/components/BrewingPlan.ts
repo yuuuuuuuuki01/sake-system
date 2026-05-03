@@ -518,25 +518,35 @@ function buildProductDetail(
 
       const allMl = items.reduce((s, p) => s + p.annualMl, 0);
       const allMonthlyMl = items.reduce((s, p) => s + p.monthlyAvgMl, 0);
+      // 子に確定済みでない商品（未振分含む）
       const visibleItems = items.filter(p => !confirmedInChild.has(p.productCode));
-      const visibleMl = visibleItems.reduce((s, p) => s + p.annualMl, 0);
-      const visibleMonthlyMl = visibleItems.reduce((s, p) => s + p.monthlyAvgMl, 0);
+      // 未振分でもない = 純粋に親に残っている商品
+      const activeItems = visibleItems.filter(p => !excluded.has(p.productCode));
+      const activeMl = activeItems.reduce((s, p) => s + p.annualMl, 0);
+      const activeMonthlyMl = activeItems.reduce((s, p) => s + p.monthlyAvgMl, 0);
+      // 未振分商品
+      const unassignedItems = visibleItems.filter(p => excluded.has(p.productCode));
 
       // 親の商品行（子がある場合はチェックボックス付き）
-      const parentRows = visibleItems.map(p => `
-        <tr>
-          <td style="width:32px;text-align:center;">
-            ${hasChildren
-              ? `<input type="checkbox" checked data-action="brew-move-to-child" data-code="${p.productCode}" data-parent="${cat}"
-                  style="cursor:pointer;" title="チェックを外すと子区分へ" />`
-              : ""}
-          </td>
-          <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}">${p.productName}</td>
-          <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
-          <td style="text-align:right;">${fmtL(p.annualMl)}</td>
-          <td style="text-align:right;">${fmtL(p.monthlyAvgMl)}</td>
-        </tr>
-      `).join("");
+      const parentRows = visibleItems.map(p => {
+        const isUnassigned = excluded.has(p.productCode);
+        return `
+          <tr style="${isUnassigned ? "opacity:0.5;background:rgba(183,121,31,0.06);" : ""}">
+            <td style="width:32px;text-align:center;">
+              ${hasChildren
+                ? `<input type="checkbox" ${isUnassigned ? "" : "checked"} data-action="brew-move-to-child" data-code="${p.productCode}" data-parent="${cat}"
+                    style="cursor:pointer;" />`
+                : ""}
+            </td>
+            <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;${isUnassigned ? "color:#b7791f;" : ""}" title="${p.productName}">
+              ${p.productName}${isUnassigned ? ` <span style="font-size:9px;padding:1px 4px;border-radius:3px;background:#b7791f20;color:#b7791f;">未振分</span>` : ""}
+            </td>
+            <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
+            <td style="text-align:right;">${fmtL(p.annualMl)}</td>
+            <td style="text-align:right;">${fmtL(p.monthlyAvgMl)}</td>
+          </tr>
+        `;
+      }).join("");
 
       // 子区分インラインセクション
       const childSections = children.map(cc => {
@@ -547,6 +557,7 @@ function buildProductDetail(
         const childStockL = childEntries.reduce((s, e) => s + e.volumeL, 0);
         const ccId = catToId(cc.name);
 
+        // 確定済み行
         const childRows = childItems.map(p => `
           <tr style="background:rgba(99,102,241,0.04);">
             <td style="width:32px;text-align:center;">
@@ -559,6 +570,22 @@ function buildProductDetail(
             <td style="text-align:right;">${fmtL(p.monthlyAvgMl)}</td>
           </tr>
         `).join("");
+
+        // 未振分の候補行（親でチェック外されたがまだどの子にも入っていない商品）
+        const candidateRows = unassignedItems
+          .filter(p => !childItems.some(ci => ci.productCode === p.productCode))
+          .map(p => `
+            <tr style="opacity:0.4;">
+              <td style="width:32px;text-align:center;">
+                <input type="checkbox" data-action="brew-confirm-to-child" data-code="${p.productCode}" data-cat="${cc.name}"
+                  style="cursor:pointer;" />
+              </td>
+              <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}">${p.productName}</td>
+              <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
+              <td style="text-align:right;color:var(--text-secondary);">${fmtL(p.annualMl)}</td>
+              <td style="text-align:right;color:var(--text-secondary);">${fmtL(p.monthlyAvgMl)}</td>
+            </tr>
+          `).join("");
 
         return `
           <tr><td colspan="5" style="padding:0;">
@@ -589,14 +616,17 @@ function buildProductDetail(
                 </div>
                 <button class="btn-cancel-stock" data-cat-id="${ccId}" style="font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:none;cursor:pointer;margin-top:3px;">閉じる</button>
               </div>
-              ${childRows.length > 0 ? `
+              ${childRows.length > 0 || candidateRows.length > 0 ? `
                 <table class="data-table" style="font-size:11px;margin:0;">
-                  <tbody>${childRows}</tbody>
-                  <tfoot><tr style="font-weight:600;"><td></td><td>計</td><td></td>
+                  <tbody>
+                    ${childRows}
+                    ${candidateRows}
+                  </tbody>
+                  ${childItems.length > 0 ? `<tfoot><tr style="font-weight:600;"><td></td><td>確定分計</td><td></td>
                     <td style="text-align:right;">${fmtL(childMl)}</td><td style="text-align:right;">${fmtL(childMonthlyMl)}</td>
-                  </tr></tfoot>
+                  </tr></tfoot>` : ""}
                 </table>
-              ` : `<div style="font-size:10px;color:var(--text-secondary);padding:4px;">親からチェックを外すとここに移動します</div>`}
+              ` : `<div style="font-size:10px;color:var(--text-secondary);padding:4px;">親からチェックを外すとここに候補表示されます</div>`}
             </div>
           </td></tr>
         `;
@@ -623,8 +653,11 @@ function buildProductDetail(
               <tfoot>
                 <tr style="font-weight:600;background:var(--surface-alt);"><td></td><td>全体計</td><td></td>
                   <td style="text-align:right;">${fmtL(allMl)}</td><td style="text-align:right;">${fmtL(allMonthlyMl)}</td></tr>
-                ${hasChildren ? `<tr style="font-size:11px;color:var(--text-secondary);"><td></td><td>　残り（未振分）</td><td></td>
-                  <td style="text-align:right;">${fmtL(visibleMl)}</td><td style="text-align:right;">${fmtL(visibleMonthlyMl)}</td></tr>` : ""}
+                ${hasChildren ? `<tr style="font-size:11px;"><td></td><td>　親区分に残り</td><td></td>
+                  <td style="text-align:right;">${fmtL(activeMl)}</td><td style="text-align:right;">${fmtL(activeMonthlyMl)}</td></tr>` : ""}
+                ${unassignedItems.length > 0 ? `<tr style="font-size:11px;color:#b7791f;"><td></td><td>　未振分</td><td>${unassignedItems.length}品</td>
+                  <td style="text-align:right;">${fmtL(unassignedItems.reduce((s, p) => s + p.annualMl, 0))}</td>
+                  <td style="text-align:right;">${fmtL(unassignedItems.reduce((s, p) => s + p.monthlyAvgMl, 0))}</td></tr>` : ""}
               </tfoot>
             </table>
           </div>
