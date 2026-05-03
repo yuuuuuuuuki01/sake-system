@@ -1967,7 +1967,7 @@ function renderView(): string {
           needByCategory[cat] = Math.max(0, fc - projOct);
         }
       }
-      return renderProcurement(needByCategory, state.brewingRiceParams, state.brewingCustomCategories);
+      return renderProcurement(needByCategory, state.brewingRiceParams, state.brewingCustomCategories, state.brewingSchedule, state.brewingPlanFY);
     }
     case "/churn-alert":
       return state.churnAlert
@@ -6193,6 +6193,42 @@ function bindEvents(root: HTMLElement): void {
       state.brewingPlanData = summary;
       state.brewingProductDetail = products;
       state.brewingOverrides = overrides;
+      renderApp();
+    });
+  });
+
+  // 調達計画: 醸造月スケジュール追加
+  root.querySelectorAll<HTMLButtonElement>("[data-action='proc-add-schedule']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const cat = btn.dataset.cat ?? "";
+      const monthSel = root.querySelector<HTMLSelectElement>(`[data-action='proc-add-month-select'][data-cat='${cat}']`);
+      const volInput = root.querySelector<HTMLInputElement>(`[data-action='proc-add-month-vol'][data-cat='${cat}']`);
+      const month = parseInt(monthSel?.value ?? "0");
+      const vol = parseFloat(volInput?.value ?? "0");
+      if (!cat || !month || vol <= 0) return;
+      // 既存スケジュールに追加
+      const existing = state.brewingSchedule.filter(s => s.brewCategory === cat);
+      const rows = [...existing.map(s => ({ brewMonth: s.brewMonth, durationMonths: s.durationMonths, plannedVolumeL: s.plannedVolumeL })),
+        { brewMonth: month, durationMonths: 2, plannedVolumeL: vol }];
+      const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
+      await saveBrewingSchedule(cat, state.brewingPlanFY, rows);
+      state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
+      renderApp();
+    });
+  });
+
+  // 調達計画: 醸造月スケジュール削除
+  root.querySelectorAll<HTMLButtonElement>("[data-action='proc-remove-schedule']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const cat = btn.dataset.cat ?? "";
+      const month = parseInt(btn.dataset.month ?? "0");
+      if (!cat || !month) return;
+      const rows = state.brewingSchedule
+        .filter(s => s.brewCategory === cat && s.brewMonth !== month)
+        .map(s => ({ brewMonth: s.brewMonth, durationMonths: s.durationMonths, plannedVolumeL: s.plannedVolumeL }));
+      const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
+      await saveBrewingSchedule(cat, state.brewingPlanFY, rows);
+      state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
       renderApp();
     });
   });

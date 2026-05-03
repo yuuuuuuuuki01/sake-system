@@ -1,4 +1,4 @@
-import type { BrewingRiceParams, BrewingCustomCategory } from "../api";
+import type { BrewingRiceParams, BrewingCustomCategory, BrewingScheduleRow } from "../api";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "純米大吟醸": "#7c3aed", "大吟醸": "#a855f7", "純米吟醸": "#2563eb",
@@ -7,26 +7,39 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 const CATEGORY_ORDER = ["純米大吟醸", "大吟醸", "純米吟醸", "純米", "本醸造", "普通酒", "リキュール", "その他"];
 
+// 会計年度の月順（10月〜9月）
+const FY_MONTHS = [10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+const MONTH_LABELS = ["10月", "11月", "12月", "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月"];
+
 function fmtNum(n: number): string { return n.toLocaleString("ja-JP"); }
 
 export function renderProcurement(
   needByCategory: Record<string, number>,
   riceParams: Record<string, BrewingRiceParams>,
-  customCategories: BrewingCustomCategory[]
+  customCategories: BrewingCustomCategory[],
+  schedule: BrewingScheduleRow[] = [],
+  fy: number = 2026
 ): string {
-  const cats = Object.keys(needByCategory).filter(c => needByCategory[c] > 0);
-  if (cats.length === 0) {
+  const allCats = Object.keys(needByCategory).filter(c => needByCategory[c] > 0);
+  if (allCats.length === 0) {
     return `<section class="panel"><p style="padding:24px;text-align:center;color:var(--text-secondary);">醸造計画の予測データがありません。先に醸造計画ページで在庫・予測を設定してください。</p></section>`;
   }
 
   const order = [...CATEGORY_ORDER, ...customCategories.map(c => c.name)];
-  cats.sort((a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
+  allCats.sort((a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
 
   const defaultP: BrewingRiceParams = {
     brewCategory: "", polishingRatio: 0.70, ricePerLiterKg: 0.50,
     kojiRatio: 0.30, kojiVariety: "山田錦", kojiPricePerKg: 600,
     kakeVariety: "一般米", kakePricePerKg: 350
   };
+
+  // スケジュールを区分→月マップに
+  const scheduleMap = new Map<string, BrewingScheduleRow[]>();
+  for (const s of schedule) {
+    if (!scheduleMap.has(s.brewCategory)) scheduleMap.set(s.brewCategory, []);
+    scheduleMap.get(s.brewCategory)!.push(s);
+  }
 
   const inp = (field: string, cat: string, val: number | string, w: string, step: string, isText = false) =>
     isText
@@ -36,65 +49,125 @@ export function renderProcurement(
           style="width:${w};height:26px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 4px;" />`;
 
   let tKojiWhite = 0, tKakWhite = 0, tKojiBrown = 0, tKakBrown = 0, tKojiCost = 0, tKakCost = 0;
+  // 月別集計
+  const monthlyBrownKg: number[] = FY_MONTHS.map(() => 0);
 
-  const sections = cats.map(cat => {
+  const sections = allCats.map(cat => {
     const needL = needByCategory[cat];
     const p = riceParams[cat] ?? defaultP;
     const color = CATEGORY_COLORS[cat] ?? "#6366f1";
+    const catSchedule = scheduleMap.get(cat) ?? [];
 
-    const whiteKg = Math.round(needL * p.ricePerLiterKg);
+    // 杜氏の醸造予定量（スケジュールにplanned_volume_lがあればそれ、なければ必要醸造量を使用）
+    const tojiTotalL = catSchedule.reduce((s, r) => s + r.plannedVolumeL, 0);
+    const effectiveL = tojiTotalL > 0 ? tojiTotalL : needL;
+
+    const whiteKg = Math.round(effectiveL * p.ricePerLiterKg);
     const kojiWhiteKg = Math.round(whiteKg * p.kojiRatio);
     const kakeWhiteKg = whiteKg - kojiWhiteKg;
     const kojiBrownKg = Math.round(kojiWhiteKg / p.polishingRatio);
     const kakeBrownKg = Math.round(kakeWhiteKg / p.polishingRatio);
+    const totalBrownKg = kojiBrownKg + kakeBrownKg;
     const kojiCost = Math.round(kojiBrownKg * p.kojiPricePerKg);
     const kakeCost = Math.round(kakeBrownKg * p.kakePricePerKg);
-    const totalCatCost = kojiCost + kakeCost;
 
     tKojiWhite += kojiWhiteKg; tKakWhite += kakeWhiteKg;
     tKojiBrown += kojiBrownKg; tKakBrown += kakeBrownKg;
     tKojiCost += kojiCost; tKakCost += kakeCost;
 
+    // 月別の醸造量配分（スケジュールがあればそれに従う、なければ均等配分）
+    const monthlyL: number[] = FY_MONTHS.map(() => 0);
+    if (catSchedule.length > 0) {
+      for (const s of catSchedule) {
+        const idx = FY_MONTHS.indexOf(s.brewMonth);
+        if (idx >= 0) monthlyL[idx] += s.plannedVolumeL;
+      }
+    } else {
+      // 均等配分（全月）
+      const perMonth = effectiveL / 12;
+      for (let i = 0; i < 12; i++) monthlyL[i] = perMonth;
+    }
+
+    // 月別の玄米必要量
+    const totalL = monthlyL.reduce((s, v) => s + v, 0) || 1;
+    for (let i = 0; i < 12; i++) {
+      const ratio = monthlyL[i] / totalL;
+      monthlyBrownKg[i] += Math.round(totalBrownKg * ratio);
+    }
+
+    // 醸造月バー
+    const monthBar = FY_MONTHS.map((m, i) => {
+      const vol = monthlyL[i];
+      const hasSchedule = catSchedule.some(s => s.brewMonth === m);
+      return `<td style="text-align:center;padding:2px;${vol > 0 ? `background:${color}18;` : ""}">
+        ${hasSchedule ? `<div style="font-size:10px;font-weight:600;color:${color};">${fmtNum(Math.round(vol))}</div>` : vol > 0 ? `<div style="font-size:9px;color:var(--text-secondary);">${fmtNum(Math.round(vol))}</div>` : ""}
+      </td>`;
+    }).join("");
+
+    // スケジュール入力行
+    const scheduleInputs = `
+      <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+        <select data-action="proc-add-month-select" data-cat="${cat}" style="font-size:11px;height:24px;border:1px solid var(--border);border-radius:3px;">
+          <option value="">+月追加</option>
+          ${FY_MONTHS.map((m, i) => `<option value="${m}">${MONTH_LABELS[i]}</option>`).join("")}
+        </select>
+        <input data-action="proc-add-month-vol" data-cat="${cat}" type="number" min="0" step="100" placeholder="醸造L"
+          style="width:70px;height:24px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 4px;" />
+        <button data-action="proc-add-schedule" data-cat="${cat}"
+          style="font-size:10px;padding:2px 8px;border:none;border-radius:3px;background:${color};color:#fff;cursor:pointer;">追加</button>
+        ${catSchedule.map(s => `
+          <span style="font-size:10px;padding:2px 6px;border-radius:3px;background:${color}18;color:${color};display:inline-flex;align-items:center;gap:2px;">
+            ${s.brewMonth}月:${fmtNum(Math.round(s.plannedVolumeL))}L
+            <button data-action="proc-remove-schedule" data-cat="${cat}" data-month="${s.brewMonth}"
+              style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:11px;padding:0 1px;">×</button>
+          </span>
+        `).join("")}
+      </div>
+    `;
+
     return `
       <div class="card" style="border-top:3px solid ${color};margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:4px;">
           <h4 style="margin:0;font-size:14px;color:${color};">${cat}</h4>
-          <span style="font-size:12px;">必要醸造 <strong>${fmtNum(Math.round(needL))}L</strong> → 予算 <strong>¥${fmtNum(totalCatCost)}</strong></span>
-        </div>
-
-        <div style="display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;font-size:12px;">
-          <label style="display:flex;align-items:center;gap:4px;">白米/L ${inp("ricePerLiterKg", cat, p.ricePerLiterKg, "56px", "0.01")}</label>
-          <label style="display:flex;align-items:center;gap:4px;">麹比率 ${inp("kojiRatio", cat, p.kojiRatio, "56px", "0.01")}</label>
-          <label style="display:flex;align-items:center;gap:4px;">精米歩合 ${inp("polishingRatio", cat, p.polishingRatio, "56px", "0.01")}</label>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-          <div style="border:1px solid var(--border);border-radius:6px;padding:10px;">
-            <div style="font-size:11px;color:#6366f1;font-weight:600;margin-bottom:6px;">麹米</div>
-            <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;font-size:12px;">
-              <label style="display:flex;align-items:center;gap:3px;">品種 ${inp("kojiVariety", cat, p.kojiVariety, "80px", "", true)}</label>
-              <label style="display:flex;align-items:center;gap:3px;">円/kg ${inp("kojiPricePerKg", cat, p.kojiPricePerKg, "56px", "10")}</label>
-            </div>
-            <div style="font-size:12px;">
-              白米 <strong>${fmtNum(kojiWhiteKg)}kg</strong>
-              → 玄米 <strong>${fmtNum(kojiBrownKg)}kg</strong>
-              <span style="color:var(--text-secondary);">(${(kojiBrownKg / 60).toFixed(1)}俵)</span>
-            </div>
-            <div style="font-size:14px;font-weight:700;margin-top:4px;">¥${fmtNum(kojiCost)}</div>
+          <div style="font-size:12px;">
+            予測 ${fmtNum(Math.round(needL))}L
+            ${tojiTotalL > 0 ? `→ 杜氏予定 <strong>${fmtNum(Math.round(tojiTotalL))}L</strong>` : ""}
+            → 予算 <strong>¥${fmtNum(kojiCost + kakeCost)}</strong>
           </div>
+        </div>
 
+        <div style="overflow-x:auto;margin-bottom:8px;">
+          <table style="width:100%;font-size:10px;border-collapse:collapse;">
+            <tr>${MONTH_LABELS.map(l => `<th style="text-align:center;padding:2px;font-weight:500;color:var(--text-secondary);">${l}</th>`).join("")}</tr>
+            <tr>${monthBar}</tr>
+          </table>
+        </div>
+        ${scheduleInputs}
+
+        <div style="display:flex;gap:12px;margin-top:10px;flex-wrap:wrap;font-size:12px;">
+          <label style="display:flex;align-items:center;gap:3px;">白米/L ${inp("ricePerLiterKg", cat, p.ricePerLiterKg, "52px", "0.01")}</label>
+          <label style="display:flex;align-items:center;gap:3px;">麹比率 ${inp("kojiRatio", cat, p.kojiRatio, "52px", "0.01")}</label>
+          <label style="display:flex;align-items:center;gap:3px;">精米歩合 ${inp("polishingRatio", cat, p.polishingRatio, "52px", "0.01")}</label>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
           <div style="border:1px solid var(--border);border-radius:6px;padding:10px;">
-            <div style="font-size:11px;color:#b7791f;font-weight:600;margin-bottom:6px;">掛米</div>
-            <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap;font-size:12px;">
-              <label style="display:flex;align-items:center;gap:3px;">品種 ${inp("kakeVariety", cat, p.kakeVariety, "80px", "", true)}</label>
-              <label style="display:flex;align-items:center;gap:3px;">円/kg ${inp("kakePricePerKg", cat, p.kakePricePerKg, "56px", "10")}</label>
+            <div style="font-size:11px;color:#6366f1;font-weight:600;margin-bottom:4px;">麹米</div>
+            <div style="display:flex;gap:6px;margin-bottom:4px;flex-wrap:wrap;font-size:12px;">
+              <label style="display:flex;align-items:center;gap:3px;">品種 ${inp("kojiVariety", cat, p.kojiVariety, "76px", "", true)}</label>
+              <label style="display:flex;align-items:center;gap:3px;">円/kg ${inp("kojiPricePerKg", cat, p.kojiPricePerKg, "52px", "10")}</label>
             </div>
-            <div style="font-size:12px;">
-              白米 <strong>${fmtNum(kakeWhiteKg)}kg</strong>
-              → 玄米 <strong>${fmtNum(kakeBrownKg)}kg</strong>
-              <span style="color:var(--text-secondary);">(${(kakeBrownKg / 60).toFixed(1)}俵)</span>
+            <div style="font-size:12px;">玄米 <strong>${fmtNum(kojiBrownKg)}kg</strong> <span style="color:var(--text-secondary);">(${(kojiBrownKg/60).toFixed(1)}俵)</span></div>
+            <div style="font-size:14px;font-weight:700;margin-top:2px;">¥${fmtNum(kojiCost)}</div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:6px;padding:10px;">
+            <div style="font-size:11px;color:#b7791f;font-weight:600;margin-bottom:4px;">掛米</div>
+            <div style="display:flex;gap:6px;margin-bottom:4px;flex-wrap:wrap;font-size:12px;">
+              <label style="display:flex;align-items:center;gap:3px;">品種 ${inp("kakeVariety", cat, p.kakeVariety, "76px", "", true)}</label>
+              <label style="display:flex;align-items:center;gap:3px;">円/kg ${inp("kakePricePerKg", cat, p.kakePricePerKg, "52px", "10")}</label>
             </div>
-            <div style="font-size:14px;font-weight:700;margin-top:4px;">¥${fmtNum(kakeCost)}</div>
+            <div style="font-size:12px;">玄米 <strong>${fmtNum(kakeBrownKg)}kg</strong> <span style="color:var(--text-secondary);">(${(kakeBrownKg/60).toFixed(1)}俵)</span></div>
+            <div style="font-size:14px;font-weight:700;margin-top:2px;">¥${fmtNum(kakeCost)}</div>
           </div>
         </div>
       </div>
@@ -104,11 +177,28 @@ export function renderProcurement(
   const totalBrown = tKojiBrown + tKakBrown;
   const totalCost = tKojiCost + tKakCost;
 
+  // 月別米調達バー
+  const maxMonthly = Math.max(...monthlyBrownKg, 1);
+  const monthlyChart = FY_MONTHS.map((m, i) => {
+    const kg = monthlyBrownKg[i];
+    const pct = (kg / maxMonthly) * 100;
+    return `
+      <div style="text-align:center;">
+        <div style="height:80px;display:flex;align-items:flex-end;justify-content:center;">
+          <div style="width:24px;height:${pct}%;background:#0F5B8D;border-radius:3px 3px 0 0;min-height:${kg > 0 ? 2 : 0}px;"></div>
+        </div>
+        <div style="font-size:9px;color:var(--text-secondary);margin-top:2px;">${MONTH_LABELS[i]}</div>
+        <div style="font-size:10px;font-weight:600;">${kg > 0 ? fmtNum(kg) : ""}</div>
+        <div style="font-size:9px;color:var(--text-secondary);">${kg > 0 ? (kg/60).toFixed(0) + "俵" : ""}</div>
+      </div>
+    `;
+  }).join("");
+
   return `
     <section class="page-head">
       <div>
         <p class="eyebrow">製造管理</p>
-        <h1>原料米 調達計画</h1>
+        <h1>原料米 調達計画 — ${fy}年度</h1>
       </div>
     </section>
 
@@ -126,6 +216,13 @@ export function renderProcurement(
         style="font-size:12px;padding:4px 12px;">全区分に適用</button>
     </div>
 
+    <section class="panel" style="margin-bottom:16px;">
+      <div class="panel-header"><h2>月別 米調達量</h2><p class="panel-caption">醸造スケジュールに基づく月別の玄米必要量</p></div>
+      <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:4px;padding:8px;">
+        ${monthlyChart}
+      </div>
+    </section>
+
     ${sections}
 
     <section class="panel">
@@ -133,18 +230,18 @@ export function renderProcurement(
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">
         <div style="background:rgba(99,102,241,0.06);border-radius:8px;padding:14px;">
           <div style="font-size:11px;color:#6366f1;font-weight:600;">麹米 合計</div>
-          <div style="font-size:12px;margin-top:6px;">白米 ${fmtNum(tKojiWhite)}kg → 玄米 <strong>${fmtNum(tKojiBrown)}kg</strong> <span style="color:var(--text-secondary);">(${(tKojiBrown / 60).toFixed(1)}俵)</span></div>
+          <div style="font-size:12px;margin-top:6px;">玄米 <strong>${fmtNum(tKojiBrown)}kg</strong> <span style="color:var(--text-secondary);">(${(tKojiBrown/60).toFixed(1)}俵)</span></div>
           <div style="font-size:18px;font-weight:700;margin-top:4px;">¥${fmtNum(tKojiCost)}</div>
         </div>
         <div style="background:rgba(183,121,31,0.06);border-radius:8px;padding:14px;">
           <div style="font-size:11px;color:#b7791f;font-weight:600;">掛米 合計</div>
-          <div style="font-size:12px;margin-top:6px;">白米 ${fmtNum(tKakWhite)}kg → 玄米 <strong>${fmtNum(tKakBrown)}kg</strong> <span style="color:var(--text-secondary);">(${(tKakBrown / 60).toFixed(1)}俵)</span></div>
+          <div style="font-size:12px;margin-top:6px;">玄米 <strong>${fmtNum(tKakBrown)}kg</strong> <span style="color:var(--text-secondary);">(${(tKakBrown/60).toFixed(1)}俵)</span></div>
           <div style="font-size:18px;font-weight:700;margin-top:4px;">¥${fmtNum(tKakCost)}</div>
         </div>
         <div style="background:var(--surface-alt);border-radius:8px;padding:14px;border:2px solid var(--border);">
           <div style="font-size:11px;font-weight:600;">総合計</div>
-          <div style="font-size:12px;margin-top:6px;">玄米 <strong>${fmtNum(totalBrown)}kg</strong> <span style="color:var(--text-secondary);">(${Math.ceil(totalBrown / 60)}俵)</span></div>
-          <div style="font-size:22px;font-weight:700;margin-top:4px;">¥${fmtNum(totalCost)}<span style="font-size:13px;font-weight:400;margin-left:4px;">(${(totalCost / 10000).toFixed(0)}万)</span></div>
+          <div style="font-size:12px;margin-top:6px;">玄米 <strong>${fmtNum(totalBrown)}kg</strong> <span style="color:var(--text-secondary);">(${Math.ceil(totalBrown/60)}俵)</span></div>
+          <div style="font-size:22px;font-weight:700;margin-top:4px;">¥${fmtNum(totalCost)}<span style="font-size:13px;font-weight:400;margin-left:4px;">(${(totalCost/10000).toFixed(0)}万)</span></div>
         </div>
       </div>
     </section>
