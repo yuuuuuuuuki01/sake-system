@@ -6323,8 +6323,10 @@ function bindEvents(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>(".btn-edit-stock").forEach((btn) => {
     btn.addEventListener("click", () => {
       const catId = btn.dataset.catId ?? "";
-      root.querySelector<HTMLElement>(`#stock-display-${catId}`)!.style.display = "none";
-      root.querySelector<HTMLElement>(`#stock-edit-${catId}`)!.style.display = "";
+      const display = root.querySelector<HTMLElement>(`#stock-display-${catId}`);
+      const edit = root.querySelector<HTMLElement>(`#stock-edit-${catId}`);
+      if (display) display.style.display = "none";
+      if (edit) edit.style.display = "";
       btn.style.display = "none";
     });
   });
@@ -6333,9 +6335,12 @@ function bindEvents(root: HTMLElement): void {
   root.querySelectorAll<HTMLButtonElement>(".btn-cancel-stock").forEach((btn) => {
     btn.addEventListener("click", () => {
       const catId = btn.dataset.catId ?? "";
-      root.querySelector<HTMLElement>(`#stock-display-${catId}`)!.style.display = "";
-      root.querySelector<HTMLElement>(`#stock-edit-${catId}`)!.style.display = "none";
-      root.querySelector<HTMLButtonElement>(`.btn-edit-stock[data-cat-id="${catId}"]`)!.style.display = "";
+      const display = root.querySelector<HTMLElement>(`#stock-display-${catId}`);
+      const edit = root.querySelector<HTMLElement>(`#stock-edit-${catId}`);
+      const editBtn = root.querySelector<HTMLButtonElement>(`.btn-edit-stock[data-cat-id="${catId}"]`);
+      if (display) display.style.display = "";
+      if (edit) edit.style.display = "none";
+      if (editBtn) editBtn.style.display = "";
     });
   });
 

@@ -438,7 +438,8 @@ function buildProductDetail(
   products: BrewingProductDetail[],
   excluded: Set<string>,
   customCategories: BrewingCustomCategory[],
-  overrides: Record<string, string>
+  overrides: Record<string, string>,
+  stockEntries: BrewingStockEntry[]
 ): string {
   if (products.length === 0) return "";
 
@@ -682,7 +683,7 @@ export function renderBrewingPlan(
 
       ${buildStockProjection(data)}
 
-      ${buildProductDetail(productDetail, excludedProducts, customCategories, overrides)}
+      ${buildProductDetail(productDetail, excludedProducts, customCategories, overrides, stockEntries)}
 
       <div class="card">
         <h3 style="font-size:14px;margin:0 0 8px 0;">区分別出荷明細</h3>
