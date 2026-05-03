@@ -391,32 +391,42 @@ function buildProductDetail(
   products: BrewingProductDetail[],
   excluded: Set<string>,
   customCategories: BrewingCustomCategory[],
-  overrides: Record<string, string>,
-  typeLinks: Record<string, string[]> = {},
-  availableTypes: string[] = []
+  overrides: Record<string, string>
 ): string {
   if (products.length === 0) return "";
 
-  // All possible categories (standard + custom)
   const customNames = customCategories.map(c => c.name);
   const allCategories = [...CATEGORY_ORDER, ...customNames];
 
-  // Group by brew category
+  // 親区分→子カスタム区分のマップ
+  const childCatsOf = new Map<string, BrewingCustomCategory[]>();
+  for (const cc of customCategories) {
+    if (!childCatsOf.has(cc.parentCategory)) childCatsOf.set(cc.parentCategory, []);
+    childCatsOf.get(cc.parentCategory)!.push(cc);
+  }
+
+  // Group by brew category (RPC結果ベース)
   const grouped = new Map<string, BrewingProductDetail[]>();
   for (const p of products) {
     if (!grouped.has(p.brewCategory)) grouped.set(p.brewCategory, []);
     grouped.get(p.brewCategory)!.push(p);
   }
-  // Ensure custom categories appear even if empty
-  for (const cc of customNames) {
-    if (!grouped.has(cc)) grouped.set(cc, []);
-  }
 
-  // Category select options for move dropdown
-  const catOptions = (currentCat: string, originalCat: string) =>
-    allCategories.map(c =>
-      `<option value="${c}" ${c === currentCat ? "selected" : ""}>${c}${c === originalCat ? "（自動）" : ""}</option>`
-    ).join("");
+  // カスタム区分: 親から除外された商品を自動表示
+  // 「除外された商品」= excluded set に入っている + 親区分に元々属していた商品
+  for (const cc of customCategories) {
+    if (!grouped.has(cc.name)) grouped.set(cc.name, []);
+    // 親区分から除外された商品をこのカスタム区分に表示
+    const parentItems = grouped.get(cc.parentCategory) ?? [];
+    const excludedFromParent = parentItems.filter(p => excluded.has(p.productCode));
+    // 既にオーバーライドで移動済みの商品は除く（二重表示防止）
+    const alreadyInCustom = new Set((grouped.get(cc.name) ?? []).map(p => p.productCode));
+    for (const p of excludedFromParent) {
+      if (!alreadyInCustom.has(p.productCode)) {
+        grouped.get(cc.name)!.push(p);
+      }
+    }
+  }
 
   const sections = allCategories
     .filter(cat => grouped.has(cat))
@@ -425,72 +435,38 @@ function buildProductDetail(
       const color = CATEGORY_COLORS[cat] ?? "#6366f1";
       const customCat = customCategories.find(c => c.name === cat);
       const isCustom = !!customCat;
+      const parentCat = customCat?.parentCategory ?? "";
+      const hasChildren = childCatsOf.has(cat);
 
-      const included = items.filter(p => !excluded.has(p.productCode));
+      // カスタム区分の商品は全て有効（親から外されて来たもの）
+      // 標準区分の商品は除外フラグで分ける
+      const included = isCustom ? items : items.filter(p => !excluded.has(p.productCode));
       const totalMl = included.reduce((s, p) => s + p.annualMl, 0);
       const totalQty = included.reduce((s, p) => s + p.annualQty, 0);
       const monthlyMl = included.reduce((s, p) => s + p.monthlyAvgMl, 0);
+      const excludedCount = isCustom ? 0 : items.filter(p => excluded.has(p.productCode)).length;
 
       const rows = items.map(p => {
-        const isExcluded = excluded.has(p.productCode);
-        const hasOverride = p.productCode in overrides;
+        const isExcluded = !isCustom && excluded.has(p.productCode);
+        // 子区分がある親カテゴリでは、外した先を示す
+        const childNames = (childCatsOf.get(cat) ?? []).map(c => c.name);
         return `
-          <tr style="${isExcluded ? "opacity:0.4;text-decoration:line-through;" : ""}">
+          <tr style="${isExcluded ? "opacity:0.4;" : ""}">
             <td style="width:32px;text-align:center;">
-              <input type="checkbox" data-action="brew-product-toggle" data-code="${p.productCode}"
-                ${isExcluded ? "" : "checked"} style="cursor:pointer;" />
+              ${isCustom
+                ? `<button data-action="brew-return-to-parent" data-code="${p.productCode}" data-parent="${parentCat}"
+                    style="border:none;background:none;cursor:pointer;font-size:14px;padding:0;" title="親区分に戻す">↩</button>`
+                : `<input type="checkbox" data-action="brew-product-toggle" data-code="${p.productCode}"
+                    ${isExcluded ? "" : "checked"} style="cursor:pointer;" />`
+              }
             </td>
-            <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}">${p.productName}</td>
-            <td style="text-align:right;">${p.volumeMl ? p.volumeMl + "ml" : "—"}</td>
+            <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;${isExcluded ? "text-decoration:line-through;" : ""}" title="${p.productName}">${p.productName}</td>
+            <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
             <td style="text-align:right;">${fmtL(p.annualMl)}</td>
             <td style="text-align:right;">${fmtL(p.monthlyAvgMl)}</td>
-            <td>
-              <select data-action="brew-move-product" data-code="${p.productCode}" data-current="${cat}"
-                style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;max-width:120px;${hasOverride ? "background:rgba(99,102,241,0.08);" : ""}">
-                ${catOptions(cat, cat)}
-              </select>
-            </td>
           </tr>
         `;
       }).join("");
-
-      // カスタム区分の製成種別タグ
-      const linkedTypes = typeLinks[cat] ?? [];
-      const parentCat = customCat?.parentCategory ?? "";
-      // 紐づけ可能: 同じ親区分に属する製成種別のみ（既に他で使われていないもの）
-      const allLinked = Object.values(typeLinks).flat();
-      // 親区分の商品から製成種別を取得（productDetailから逆引き）
-      const parentTypes = parentCat
-        ? [...new Set(products.filter(p => {
-            // オーバーライドされていない & 親区分に属する商品
-            const origCat = !(p.productCode in overrides) ? p.brewCategory : null;
-            return origCat === parentCat;
-          }).map(p => p.subCategory))]
-        : [];
-      // 既にリンク済みのタイプも親に含める
-      const parentAndLinkedTypes = [...new Set([...parentTypes, ...linkedTypes])];
-      const unlinkedTypes = parentAndLinkedTypes.filter(t =>
-        !allLinked.includes(t) && !["値引","運賃","容器","P箱/木箱","酒粕","原料用ｱﾙｺｰﾙ","107","109"].includes(t)
-      );
-
-      const typeTagsHtml = isCustom ? `
-        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;align-items:center;">
-          ${linkedTypes.map(t => `
-            <span style="display:inline-flex;align-items:center;gap:2px;padding:2px 8px;background:rgba(99,102,241,0.1);border-radius:12px;font-size:11px;">
-              ${t}
-              <button data-action="brew-unlink-type" data-cat="${cat}" data-type="${t}"
-                style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:12px;padding:0 2px;line-height:1;">×</button>
-            </span>
-          `).join("")}
-          ${unlinkedTypes.length > 0 ? `
-            <select data-action="brew-link-type" data-cat="${cat}"
-              style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;color:var(--text-secondary);">
-              <option value="">+製成種別を追加</option>
-              ${unlinkedTypes.map(t => `<option value="${t}">${t}</option>`).join("")}
-            </select>
-          ` : ""}
-        </div>
-      ` : "";
 
       return `
         <div style="margin-bottom:20px;">
@@ -502,36 +478,35 @@ function buildProductDetail(
               title="この区分を削除">削除</button>` : ""}
             <span style="font-size:12px;color:var(--text-secondary);">
               ${included.length}銘柄 ・ 年間${fmtL(totalMl)}L ・ 月平均${fmtL(monthlyMl)}L
+              ${!isCustom && excludedCount > 0 ? `<span style="color:#b7791f;">（${excludedCount}品を子区分へ）</span>` : ""}
             </span>
           </div>
-          ${typeTagsHtml}
+          ${hasChildren && !isCustom ? `<div style="font-size:10px;color:var(--text-secondary);margin-bottom:6px;">チェックを外すと子区分に移動します</div>` : ""}
           ${items.length > 0 ? `
             <div class="table-wrap">
               <table class="data-table" style="font-size:12px;">
                 <thead>
                   <tr>
-                    <th style="width:32px;"></th>
+                    <th style="width:32px;">${isCustom ? "" : ""}</th>
                     <th>銘柄</th>
-                    <th style="text-align:right;">容量</th>
+                    <th>種別</th>
                     <th style="text-align:right;">年間(L)</th>
                     <th style="text-align:right;">月平均(L)</th>
-                    <th>区分変更</th>
                   </tr>
                 </thead>
                 <tbody>${rows}</tbody>
                 <tfoot>
                   <tr style="font-weight:600;background:var(--surface-alt);">
                     <td></td>
-                    <td>計（有効分）</td>
+                    <td>計</td>
                     <td></td>
                     <td style="text-align:right;">${fmtL(totalMl)}</td>
                     <td style="text-align:right;">${fmtL(monthlyMl)}</td>
-                    <td></td>
                   </tr>
                 </tfoot>
               </table>
             </div>
-          ` : `<p style="color:var(--text-secondary);font-size:12px;padding:8px;">銘柄なし — 他の区分から移動してください</p>`}
+          ` : `<p style="color:var(--text-secondary);font-size:12px;padding:8px;">親区分からチェックを外すと、ここに表示されます</p>`}
         </div>
       `;
     }).join("");
@@ -569,9 +544,7 @@ export function renderBrewingPlan(
   excludedProducts: Set<string> = new Set(),
   customCategories: BrewingCustomCategory[] = [] as BrewingCustomCategory[],
   overrides: Record<string, string> = {},
-  stockEntries: BrewingStockEntry[] = [],
-  typeLinks: Record<string, string[]> = {},
-  availableTypes: string[] = []
+  stockEntries: BrewingStockEntry[] = []
 ): string {
   const now = new Date();
   const currentFY = now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1;
@@ -610,7 +583,7 @@ export function renderBrewingPlan(
 
       ${buildStockProjection(data)}
 
-      ${buildProductDetail(productDetail, excludedProducts, customCategories, overrides, typeLinks, availableTypes)}
+      ${buildProductDetail(productDetail, excludedProducts, customCategories, overrides)}
 
       <div class="card">
         <h3 style="font-size:14px;margin:0 0 8px 0;">区分別出荷明細</h3>

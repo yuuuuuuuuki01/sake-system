@@ -1897,7 +1897,7 @@ function renderView(): string {
         state.calendarCapacity
       );
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries, state.brewingTypeLinks, state.brewingAvailableTypes);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -6037,6 +6037,16 @@ function bindEvents(root: HTMLElement): void {
       } else {
         state.brewingExcludedProducts.add(code);
       }
+      renderApp();
+    });
+  });
+
+  // 醸造計画: 子区分から親区分に戻す（↩ボタン）
+  root.querySelectorAll<HTMLButtonElement>("[data-action='brew-return-to-parent']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const code = btn.dataset.code ?? "";
+      // excludedから削除 → 親区分に戻る
+      state.brewingExcludedProducts.delete(code);
       renderApp();
     });
   });
