@@ -1549,9 +1549,11 @@ export interface BrewingRiceParams {
   brewCategory: string;
   polishingRatio: number;
   ricePerLiterKg: number;
-  riceVariety: string;
-  ricePricePerKg: number;
-  kojiRatio: number;
+  kojiRatio: number;        // 麹米比率（0.20 = 20%）
+  kojiVariety: string;      // 麹米品種
+  kojiPricePerKg: number;   // 麹米玄米単価
+  kakeVariety: string;      // 掛米品種
+  kakePricePerKg: number;   // 掛米玄米単価
 }
 
 export async function fetchBrewingRiceParams(): Promise<Record<string, BrewingRiceParams>> {
@@ -1563,9 +1565,11 @@ export async function fetchBrewingRiceParams(): Promise<Record<string, BrewingRi
       brewCategory: cat,
       polishingRatio: getNumber(r, ["polishing_ratio"], 0.70),
       ricePerLiterKg: getNumber(r, ["rice_per_liter_kg"], 0.85),
-      riceVariety: getString(r, ["rice_variety"], "一般米"),
-      ricePricePerKg: getNumber(r, ["rice_price_per_kg"], 400),
-      kojiRatio: getNumber(r, ["koji_ratio"], 0.20)
+      kojiRatio: getNumber(r, ["koji_ratio"], 0.20),
+      kojiVariety: getString(r, ["koji_variety"], "山田錦"),
+      kojiPricePerKg: getNumber(r, ["koji_price_per_kg"], 600),
+      kakeVariety: getString(r, ["kake_variety"], "一般米"),
+      kakePricePerKg: getNumber(r, ["kake_price_per_kg"], 350)
     };
   }
   return map;
@@ -1584,9 +1588,11 @@ export async function saveBrewingRiceParams(cat: string, params: Partial<Brewing
       brew_category: cat,
       polishing_ratio: params.polishingRatio,
       rice_per_liter_kg: params.ricePerLiterKg,
-      rice_variety: params.riceVariety,
-      rice_price_per_kg: params.ricePricePerKg,
       koji_ratio: params.kojiRatio,
+      koji_variety: params.kojiVariety,
+      koji_price_per_kg: params.kojiPricePerKg,
+      kake_variety: params.kakeVariety,
+      kake_price_per_kg: params.kakePricePerKg,
       updated_at: new Date().toISOString()
     })
   });

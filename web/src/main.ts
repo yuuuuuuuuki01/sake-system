@@ -6153,7 +6153,8 @@ function bindEvents(root: HTMLElement): void {
       if (!cat || !field || isNaN(val)) return;
       const current = state.brewingRiceParams[cat] ?? {
         brewCategory: cat, polishingRatio: 0.70, ricePerLiterKg: 0.85,
-        riceVariety: "一般米", ricePricePerKg: 400, kojiRatio: 0.20
+        kojiRatio: 0.20, kojiVariety: "山田錦", kojiPricePerKg: 600,
+        kakeVariety: "一般米", kakePricePerKg: 350
       };
       (current as any)[field] = val;
       state.brewingRiceParams[cat] = current;

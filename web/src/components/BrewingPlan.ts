@@ -610,66 +610,81 @@ function buildRiceProcurement(
   const order = [...CATEGORY_ORDER, ...customCategories.map(c => c.name)];
   cats.sort((a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
 
-  // デフォルトパラメータ
   const defaultP: BrewingRiceParams = {
     brewCategory: "", polishingRatio: 0.70, ricePerLiterKg: 0.85,
-    riceVariety: "一般米", ricePricePerKg: 400, kojiRatio: 0.20
+    kojiRatio: 0.20, kojiVariety: "山田錦", kojiPricePerKg: 600,
+    kakeVariety: "一般米", kakePricePerKg: 350
   };
 
-  let totalWhiteKg = 0, totalBrownKg = 0, totalCost = 0;
+  const inputStyle = `width:48px;height:22px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 2px;`;
+
+  let tKojiWhite = 0, tKakWhite = 0, tKojiBrown = 0, tKakBrown = 0, tKojiCost = 0, tKakCost = 0;
 
   const rows = cats.map(cat => {
     const needL = needByCategory[cat];
     const p = riceParams[cat] ?? defaultP;
     const color = CATEGORY_COLORS[cat] ?? "#6366f1";
-    const catId = catToId(cat);
 
-    // 白米必要量 = 醸造量(L) × 白米使用量(kg/L)
-    const whiteRiceKg = Math.round(needL * p.ricePerLiterKg);
-    // 玄米必要量 = 白米 / 精米歩合
-    const brownRiceKg = Math.round(whiteRiceKg / p.polishingRatio);
-    // 麹米 = 白米 × 麹比率
-    const kojiKg = Math.round(whiteRiceKg * p.kojiRatio);
-    const kakeKg = whiteRiceKg - kojiKg;
-    // 予算 = 玄米kg × 単価
-    const cost = Math.round(brownRiceKg * p.ricePricePerKg);
+    const whiteKg = Math.round(needL * p.ricePerLiterKg);
+    const kojiWhiteKg = Math.round(whiteKg * p.kojiRatio);
+    const kakeWhiteKg = whiteKg - kojiWhiteKg;
+    const kojiBrownKg = Math.round(kojiWhiteKg / p.polishingRatio);
+    const kakeBrownKg = Math.round(kakeWhiteKg / p.polishingRatio);
+    const kojiCost = Math.round(kojiBrownKg * p.kojiPricePerKg);
+    const kakeCost = Math.round(kakeBrownKg * p.kakePricePerKg);
 
-    totalWhiteKg += whiteRiceKg;
-    totalBrownKg += brownRiceKg;
-    totalCost += cost;
+    tKojiWhite += kojiWhiteKg; tKakWhite += kakeWhiteKg;
+    tKojiBrown += kojiBrownKg; tKakBrown += kakeBrownKg;
+    tKojiCost += kojiCost; tKakCost += kakeCost;
 
     return `
       <tr>
-        <td style="color:${color};font-weight:600;white-space:nowrap;">${cat}</td>
-        <td style="text-align:right;">${fmtNum(Math.round(needL))}</td>
-        <td style="text-align:right;">
+        <td style="color:${color};font-weight:600;white-space:nowrap;" rowspan="2">${cat}</td>
+        <td style="text-align:right;" rowspan="2">${fmtNum(Math.round(needL))}</td>
+        <td style="text-align:right;" rowspan="2">
           <input type="number" min="0.1" max="2" step="0.01" value="${p.ricePerLiterKg}"
-            data-action="brew-rice-edit" data-cat="${cat}" data-field="ricePerLiterKg"
-            style="width:48px;height:22px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 2px;" />
+            data-action="brew-rice-edit" data-cat="${cat}" data-field="ricePerLiterKg" style="${inputStyle}" />
         </td>
-        <td style="text-align:right;font-weight:600;">${fmtNum(whiteRiceKg)}</td>
+        <td style="text-align:right;" rowspan="2">
+          <input type="number" min="0.05" max="0.5" step="0.01" value="${p.kojiRatio}"
+            data-action="brew-rice-edit" data-cat="${cat}" data-field="kojiRatio" style="${inputStyle}" />
+        </td>
+        <td style="text-align:right;" rowspan="2">
+          <input type="number" min="0.2" max="1" step="0.01" value="${p.polishingRatio}"
+            data-action="brew-rice-edit" data-cat="${cat}" data-field="polishingRatio" style="${inputStyle}" />
+        </td>
+        <td style="font-size:11px;color:#6366f1;">麹米</td>
+        <td style="text-align:right;">${fmtNum(kojiWhiteKg)}</td>
+        <td style="text-align:right;font-weight:600;">${fmtNum(kojiBrownKg)}</td>
+        <td style="font-size:10px;">${p.kojiVariety}</td>
         <td style="text-align:right;">
-          <input type="number" min="0.1" max="1" step="0.01" value="${p.polishingRatio}"
-            data-action="brew-rice-edit" data-cat="${cat}" data-field="polishingRatio"
-            style="width:44px;height:22px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 2px;" />
+          <input type="number" min="0" step="10" value="${p.kojiPricePerKg}"
+            data-action="brew-rice-edit" data-cat="${cat}" data-field="kojiPricePerKg" style="${inputStyle}" />
         </td>
-        <td style="text-align:right;font-weight:700;">${fmtNum(brownRiceKg)}</td>
-        <td style="text-align:right;font-size:11px;color:var(--text-secondary);">${p.riceVariety}</td>
+        <td style="text-align:right;">¥${fmtNum(kojiCost)}</td>
+      </tr>
+      <tr style="border-top:none;">
+        <td style="font-size:11px;color:#b7791f;">掛米</td>
+        <td style="text-align:right;">${fmtNum(kakeWhiteKg)}</td>
+        <td style="text-align:right;font-weight:600;">${fmtNum(kakeBrownKg)}</td>
+        <td style="font-size:10px;">${p.kakeVariety}</td>
         <td style="text-align:right;">
-          <input type="number" min="0" step="10" value="${p.ricePricePerKg}"
-            data-action="brew-rice-edit" data-cat="${cat}" data-field="ricePricePerKg"
-            style="width:52px;height:22px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 2px;" />
+          <input type="number" min="0" step="10" value="${p.kakePricePerKg}"
+            data-action="brew-rice-edit" data-cat="${cat}" data-field="kakePricePerKg" style="${inputStyle}" />
         </td>
-        <td style="text-align:right;font-weight:700;">¥${fmtNum(cost)}</td>
+        <td style="text-align:right;">¥${fmtNum(kakeCost)}</td>
       </tr>
     `;
   }).join("");
+
+  const totalBrown = tKojiBrown + tKakBrown;
+  const totalCost = tKojiCost + tKakCost;
 
   return `
     <div class="card" style="margin-bottom:16px;">
       <h3 style="font-size:14px;margin:0 0 4px 0;">原料米 調達計画</h3>
       <p style="font-size:11px;color:#6b7280;margin:0 0 12px;">
-        必要醸造量 × 白米使用量/L = 白米必要量 → ÷ 精米歩合 = 玄米必要量 → × 単価 = 予算
+        醸造量 × 白米/L = 白米kg → 麹米比率で分割 → ÷ 精米歩合 = 玄米kg → × 単価 = 予算
       </p>
       <div class="table-wrap">
         <table class="data-table" style="font-size:12px;">
@@ -678,10 +693,12 @@ function buildRiceProcurement(
               <th>区分</th>
               <th style="text-align:right;">醸造(L)</th>
               <th style="text-align:right;">白米/L</th>
-              <th style="text-align:right;">白米(kg)</th>
+              <th style="text-align:right;">麹比率</th>
               <th style="text-align:right;">精米歩合</th>
+              <th></th>
+              <th style="text-align:right;">白米(kg)</th>
               <th style="text-align:right;">玄米(kg)</th>
-              <th style="text-align:right;">品種</th>
+              <th>品種</th>
               <th style="text-align:right;">円/kg</th>
               <th style="text-align:right;">予算</th>
             </tr>
@@ -689,19 +706,27 @@ function buildRiceProcurement(
           <tbody>${rows}</tbody>
           <tfoot>
             <tr style="font-weight:700;background:var(--surface-alt);">
-              <td>合計</td>
+              <td>合計</td><td></td><td></td><td></td><td></td>
+              <td style="font-size:11px;color:#6366f1;">麹米</td>
+              <td style="text-align:right;">${fmtNum(tKojiWhite)}</td>
+              <td style="text-align:right;">${fmtNum(tKojiBrown)}</td>
               <td></td><td></td>
-              <td style="text-align:right;">${fmtNum(totalWhiteKg)}</td>
-              <td></td>
-              <td style="text-align:right;">${fmtNum(totalBrownKg)}</td>
-              <td></td><td></td>
-              <td style="text-align:right;">¥${fmtNum(totalCost)}</td>
+              <td style="text-align:right;">¥${fmtNum(tKojiCost)}</td>
             </tr>
-            <tr style="font-size:11px;color:var(--text-secondary);">
-              <td colspan="5"></td>
-              <td style="text-align:right;">${(totalBrownKg / 1000).toFixed(1)}t</td>
-              <td colspan="2"></td>
-              <td style="text-align:right;">¥${(totalCost / 10000).toFixed(0)}万</td>
+            <tr style="font-weight:700;background:var(--surface-alt);">
+              <td></td><td></td><td></td><td></td><td></td>
+              <td style="font-size:11px;color:#b7791f;">掛米</td>
+              <td style="text-align:right;">${fmtNum(tKakWhite)}</td>
+              <td style="text-align:right;">${fmtNum(tKakBrown)}</td>
+              <td></td><td></td>
+              <td style="text-align:right;">¥${fmtNum(tKakCost)}</td>
+            </tr>
+            <tr style="font-weight:700;border-top:2px solid var(--border);">
+              <td>総合計</td><td></td><td></td><td></td><td></td><td></td>
+              <td style="text-align:right;">${fmtNum(tKojiWhite + tKakWhite)}</td>
+              <td style="text-align:right;">${fmtNum(totalBrown)}<span style="font-size:10px;color:var(--text-secondary);margin-left:2px;">(${(totalBrown/1000).toFixed(1)}t)</span></td>
+              <td></td><td></td>
+              <td style="text-align:right;">¥${fmtNum(totalCost)}<span style="font-size:10px;color:var(--text-secondary);margin-left:2px;">(${(totalCost/10000).toFixed(0)}万)</span></td>
             </tr>
           </tfoot>
         </table>
