@@ -446,21 +446,21 @@ function buildProductDetail(
     if (!grouped.has(p.brewCategory)) grouped.set(p.brewCategory, []);
     grouped.get(p.brewCategory)!.push(p);
   }
+  for (const cc of customNames) {
+    if (!grouped.has(cc)) grouped.set(cc, []);
+  }
 
-  // カスタム区分: 親から除外された商品を自動表示
-  // 「除外された商品」= excluded set に入っている + 親区分に元々属していた商品
-  for (const cc of customCategories) {
-    if (!grouped.has(cc.name)) grouped.set(cc.name, []);
-    // 親区分から除外された商品をこのカスタム区分に表示
-    const parentItems = grouped.get(cc.parentCategory) ?? [];
-    const excludedFromParent = parentItems.filter(p => excluded.has(p.productCode));
-    // 既にオーバーライドで移動済みの商品は除く（二重表示防止）
-    const alreadyInCustom = new Set((grouped.get(cc.name) ?? []).map(p => p.productCode));
-    for (const p of excludedFromParent) {
-      if (!alreadyInCustom.has(p.productCode)) {
-        grouped.get(cc.name)!.push(p);
-      }
+  // 親から除外された商品のうち、どの子区分にも入っていないものを「未割当」として集める
+  // （子区分に入っている = overridesでその子区分に振られている）
+  const unassigned = new Map<string, BrewingProductDetail[]>(); // parent → products
+  for (const [parentCat, children] of childCatsOf) {
+    const parentItems = grouped.get(parentCat) ?? [];
+    const childProductCodes = new Set<string>();
+    for (const cc of children) {
+      for (const p of grouped.get(cc.name) ?? []) childProductCodes.add(p.productCode);
     }
+    const orphans = parentItems.filter(p => excluded.has(p.productCode) && !childProductCodes.has(p.productCode));
+    if (orphans.length > 0) unassigned.set(parentCat, orphans);
   }
 
   const sections = allCategories
@@ -481,15 +481,18 @@ function buildProductDetail(
       const monthlyMl = included.reduce((s, p) => s + p.monthlyAvgMl, 0);
       const excludedCount = isCustom ? 0 : items.filter(p => excluded.has(p.productCode)).length;
 
+      // 同じ親を持つ兄弟カスタム区分（移動先候補）
+      const siblingCats = isCustom
+        ? (childCatsOf.get(parentCat) ?? []).filter(c => c.name !== cat).map(c => c.name)
+        : [];
+
       const rows = items.map(p => {
         const isExcluded = !isCustom && excluded.has(p.productCode);
-        // 子区分がある親カテゴリでは、外した先を示す
-        const childNames = (childCatsOf.get(cat) ?? []).map(c => c.name);
         return `
           <tr style="${isExcluded ? "opacity:0.4;" : ""}">
             <td style="width:32px;text-align:center;">
               ${isCustom
-                ? `<button data-action="brew-return-to-parent" data-code="${p.productCode}" data-parent="${parentCat}"
+                ? `<button data-action="brew-return-to-parent" data-code="${p.productCode}" data-parent="${parentCat}" data-from="${cat}"
                     style="border:none;background:none;cursor:pointer;font-size:14px;padding:0;" title="親区分に戻す">↩</button>`
                 : `<input type="checkbox" data-action="brew-product-toggle" data-code="${p.productCode}"
                     ${isExcluded ? "" : "checked"} style="cursor:pointer;" />`
@@ -499,6 +502,15 @@ function buildProductDetail(
             <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
             <td style="text-align:right;">${fmtL(p.annualMl)}</td>
             <td style="text-align:right;">${fmtL(p.monthlyAvgMl)}</td>
+            ${isCustom && siblingCats.length > 0 ? `
+              <td>
+                <select data-action="brew-move-to-sibling" data-code="${p.productCode}" data-from="${cat}"
+                  style="font-size:10px;padding:2px;border:1px solid var(--border);border-radius:4px;">
+                  <option value="">移動</option>
+                  ${siblingCats.map(s => `<option value="${s}">${s}</option>`).join("")}
+                </select>
+              </td>
+            ` : ""}
           </tr>
         `;
       }).join("");
@@ -513,20 +525,21 @@ function buildProductDetail(
               title="この区分を削除">削除</button>` : ""}
             <span style="font-size:12px;color:var(--text-secondary);">
               ${included.length}銘柄 ・ 年間${fmtL(totalMl)}L ・ 月平均${fmtL(monthlyMl)}L
-              ${!isCustom && excludedCount > 0 ? `<span style="color:#b7791f;">（${excludedCount}品を子区分へ）</span>` : ""}
+              ${!isCustom && excludedCount > 0 ? `<span style="color:#b7791f;">（${excludedCount}品除外中）</span>` : ""}
             </span>
           </div>
-          ${hasChildren && !isCustom ? `<div style="font-size:10px;color:var(--text-secondary);margin-bottom:6px;">チェックを外すと子区分に移動します</div>` : ""}
+          ${hasChildren && !isCustom ? `<div style="font-size:10px;color:var(--text-secondary);margin-bottom:6px;">チェックを外すと未割当に → そこから子区分に振り分け</div>` : ""}
           ${items.length > 0 ? `
             <div class="table-wrap">
               <table class="data-table" style="font-size:12px;">
                 <thead>
                   <tr>
-                    <th style="width:32px;">${isCustom ? "" : ""}</th>
+                    <th style="width:32px;"></th>
                     <th>銘柄</th>
                     <th>種別</th>
                     <th style="text-align:right;">年間(L)</th>
                     <th style="text-align:right;">月平均(L)</th>
+                    ${isCustom && siblingCats.length > 0 ? "<th></th>" : ""}
                   </tr>
                 </thead>
                 <tbody>${rows}</tbody>
@@ -537,21 +550,62 @@ function buildProductDetail(
                     <td></td>
                     <td style="text-align:right;">${fmtL(totalMl)}</td>
                     <td style="text-align:right;">${fmtL(monthlyMl)}</td>
+                    ${isCustom && siblingCats.length > 0 ? "<td></td>" : ""}
                   </tr>
                 </tfoot>
               </table>
             </div>
-          ` : `<p style="color:var(--text-secondary);font-size:12px;padding:8px;">親区分からチェックを外すと、ここに表示されます</p>`}
+          ` : `<p style="color:var(--text-secondary);font-size:12px;padding:8px;">${isCustom ? "未割当から商品を振り分けてください" : ""}</p>`}
         </div>
       `;
     }).join("");
+
+  // 未割当セクション（親から外されたがどの子にも入っていない商品）
+  const unassignedSections = [...unassigned.entries()].map(([parentCat, items]) => {
+    const children = childCatsOf.get(parentCat) ?? [];
+    if (children.length === 0 || items.length === 0) return "";
+    const totalMl = items.reduce((s, p) => s + p.annualMl, 0);
+    const childOptions = children.map(c => `<option value="${c.name}">${c.name}</option>`).join("");
+    const rows = items.map(p => `
+      <tr>
+        <td style="white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis;" title="${p.productName}">${p.productName}</td>
+        <td style="font-size:11px;color:var(--text-secondary);">${p.subCategory}</td>
+        <td style="text-align:right;">${fmtL(p.annualMl)}</td>
+        <td>
+          <select data-action="brew-assign-orphan" data-code="${p.productCode}" data-parent="${parentCat}"
+            style="font-size:11px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;">
+            <option value="">振り分け先</option>
+            ${childOptions}
+          </select>
+        </td>
+        <td style="width:32px;">
+          <button data-action="brew-return-to-parent" data-code="${p.productCode}" data-parent="${parentCat}" data-from=""
+            style="border:none;background:none;cursor:pointer;font-size:14px;padding:0;" title="親に戻す">↩</button>
+        </td>
+      </tr>
+    `).join("");
+    return `
+      <div style="margin-bottom:16px;border:2px dashed #b7791f;border-radius:8px;padding:12px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+          <span style="font-size:13px;font-weight:600;color:#b7791f;">未割当（${parentCat}系）</span>
+          <span style="font-size:11px;color:var(--text-secondary);">${items.length}品 ・ ${fmtL(totalMl)}L</span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" style="font-size:12px;">
+            <thead><tr><th>銘柄</th><th>種別</th><th style="text-align:right;">年間(L)</th><th>振り分け</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }).join("");
 
   return `
     <div class="card" style="margin-bottom:16px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
         <div>
           <h3 style="font-size:14px;margin:0;">製成種別 × 銘柄明細</h3>
-          <p style="font-size:11px;color:var(--text-secondary);margin:4px 0 0;">チェックで除外、ドロップダウンで別区分に移動できます</p>
+          <p style="font-size:11px;color:var(--text-secondary);margin:4px 0 0;">親区分から外す → 未割当 → 子区分に振り分け</p>
         </div>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
           <select id="brew-new-category-parent" style="font-size:12px;padding:4px;border:1px solid var(--border);border-radius:4px;">
@@ -564,6 +618,7 @@ function buildProductDetail(
             style="font-size:12px;padding:4px 12px;">追加</button>
         </div>
       </div>
+      ${unassignedSections}
       ${sections}
     </div>
   `;
