@@ -486,16 +486,19 @@ function buildForecastSection(
     // 10月時点の予想在庫
     const projectedStockOct = Math.max(0, effectiveStockNow - Math.round(remainingShipL));
 
-    // 翌年度の出荷予測（手動上書きがあればそちらを優先）
-    const autoForecastL = Math.round(baseAnnual * (1 + growthRate));
+    // 増減率（手動上書きがあればそちらを優先）
     const hasOverride = cat in forecastOverrides;
-    const forecastL = hasOverride ? forecastOverrides[cat] : autoForecastL;
+    const effectiveGrowth = hasOverride ? forecastOverrides[cat] : growthRate;
+    const effectiveGrowthPct = Math.round(effectiveGrowth * 100);
+
+    // 翌年度の出荷予測
+    const forecastL = Math.round(baseAnnual * (1 + effectiveGrowth));
 
     // 必要醸造量
     const needL = Math.max(0, forecastL - projectedStockOct);
 
-    const growthPct = Math.round(growthRate * 100);
-    const growthColor = growthPct > 0 ? "#22c55e" : growthPct < 0 ? "#ef4444" : "#6b7280";
+    const growthColor = effectiveGrowthPct > 0 ? "#22c55e" : effectiveGrowthPct < 0 ? "#ef4444" : "#6b7280";
+    const autoGrowthPct = Math.round(growthRate * 100);
 
     const currentFYAnnualized = data.get(currentFYStart)?.annualL ?? 0;
 
@@ -504,16 +507,17 @@ function buildForecastSection(
         <td style="color:${color};font-weight:600;white-space:nowrap;">${cat}</td>
         ${completedFYs.map(fy => `<td style="text-align:right;">${data.has(fy) ? fmtNum(Math.round(data.get(fy)!.shipL)) : "—"}</td>`).join("")}
         ${currentFYData ? `<td style="text-align:right;color:var(--text-secondary);" title="年換算">${fmtNum(Math.round(currentFYAnnualized))}*</td>` : ""}
-        <td style="text-align:right;color:${growthColor};">${completedVals.length >= 2 ? `${growthPct >= 0 ? "+" : ""}${growthPct}%` : "—"}</td>
+        <td style="text-align:right;">
+          <input type="number" step="1" value="${effectiveGrowthPct}"
+            data-action="brew-growth-edit" data-cat="${cat}"
+            style="width:52px;height:24px;font-size:11px;text-align:right;border:1px solid ${hasOverride ? "#2563eb" : "var(--border)"};border-radius:3px;padding:0 2px;
+              color:${growthColor};font-weight:600;${hasOverride ? "background:rgba(37,99,235,0.06);" : ""}"
+            title="${hasOverride ? `手動設定（自動: ${completedVals.length >= 2 ? autoGrowthPct + "%" : "—"}）` : "自動算出"}" />%
+        </td>
         <td style="text-align:right;">${fmtNum(effectiveStockNow)}</td>
         <td style="text-align:right;color:var(--text-secondary);">-${fmtNum(Math.round(remainingShipL))}</td>
         <td style="text-align:right;font-weight:600;">${fmtNum(projectedStockOct)}</td>
-        <td style="text-align:right;">
-          <input type="number" min="0" step="100" value="${forecastL}"
-            data-action="brew-forecast-edit" data-cat="${cat}"
-            style="width:70px;height:24px;font-size:11px;text-align:right;border:1px solid ${hasOverride ? "#2563eb" : "var(--border)"};border-radius:3px;padding:0 4px;
-              ${hasOverride ? "background:rgba(37,99,235,0.06);font-weight:600;" : ""}" />
-        </td>
+        <td style="text-align:right;">${fmtNum(forecastL)}</td>
         <td style="text-align:right;color:${needL > 0 ? "#ef4444" : "#22c55e"};font-weight:700;">${needL > 0 ? fmtNum(needL) : "余裕"}</td>
       </tr>
     `;
@@ -538,8 +542,8 @@ function buildForecastSection(
     const effNow = Math.round(stk * dil);
     const rem = remainingMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
     const projOct = Math.max(0, effNow - Math.round(rem));
-    const autoFc = Math.round(base * (1 + gr));
-    const fc = (cat in forecastOverrides) ? forecastOverrides[cat] : autoFc;
+    const effGr = (cat in forecastOverrides) ? forecastOverrides[cat] : gr;
+    const fc = Math.round(base * (1 + effGr));
     totalStockNow += effNow;
     totalRemaining += Math.round(rem);
     totalProjectedOct += projOct;

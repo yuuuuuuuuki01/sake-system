@@ -1516,16 +1516,16 @@ export async function fetchBrewingForecastOverrides(): Promise<Record<string, nu
   const map: Record<string, number> = {};
   for (const r of rows ?? []) {
     const cat = getString(r, ["brew_category"], "");
-    const val = getNumber(r, ["forecast_l"], 0);
-    if (cat && val > 0) map[cat] = val;
+    const val = getNumber(r, ["growth_rate"], NaN);
+    if (cat && !isNaN(val)) map[cat] = val;
   }
   return map;
 }
 
-export async function saveBrewingForecastOverride(brewCategory: string, forecastL: number | null): Promise<boolean> {
+export async function saveBrewingForecastOverride(brewCategory: string, growthRate: number | null): Promise<boolean> {
   const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
   if (!SUPABASE_ANON_KEY) return false;
-  if (forecastL === null || forecastL <= 0) {
+  if (growthRate === null) {
     const resp = await fetch(
       `${SUPABASE_URL}/rest/v1/brewing_forecast_overrides?brew_category=eq.${encodeURIComponent(brewCategory)}`,
       { method: "DELETE", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
@@ -1538,7 +1538,7 @@ export async function saveBrewingForecastOverride(brewCategory: string, forecast
       apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
     },
-    body: JSON.stringify({ brew_category: brewCategory, forecast_l: forecastL, updated_at: new Date().toISOString() })
+    body: JSON.stringify({ brew_category: brewCategory, growth_rate: growthRate, updated_at: new Date().toISOString() })
   });
   return resp.ok;
 }

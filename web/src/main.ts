@@ -6140,20 +6140,20 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // 醸造計画: 予測値の手動補正
-  root.querySelectorAll<HTMLInputElement>("[data-action='brew-forecast-edit']").forEach((input) => {
+  // 醸造計画: 増減率の手動補正
+  root.querySelectorAll<HTMLInputElement>("[data-action='brew-growth-edit']").forEach((input) => {
     input.addEventListener("change", async () => {
       const cat = input.dataset.cat ?? "";
-      const val = parseFloat(input.value);
+      const pct = parseFloat(input.value);
       if (!cat) return;
       const { saveBrewingForecastOverride } = await import("./api");
-      if (isNaN(val) || val <= 0) {
-        // 空 or 0 → オーバーライド削除（自動計算に戻す）
+      if (isNaN(pct)) {
         await saveBrewingForecastOverride(cat, null);
         delete state.brewingForecastOverrides[cat];
       } else {
-        await saveBrewingForecastOverride(cat, val);
-        state.brewingForecastOverrides[cat] = val;
+        const rate = pct / 100;
+        await saveBrewingForecastOverride(cat, rate);
+        state.brewingForecastOverrides[cat] = rate;
       }
       renderApp();
     });
