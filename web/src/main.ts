@@ -6050,15 +6050,43 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
-  // 醸造計画: 銘柄の除外/復帰トグル
-  root.querySelectorAll<HTMLInputElement>("[data-action='brew-product-toggle']").forEach((cb) => {
-    cb.addEventListener("change", () => {
+  // 醸造計画: 子区分でチェックON → 確定（オーバーライド作成）
+  root.querySelectorAll<HTMLInputElement>("[data-action='brew-confirm-to-child']").forEach((cb) => {
+    cb.addEventListener("change", async () => {
       const code = cb.dataset.code ?? "";
-      if (cb.checked) {
-        state.brewingExcludedProducts.delete(code);
-      } else {
-        state.brewingExcludedProducts.add(code);
-      }
+      const cat = cb.dataset.cat ?? "";
+      if (!code || !cat) return;
+      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
+      await setBrewingCategoryOverride(code, cat);
+      const fy = state.brewingPlanFY;
+      const [summary, products, overrides] = await Promise.all([
+        fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+        fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
+        fetchBrewingCategoryOverrides()
+      ]);
+      state.brewingPlanData = summary;
+      state.brewingProductDetail = products;
+      state.brewingOverrides = overrides;
+      renderApp();
+    });
+  });
+
+  // 醸造計画: 子区分でチェックOFF → 親に戻す（オーバーライド削除）
+  root.querySelectorAll<HTMLInputElement>("[data-action='brew-unconfirm']").forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      const code = cb.dataset.code ?? "";
+      if (!code) return;
+      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
+      await setBrewingCategoryOverride(code, null);
+      const fy = state.brewingPlanFY;
+      const [summary, products, overrides] = await Promise.all([
+        fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
+        fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
+        fetchBrewingCategoryOverrides()
+      ]);
+      state.brewingPlanData = summary;
+      state.brewingProductDetail = products;
+      state.brewingOverrides = overrides;
       renderApp();
     });
   });
@@ -6077,72 +6105,6 @@ function bindEvents(root: HTMLElement): void {
       if (ok) {
         state.brewingAlcoholSettings[cat] = { brewCategory: cat, rawAlcoholPct: rawPct, targetAlcoholPct: targetPct };
       }
-      renderApp();
-    });
-  });
-
-  // 醸造計画: ↩で親区分に戻す（excludedから外す + オーバーライドがあれば削除）
-  root.querySelectorAll<HTMLButtonElement>("[data-action='brew-return-to-parent']").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const code = btn.dataset.code ?? "";
-      const from = btn.dataset.from ?? "";
-      state.brewingExcludedProducts.delete(code);
-      // オーバーライドがあれば削除
-      if (code in state.brewingOverrides) {
-        const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
-        await setBrewingCategoryOverride(code, null);
-        const fy = state.brewingPlanFY;
-        const [summary, products, overrides] = await Promise.all([
-          fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
-          fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
-          fetchBrewingCategoryOverrides()
-        ]);
-        state.brewingPlanData = summary;
-        state.brewingProductDetail = products;
-        state.brewingOverrides = overrides;
-      }
-      renderApp();
-    });
-  });
-
-  // 醸造計画: 未割当→子区分に振り分け
-  root.querySelectorAll<HTMLSelectElement>("[data-action='brew-assign-orphan']").forEach((sel) => {
-    sel.addEventListener("change", async () => {
-      const code = sel.dataset.code ?? "";
-      const targetCat = sel.value;
-      if (!code || !targetCat) return;
-      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
-      await setBrewingCategoryOverride(code, targetCat);
-      const fy = state.brewingPlanFY;
-      const [summary, products, overrides] = await Promise.all([
-        fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
-        fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
-        fetchBrewingCategoryOverrides()
-      ]);
-      state.brewingPlanData = summary;
-      state.brewingProductDetail = products;
-      state.brewingOverrides = overrides;
-      renderApp();
-    });
-  });
-
-  // 醸造計画: 子区分間で移動
-  root.querySelectorAll<HTMLSelectElement>("[data-action='brew-move-to-sibling']").forEach((sel) => {
-    sel.addEventListener("change", async () => {
-      const code = sel.dataset.code ?? "";
-      const targetCat = sel.value;
-      if (!code || !targetCat) return;
-      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
-      await setBrewingCategoryOverride(code, targetCat);
-      const fy = state.brewingPlanFY;
-      const [summary, products, overrides] = await Promise.all([
-        fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
-        fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
-        fetchBrewingCategoryOverrides()
-      ]);
-      state.brewingPlanData = summary;
-      state.brewingProductDetail = products;
-      state.brewingOverrides = overrides;
       renderApp();
     });
   });
