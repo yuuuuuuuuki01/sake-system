@@ -636,6 +636,7 @@ interface AppState {
   brewingAlcoholSettings: Record<string, import("./api").BrewingAlcoholSetting>;
   brewingYearlyShipments: import("./api").BrewingYearlyShipment[];
   brewingSeasonalPattern: import("./api").BrewingSeasonalPattern[];
+  brewingForecastOverrides: Record<string, number>;
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -960,6 +961,7 @@ const state: AppState = {
   brewingAlcoholSettings: {} as Record<string, import("./api").BrewingAlcoholSetting>,
   brewingYearlyShipments: [] as import("./api").BrewingYearlyShipment[],
   brewingSeasonalPattern: [] as import("./api").BrewingSeasonalPattern[],
+  brewingForecastOverrides: {} as Record<string, number>,
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1583,11 +1585,11 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-plan": {
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments, fetchBrewingSeasonalPattern } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments, fetchBrewingSeasonalPattern, fetchBrewingForecastOverrides } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal] = await Promise.all([
+        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal, forecastOvr] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd),
           fetchBrewingMonthlyTrend(fyStart, fyEnd),
           fetchBrewingSchedule(fy),
@@ -1599,7 +1601,8 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           fetchAvailableProductionTypes(),
           fetchBrewingAlcoholSettings(),
           fetchBrewingYearlyShipments(),
-          fetchBrewingSeasonalPattern()
+          fetchBrewingSeasonalPattern(),
+          fetchBrewingForecastOverrides()
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
@@ -1612,6 +1615,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.brewingAvailableTypes = availTypes;
         state.brewingYearlyShipments = yearlyShipments;
         state.brewingSeasonalPattern = seasonal;
+        state.brewingForecastOverrides = forecastOvr;
         state.brewingAlcoholSettings = alcSettings;
         break;
       }
@@ -1909,7 +1913,7 @@ function renderView(): string {
         state.calendarCapacity
       );
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries, state.brewingAlcoholSettings, state.brewingYearlyShipments, state.brewingSeasonalPattern);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries, state.brewingAlcoholSettings, state.brewingYearlyShipments, state.brewingSeasonalPattern, state.brewingForecastOverrides);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -6132,6 +6136,25 @@ function bindEvents(root: HTMLElement): void {
       state.brewingPlanData = summary;
       state.brewingProductDetail = products;
       state.brewingOverrides = overrides;
+      renderApp();
+    });
+  });
+
+  // 醸造計画: 予測値の手動補正
+  root.querySelectorAll<HTMLInputElement>("[data-action='brew-forecast-edit']").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const cat = input.dataset.cat ?? "";
+      const val = parseFloat(input.value);
+      if (!cat) return;
+      const { saveBrewingForecastOverride } = await import("./api");
+      if (isNaN(val) || val <= 0) {
+        // 空 or 0 → オーバーライド削除（自動計算に戻す）
+        await saveBrewingForecastOverride(cat, null);
+        delete state.brewingForecastOverrides[cat];
+      } else {
+        await saveBrewingForecastOverride(cat, val);
+        state.brewingForecastOverrides[cat] = val;
+      }
       renderApp();
     });
   });

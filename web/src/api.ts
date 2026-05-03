@@ -1509,6 +1509,40 @@ export async function fetchBrewingYearlyShipments(): Promise<BrewingYearlyShipme
   }));
 }
 
+// ─── 醸造予測の手動上書き ─────────────────────────────────────────────────────
+
+export async function fetchBrewingForecastOverrides(): Promise<Record<string, number>> {
+  const rows = await supabaseQuery<LooseRow>("brewing_forecast_overrides", {});
+  const map: Record<string, number> = {};
+  for (const r of rows ?? []) {
+    const cat = getString(r, ["brew_category"], "");
+    const val = getNumber(r, ["forecast_l"], 0);
+    if (cat && val > 0) map[cat] = val;
+  }
+  return map;
+}
+
+export async function saveBrewingForecastOverride(brewCategory: string, forecastL: number | null): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  if (forecastL === null || forecastL <= 0) {
+    const resp = await fetch(
+      `${SUPABASE_URL}/rest/v1/brewing_forecast_overrides?brew_category=eq.${encodeURIComponent(brewCategory)}`,
+      { method: "DELETE", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+    );
+    return resp.ok;
+  }
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/brewing_forecast_overrides`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify({ brew_category: brewCategory, forecast_l: forecastL, updated_at: new Date().toISOString() })
+  });
+  return resp.ok;
+}
+
 export interface BrewingSeasonalPattern {
   brewCategory: string;
   monthNum: number;
