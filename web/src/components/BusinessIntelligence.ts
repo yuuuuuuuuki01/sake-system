@@ -250,7 +250,7 @@ export function renderProductPower(
   `;
 }
 
-export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortState: SortState = [], selectedYear: number = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1): string {
+export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortState: SortState = [], selectedYear: number = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1, groupBy: 'billing' | 'delivery' = 'billing'): string {
   const aCount = customers.filter((c) => c.currentRank === "A").length;
   const upgraded = customers.filter((c) => c.prevRank && c.currentRank < c.prevRank).length;
   const downgraded = customers.filter((c) => c.prevRank && c.currentRank > c.prevRank).length;
@@ -261,7 +261,7 @@ export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortSt
   for (let y = currentFY; y >= firstFY && recentYears.length < 6; y--) recentYears.push(y);
 
   const yearSelector = `
-    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:16px;">
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px;">
       <span style="font-size:13px;color:var(--text-secondary);margin-right:4px;">年度：</span>
       ${recentYears.map((y) => `
         <button class="button ${y === selectedYear ? "primary" : "secondary"} small"
@@ -279,7 +279,20 @@ export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortSt
           .join("")}
       </select>
     </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:16px;">
+      <span style="font-size:13px;color:var(--text-secondary);margin-right:4px;">表示単位：</span>
+      <button class="button ${groupBy === 'billing' ? "primary" : "secondary"} small"
+        data-action="efficiency-groupby-change" data-groupby="billing">
+        得意先単位
+      </button>
+      <button class="button ${groupBy === 'delivery' ? "primary" : "secondary"} small"
+        data-action="efficiency-groupby-change" data-groupby="delivery">
+        店舗（納品先）単位
+      </button>
+    </div>
   `;
+
+  const groupLabel = groupBy === 'billing' ? '得意先' : '店舗（納品先）';
 
   return `
     <section class="page-head">
@@ -292,20 +305,20 @@ export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortSt
     <section class="kpi-grid compact">
       <article class="panel kpi-card" style="border-left:4px solid #2f855a;">
         <p class="panel-title">Aランク（売上70%）</p>
-        <p class="kpi-value">${aCount} 社</p>
+        <p class="kpi-value">${aCount} ${groupBy === 'billing' ? '社' : '店舗'}</p>
       </article>
       <article class="panel kpi-card" style="border-left:4px solid #2b6cb0;">
         <p class="panel-title">ランクアップ</p>
-        <p class="kpi-value">${upgraded} 社</p>
+        <p class="kpi-value">${upgraded} ${groupBy === 'billing' ? '社' : '店舗'}</p>
       </article>
       <article class="panel kpi-card" style="border-left:4px solid #c53d3d;">
         <p class="panel-title">ランクダウン</p>
-        <p class="kpi-value">${downgraded} 社</p>
+        <p class="kpi-value">${downgraded} ${groupBy === 'billing' ? '社' : '店舗'}</p>
       </article>
     </section>
 
     <section class="panel">
-      <div class="panel-header"><h2>得意先ABC分析（${selectedYear}年度・4月〜翌3月）</h2></div>
+      <div class="panel-header"><h2>${groupLabel}ABC分析（${selectedYear}年度・4月〜翌3月）</h2></div>
       ${yearSelector}
       <div class="table-wrap">
         <table>

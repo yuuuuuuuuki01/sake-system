@@ -1,4 +1,4 @@
-CREATE OR REPLACE FUNCTION get_customer_efficiency(p_fiscal_year int DEFAULT NULL)
+CREATE OR REPLACE FUNCTION get_customer_efficiency(p_fiscal_year int DEFAULT NULL, p_group_by text DEFAULT 'billing')
 RETURNS TABLE(
   legacy_customer_code text,
   customer_name text,
@@ -29,7 +29,11 @@ WITH
   ),
   base AS (
     SELECT
-      COALESCE(NULLIF(c.billing_code,''), dsf.legacy_customer_code) AS eff_code,
+      CASE
+        WHEN p_group_by = 'billing'
+          THEN COALESCE(NULLIF(c.billing_code,''), dsf.legacy_customer_code)
+        ELSE dsf.legacy_customer_code
+      END AS eff_code,
       SUM(CASE WHEN dsf.sales_date BETWEEN d.y_start AND d.y_end THEN dsf.sales_amount ELSE 0 END) AS year_amount,
       COUNT(DISTINCT CASE WHEN dsf.sales_date BETWEEN d.y_start AND d.y_end THEN dsf.sales_date ELSE NULL END)::int AS order_days,
       SUM(CASE WHEN dsf.sales_date BETWEEN d.p_start AND d.p_end THEN dsf.sales_amount ELSE 0 END) AS prev_amount

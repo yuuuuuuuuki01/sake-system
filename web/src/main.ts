@@ -628,7 +628,7 @@ interface AppState {
   brewingSchedule: import("./api").BrewingScheduleRow[];
   brewingProductDetail: import("./api").BrewingProductDetail[];
   brewingExcludedProducts: Set<string>;
-  brewingCustomCategories: string[];
+  brewingCustomCategories: import("./api").BrewingCustomCategory[];
   brewingOverrides: Record<string, string>;
   brewingStockEntries: import("./api").BrewingStockEntry[];
   brewingTypeLinks: Record<string, string[]>;
@@ -949,7 +949,7 @@ const state: AppState = {
   brewingSchedule: [] as import("./api").BrewingScheduleRow[],
   brewingProductDetail: [] as import("./api").BrewingProductDetail[],
   brewingExcludedProducts: new Set<string>(),
-  brewingCustomCategories: [] as string[],
+  brewingCustomCategories: [] as import("./api").BrewingCustomCategory[],
   brewingOverrides: {} as Record<string, string>,
   brewingStockEntries: [] as import("./api").BrewingStockEntry[],
   brewingTypeLinks: {} as Record<string, string[]>,
@@ -6106,20 +6106,22 @@ function bindEvents(root: HTMLElement): void {
   // 醸造計画: カスタム区分の追加
   root.querySelector<HTMLButtonElement>("[data-action='brew-add-category']")?.addEventListener("click", async () => {
     const input = root.querySelector<HTMLInputElement>("#brew-new-category-name");
+    const parentSelect = root.querySelector<HTMLSelectElement>("#brew-new-category-parent");
     const name = input?.value.trim() ?? "";
+    const parent = parentSelect?.value ?? "";
     if (!name) return;
-    // 重複チェック（既存 + カスタム）
-    const allCats = [...["純米大吟醸","大吟醸","純米吟醸","純米","本醸造","普通酒","リキュール","その他"], ...state.brewingCustomCategories];
-    if (allCats.includes(name)) {
+    if (!parent) { showToast("親区分を選択してください", "warning"); return; }
+    const allCatNames = [...["純米大吟醸","大吟醸","純米吟醸","純米","本醸造","普通酒","リキュール","その他"], ...state.brewingCustomCategories.map(c => c.name)];
+    if (allCatNames.includes(name)) {
       showToast("同名の区分が既に存在します", "warning");
       return;
     }
     const { addBrewingCustomCategory } = await import("./api");
-    const ok = await addBrewingCustomCategory(name);
+    const ok = await addBrewingCustomCategory(name, parent);
     if (ok) {
-      state.brewingCustomCategories.push(name);
+      state.brewingCustomCategories.push({ name, parentCategory: parent });
       if (input) input.value = "";
-      showToast(`「${name}」を追加しました`);
+      showToast(`「${name}」を追加しました（${parent}系）`);
     } else {
       showToast("追加に失敗しました", "error");
     }
@@ -6134,7 +6136,7 @@ function bindEvents(root: HTMLElement): void {
       const { deleteBrewingCustomCategory, fetchBrewingPlanSummary, fetchBrewingProductDetail } = await import("./api");
       const ok = await deleteBrewingCustomCategory(name);
       if (ok) {
-        state.brewingCustomCategories = state.brewingCustomCategories.filter(c => c !== name);
+        state.brewingCustomCategories = state.brewingCustomCategories.filter(c => c.name !== name);
         // オーバーライドも消えているのでstate反映
         for (const [code, cat] of Object.entries(state.brewingOverrides)) {
           if (cat === name) delete state.brewingOverrides[code];

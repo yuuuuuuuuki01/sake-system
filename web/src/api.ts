@@ -1502,17 +1502,35 @@ export async function deleteBrewingStockEntry(id: string): Promise<boolean> {
 }
 
 // カスタム醸造区分の取得
-export async function fetchBrewingCustomCategories(): Promise<string[]> {
+export interface BrewingCustomCategory {
+  name: string;
+  parentCategory: string;
+}
+
+export async function fetchBrewingCustomCategories(): Promise<BrewingCustomCategory[]> {
   const rows = await supabaseQuery<LooseRow>("brewing_custom_categories", {
     order: "sort_order.asc,name.asc"
   });
-  return (rows ?? []).map(r => getString(r, ["name"], ""));
+  return (rows ?? []).map(r => ({
+    name: getString(r, ["name"], ""),
+    parentCategory: getString(r, ["parent_category"], "")
+  })).filter(r => r.name);
 }
 
-// カスタム醸造区分の追加
-export async function addBrewingCustomCategory(name: string): Promise<boolean> {
-  const result = await supabaseInsert("brewing_custom_categories", { name });
+// カスタム醸造区分の追加（親区分を指定）
+export async function addBrewingCustomCategory(name: string, parentCategory: string): Promise<boolean> {
+  const result = await supabaseInsert("brewing_custom_categories", { name, parent_category: parentCategory });
   return result !== null;
+}
+
+// 指定区分に属する製成種別を取得
+export async function fetchTypesInCategory(brewCategory: string): Promise<Array<{ name: string; count: number }>> {
+  const result = await supabaseRpc<LooseRow[]>("get_types_in_brew_category", { p_brew_category: brewCategory });
+  if (!result) return [];
+  return result.map(r => ({
+    name: getString(r, ["production_type_name"], ""),
+    count: getNumber(r, ["product_count"], 0)
+  })).filter(r => r.name);
 }
 
 // カスタム醸造区分の削除（紐づく銘柄のオーバーライドも消す）

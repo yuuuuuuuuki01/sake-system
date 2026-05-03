@@ -25,6 +25,8 @@ export interface QuoteState {
   customerCode: string;
   customerName: string;
   customerAddress: string;
+  isProspect?: boolean;   // true = 見込み顧客（統計に影響しない）
+  prospectId?: string;    // prospects.id との紐付け
   subject: string;
   lines: QuoteLine[];
   remarks: string;
@@ -470,6 +472,7 @@ export function renderQuoteBuilder(
 
     <section class="panel">
       <div class="panel-header"><h2>得意先</h2></div>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;font-weight:600;">既存得意先</p>
       <div class="form-row">
         <input type="text" id="q-cust-search" value="${esc(customerQuery)}" placeholder="得意先名またはコードで検索" />
       </div>
@@ -477,7 +480,17 @@ export function renderQuoteBuilder(
         <button class="search-item" type="button" data-select-customer="${c.code}" data-cust-name="${esc(c.name)}" data-cust-addr="${esc(c.address1 || "")}">
           <span class="mono">${c.code}</span> ${esc(c.name)}
         </button>`).join("")}</div>` : ""}
-      ${quote.customerName ? `<div class="selected-item"><span class="mono">${esc(quote.customerCode)}</span> <strong>${esc(quote.customerName)}</strong>${quote.customerAddress ? `<br/><span style="color:var(--text-secondary);font-size:13px;">${esc(quote.customerAddress)}</span>` : ""}</div>` : ""}
+      ${quote.customerName && !quote.isProspect ? `<div class="selected-item"><span class="mono">${esc(quote.customerCode)}</span> <strong>${esc(quote.customerName)}</strong>${quote.customerAddress ? `<br/><span style="color:var(--text-secondary);font-size:13px;">${esc(quote.customerAddress)}</span>` : ""}</div>` : ""}
+
+      <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);">
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;font-weight:600;">見込み顧客から選択</p>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="text" id="q-prospect-search" placeholder="見込み顧客名で検索…" style="flex:1;" />
+          <button type="button" class="button secondary small" data-action="new-prospect-from-quote">＋ 新規登録</button>
+        </div>
+        <div id="q-prospect-results"></div>
+        ${quote.customerName && quote.isProspect ? `<div class="selected-item" style="border-left:3px solid #48bb78;"><span style="font-size:11px;background:#48bb78;color:white;border-radius:3px;padding:1px 5px;margin-right:6px;">見込</span> <strong>${esc(quote.customerName)}</strong>${quote.customerAddress ? `<br/><span style="color:var(--text-secondary);font-size:13px;">${esc(quote.customerAddress)}</span>` : ""}</div>` : ""}
+      </div>
     </section>
 
     <section class="panel">

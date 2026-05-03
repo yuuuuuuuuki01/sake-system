@@ -85,6 +85,12 @@ function renderKanban(prospects: Prospect[]): string {
                 <div class="pk-card-amount">¥${p.expectedAmount.toLocaleString("ja-JP")} <span style="color:var(--text-secondary);">(${p.probability}%)</span></div>
                 ${p.nextAction ? `<div class="pk-card-action">🎯 ${p.nextAction}${p.nextActionDate ? " (" + p.nextActionDate + ")" : ""}</div>` : ""}
                 ${p.assignedStaffCode ? `<div class="pk-card-staff">👤 ${p.assignedStaffCode}</div>` : ""}
+                <div style="margin-top:6px;" onclick="event.stopPropagation()">
+                  <button class="button-sm secondary" data-action="prospect-quote-create"
+                    data-id="${p.id}" data-name="${p.companyName.replace(/"/g,'&quot;')}"
+                    data-addr="${(p.address ?? "").replace(/"/g,'&quot;')}"
+                    style="font-size:11px;padding:2px 8px;">見積作成</button>
+                </div>
               </div>
             `
                     )
@@ -135,8 +141,13 @@ function renderList(prospects: Prospect[]): string {
                 <td>${p.nextAction ?? "―"}${p.nextActionDate ? ` (${p.nextActionDate})` : ""}</td>
                 <td>${p.assignedStaffCode ?? "―"}</td>
                 <td>
-                  <button class="button-sm secondary" data-action="prospect-edit" data-id="${p.id}">編集</button>
-                  <button class="button-sm secondary" data-action="prospect-delete" data-id="${p.id}" style="color:var(--danger);">削除</button>
+                  <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+                    <button class="button-sm secondary" data-action="prospect-quote-create"
+                      data-id="${p.id}" data-name="${p.companyName.replace(/"/g,'&quot;')}"
+                      data-addr="${(p.address ?? "").replace(/"/g,'&quot;')}">見積作成</button>
+                    <button class="button-sm secondary" data-action="prospect-edit" data-id="${p.id}">編集</button>
+                    <button class="button-sm secondary" data-action="prospect-delete" data-id="${p.id}" style="color:var(--danger);">削除</button>
+                  </div>
                 </td>
               </tr>
             `
