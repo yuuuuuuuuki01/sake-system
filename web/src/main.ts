@@ -6233,6 +6233,24 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 調達計画: 新規区分追加（スケジュール経由）
+  root.querySelector<HTMLButtonElement>("[data-action='proc-add-new-cat']")?.addEventListener("click", async () => {
+    const nameInput = root.querySelector<HTMLInputElement>("#proc-new-cat-name");
+    const volInput = root.querySelector<HTMLInputElement>("#proc-new-cat-vol");
+    const name = nameInput?.value.trim() ?? "";
+    const vol = parseFloat(volInput?.value ?? "0");
+    if (!name) { showToast("区分名を入力してください", "warning"); return; }
+    if (vol <= 0) { showToast("醸造予定量を入力してください", "warning"); return; }
+    // スケジュールとして追加（10月に全量仕込みとして仮登録）
+    const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
+    await saveBrewingSchedule(name, state.brewingPlanFY, [{ brewMonth: 10, durationMonths: 2, plannedVolumeL: vol }]);
+    state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
+    if (nameInput) nameInput.value = "";
+    if (volInput) volInput.value = "";
+    showToast(`「${name}」を追加しました`);
+    renderApp();
+  });
+
   // 醸造計画: 米パラメータ一括適用
   root.querySelector<HTMLButtonElement>("[data-action='brew-rice-bulk-apply']")?.addEventListener("click", async () => {
     const perL = parseFloat((root.querySelector<HTMLInputElement>("#rice-bulk-per-l")?.value ?? "0.50"));

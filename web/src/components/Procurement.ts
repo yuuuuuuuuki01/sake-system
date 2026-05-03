@@ -20,7 +20,12 @@ export function renderProcurement(
   schedule: BrewingScheduleRow[] = [],
   fy: number = 2026
 ): string {
-  const allCats = Object.keys(needByCategory).filter(c => needByCategory[c] > 0);
+  // needByCategoryにある区分 + スケジュールだけ入っている区分（新規ブランド等）を統合
+  const catSet = new Set([
+    ...Object.keys(needByCategory).filter(c => needByCategory[c] > 0),
+    ...schedule.filter(s => s.plannedVolumeL > 0).map(s => s.brewCategory)
+  ]);
+  const allCats = [...catSet];
   if (allCats.length === 0) {
     return `<section class="panel"><p style="padding:24px;text-align:center;color:var(--text-secondary);">醸造計画の予測データがありません。先に醸造計画ページで在庫・予測を設定してください。</p></section>`;
   }
@@ -53,7 +58,7 @@ export function renderProcurement(
   const monthlyBrownKg: number[] = FY_MONTHS.map(() => 0);
 
   const sections = allCats.map(cat => {
-    const needL = needByCategory[cat];
+    const needL = needByCategory[cat] ?? 0;
     const p = riceParams[cat] ?? defaultP;
     const color = CATEGORY_COLORS[cat] ?? "#6366f1";
     const catSchedule = scheduleMap.get(cat) ?? [];
@@ -243,6 +248,18 @@ export function renderProcurement(
           <div style="font-size:12px;margin-top:6px;">玄米 <strong>${fmtNum(totalBrown)}kg</strong> <span style="color:var(--text-secondary);">(${Math.ceil(totalBrown/60)}俵)</span></div>
           <div style="font-size:22px;font-weight:700;margin-top:4px;">¥${fmtNum(totalCost)}<span style="font-size:13px;font-weight:400;margin-left:4px;">(${(totalCost/10000).toFixed(0)}万)</span></div>
         </div>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top:16px;">
+      <div class="panel-header"><h2>区分を追加</h2><p class="panel-caption">新しい銘柄・ブランドの醸造を追加</p></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input id="proc-new-cat-name" type="text" placeholder="区分名（例: 新ブランドA）"
+          style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;width:180px;" />
+        <input id="proc-new-cat-vol" type="number" min="0" step="100" placeholder="醸造予定(L)"
+          style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:4px;width:120px;text-align:right;" />
+        <button data-action="proc-add-new-cat" class="button primary"
+          style="font-size:12px;padding:6px 14px;">追加</button>
       </div>
     </section>
   `;
