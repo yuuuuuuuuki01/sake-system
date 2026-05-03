@@ -1543,6 +1543,56 @@ export async function saveBrewingForecastOverride(brewCategory: string, growthRa
   return resp.ok;
 }
 
+// ─── 米パラメータ ─────────────────────────────────────────────────────────────
+
+export interface BrewingRiceParams {
+  brewCategory: string;
+  polishingRatio: number;
+  ricePerLiterKg: number;
+  riceVariety: string;
+  ricePricePerKg: number;
+  kojiRatio: number;
+}
+
+export async function fetchBrewingRiceParams(): Promise<Record<string, BrewingRiceParams>> {
+  const rows = await supabaseQuery<LooseRow>("brewing_rice_params", {});
+  const map: Record<string, BrewingRiceParams> = {};
+  for (const r of rows ?? []) {
+    const cat = getString(r, ["brew_category"], "");
+    if (cat) map[cat] = {
+      brewCategory: cat,
+      polishingRatio: getNumber(r, ["polishing_ratio"], 0.70),
+      ricePerLiterKg: getNumber(r, ["rice_per_liter_kg"], 0.85),
+      riceVariety: getString(r, ["rice_variety"], "一般米"),
+      ricePricePerKg: getNumber(r, ["rice_price_per_kg"], 400),
+      kojiRatio: getNumber(r, ["koji_ratio"], 0.20)
+    };
+  }
+  return map;
+}
+
+export async function saveBrewingRiceParams(cat: string, params: Partial<BrewingRiceParams>): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/brewing_rice_params`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify({
+      brew_category: cat,
+      polishing_ratio: params.polishingRatio,
+      rice_per_liter_kg: params.ricePerLiterKg,
+      rice_variety: params.riceVariety,
+      rice_price_per_kg: params.ricePricePerKg,
+      koji_ratio: params.kojiRatio,
+      updated_at: new Date().toISOString()
+    })
+  });
+  return resp.ok;
+}
+
 export interface BrewingSeasonalPattern {
   brewCategory: string;
   monthNum: number;

@@ -637,6 +637,7 @@ interface AppState {
   brewingYearlyShipments: import("./api").BrewingYearlyShipment[];
   brewingSeasonalPattern: import("./api").BrewingSeasonalPattern[];
   brewingForecastOverrides: Record<string, number>;
+  brewingRiceParams: Record<string, import("./api").BrewingRiceParams>;
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -962,6 +963,7 @@ const state: AppState = {
   brewingYearlyShipments: [] as import("./api").BrewingYearlyShipment[],
   brewingSeasonalPattern: [] as import("./api").BrewingSeasonalPattern[],
   brewingForecastOverrides: {} as Record<string, number>,
+  brewingRiceParams: {} as Record<string, import("./api").BrewingRiceParams>,
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1589,7 +1591,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal, forecastOvr] = await Promise.all([
+        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal, forecastOvr, riceParams] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd),
           fetchBrewingMonthlyTrend(fyStart, fyEnd),
           fetchBrewingSchedule(fy),
@@ -1602,7 +1604,8 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           fetchBrewingAlcoholSettings(),
           fetchBrewingYearlyShipments(),
           fetchBrewingSeasonalPattern(),
-          fetchBrewingForecastOverrides()
+          fetchBrewingForecastOverrides(),
+          fetchBrewingRiceParams()
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
@@ -1616,6 +1619,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.brewingYearlyShipments = yearlyShipments;
         state.brewingSeasonalPattern = seasonal;
         state.brewingForecastOverrides = forecastOvr;
+        state.brewingRiceParams = riceParams;
         state.brewingAlcoholSettings = alcSettings;
         break;
       }
@@ -1913,7 +1917,7 @@ function renderView(): string {
         state.calendarCapacity
       );
     case "/brewing-plan":
-      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries, state.brewingAlcoholSettings, state.brewingYearlyShipments, state.brewingSeasonalPattern, state.brewingForecastOverrides);
+      return renderBrewingPlan(state.brewingPlanData, state.brewingMonthlyTrend, state.brewingPlanFY, state.brewingProductDetail, state.brewingExcludedProducts, state.brewingCustomCategories, state.brewingOverrides, state.brewingStockEntries, state.brewingAlcoholSettings, state.brewingYearlyShipments, state.brewingSeasonalPattern, state.brewingForecastOverrides, state.brewingRiceParams);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -6136,6 +6140,25 @@ function bindEvents(root: HTMLElement): void {
       state.brewingPlanData = summary;
       state.brewingProductDetail = products;
       state.brewingOverrides = overrides;
+      renderApp();
+    });
+  });
+
+  // 醸造計画: 米パラメータ変更
+  root.querySelectorAll<HTMLInputElement>("[data-action='brew-rice-edit']").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const cat = input.dataset.cat ?? "";
+      const field = input.dataset.field ?? "";
+      const val = parseFloat(input.value);
+      if (!cat || !field || isNaN(val)) return;
+      const current = state.brewingRiceParams[cat] ?? {
+        brewCategory: cat, polishingRatio: 0.70, ricePerLiterKg: 0.85,
+        riceVariety: "一般米", ricePricePerKg: 400, kojiRatio: 0.20
+      };
+      (current as any)[field] = val;
+      state.brewingRiceParams[cat] = current;
+      const { saveBrewingRiceParams } = await import("./api");
+      await saveBrewingRiceParams(cat, current);
       renderApp();
     });
   });

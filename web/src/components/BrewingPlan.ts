@@ -1,4 +1,4 @@
-import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry, BrewingCustomCategory, BrewingAlcoholSetting, BrewingYearlyShipment, BrewingSeasonalPattern } from "../api";
+import type { BrewingPlanRow, BrewingMonthlyTrend, BrewingProductDetail, BrewingStockEntry, BrewingCustomCategory, BrewingAlcoholSetting, BrewingYearlyShipment, BrewingSeasonalPattern, BrewingRiceParams } from "../api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -404,16 +404,18 @@ function buildDetailTable(data: BrewingPlanRow[]): string {
 
 // ─── Forecast ──────────────────────────────────────────────────────────────��─
 
-function buildForecastSection(
+function buildForecastWithNeed(
   yearlyShipments: BrewingYearlyShipment[],
   stockEntries: BrewingStockEntry[],
   alcoholSettings: Record<string, BrewingAlcoholSetting>,
   customCategories: BrewingCustomCategory[],
   seasonalPattern: BrewingSeasonalPattern[],
   forecastOverrides: Record<string, number> = {}
-): string {
-  if (yearlyShipments.length === 0) return "";
+): { html: string; needByCategory: Record<string, number> } {
+  const empty = { html: "", needByCategory: {} };
+  if (yearlyShipments.length === 0) return empty;
 
+  const needByCategory: Record<string, number> = {};
   const now = new Date();
   const currentMonth = now.getMonth() + 1; // 1-12
   const currentFYStart = currentMonth >= 10 ? now.getFullYear() : now.getFullYear() - 1;
@@ -496,6 +498,7 @@ function buildForecastSection(
 
     // 必要醸造量
     const needL = Math.max(0, forecastL - projectedStockOct);
+    needByCategory[cat] = needL;
 
     const growthColor = effectiveGrowthPct > 0 ? "#22c55e" : effectiveGrowthPct < 0 ? "#ef4444" : "#6b7280";
     const autoGrowthPct = Math.round(growthRate * 100);
@@ -553,7 +556,7 @@ function buildForecastSection(
 
   const monthLabel = currentMonth <= 9 ? `${currentMonth}月〜9月` : `${currentMonth}月〜翌9月`;
 
-  return `
+  return { needByCategory, html: `
     <div class="card" style="margin-bottom:16px;">
       <h3 style="font-size:14px;margin:0 0 4px 0;">${forecastFY}年度 必要醸造量（${forecastFY}/10〜${forecastFY+1}/9）</h3>
       <p style="font-size:11px;color:#6b7280;margin:0 0 12px;">
@@ -586,6 +589,119 @@ function buildForecastSection(
               <td style="text-align:right;">${fmtNum(totalProjectedOct)}</td>
               <td style="text-align:right;">${fmtNum(totalForecast)}</td>
               <td style="text-align:right;color:#ef4444;">${fmtNum(totalNeed)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  ` };
+}
+
+// ─── Rice Procurement Plan ────────────────────────────────────────��───────────
+
+function buildRiceProcurement(
+  needByCategory: Record<string, number>,
+  riceParams: Record<string, BrewingRiceParams>,
+  customCategories: BrewingCustomCategory[]
+): string {
+  const cats = Object.keys(needByCategory).filter(c => needByCategory[c] > 0);
+  if (cats.length === 0) return "";
+
+  const order = [...CATEGORY_ORDER, ...customCategories.map(c => c.name)];
+  cats.sort((a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
+
+  // デフォルトパラメータ
+  const defaultP: BrewingRiceParams = {
+    brewCategory: "", polishingRatio: 0.70, ricePerLiterKg: 0.85,
+    riceVariety: "一般米", ricePricePerKg: 400, kojiRatio: 0.20
+  };
+
+  let totalWhiteKg = 0, totalBrownKg = 0, totalCost = 0;
+
+  const rows = cats.map(cat => {
+    const needL = needByCategory[cat];
+    const p = riceParams[cat] ?? defaultP;
+    const color = CATEGORY_COLORS[cat] ?? "#6366f1";
+    const catId = catToId(cat);
+
+    // 白米必要量 = 醸造量(L) × 白米使用量(kg/L)
+    const whiteRiceKg = Math.round(needL * p.ricePerLiterKg);
+    // 玄米必要量 = 白米 / 精米歩合
+    const brownRiceKg = Math.round(whiteRiceKg / p.polishingRatio);
+    // 麹米 = 白米 × 麹比率
+    const kojiKg = Math.round(whiteRiceKg * p.kojiRatio);
+    const kakeKg = whiteRiceKg - kojiKg;
+    // 予算 = 玄米kg × 単価
+    const cost = Math.round(brownRiceKg * p.ricePricePerKg);
+
+    totalWhiteKg += whiteRiceKg;
+    totalBrownKg += brownRiceKg;
+    totalCost += cost;
+
+    return `
+      <tr>
+        <td style="color:${color};font-weight:600;white-space:nowrap;">${cat}</td>
+        <td style="text-align:right;">${fmtNum(Math.round(needL))}</td>
+        <td style="text-align:right;">
+          <input type="number" min="0.1" max="2" step="0.01" value="${p.ricePerLiterKg}"
+            data-action="brew-rice-edit" data-cat="${cat}" data-field="ricePerLiterKg"
+            style="width:48px;height:22px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 2px;" />
+        </td>
+        <td style="text-align:right;font-weight:600;">${fmtNum(whiteRiceKg)}</td>
+        <td style="text-align:right;">
+          <input type="number" min="0.1" max="1" step="0.01" value="${p.polishingRatio}"
+            data-action="brew-rice-edit" data-cat="${cat}" data-field="polishingRatio"
+            style="width:44px;height:22px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 2px;" />
+        </td>
+        <td style="text-align:right;font-weight:700;">${fmtNum(brownRiceKg)}</td>
+        <td style="text-align:right;font-size:11px;color:var(--text-secondary);">${p.riceVariety}</td>
+        <td style="text-align:right;">
+          <input type="number" min="0" step="10" value="${p.ricePricePerKg}"
+            data-action="brew-rice-edit" data-cat="${cat}" data-field="ricePricePerKg"
+            style="width:52px;height:22px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 2px;" />
+        </td>
+        <td style="text-align:right;font-weight:700;">¥${fmtNum(cost)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="font-size:14px;margin:0 0 4px 0;">原料米 調達計画</h3>
+      <p style="font-size:11px;color:#6b7280;margin:0 0 12px;">
+        必要醸造量 × 白米使用量/L = 白米必要量 → ÷ 精米歩合 = 玄米必要量 → × 単価 = 予算
+      </p>
+      <div class="table-wrap">
+        <table class="data-table" style="font-size:12px;">
+          <thead>
+            <tr>
+              <th>区分</th>
+              <th style="text-align:right;">醸造(L)</th>
+              <th style="text-align:right;">白米/L</th>
+              <th style="text-align:right;">白米(kg)</th>
+              <th style="text-align:right;">精米歩合</th>
+              <th style="text-align:right;">玄米(kg)</th>
+              <th style="text-align:right;">品種</th>
+              <th style="text-align:right;">円/kg</th>
+              <th style="text-align:right;">予算</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+          <tfoot>
+            <tr style="font-weight:700;background:var(--surface-alt);">
+              <td>合計</td>
+              <td></td><td></td>
+              <td style="text-align:right;">${fmtNum(totalWhiteKg)}</td>
+              <td></td>
+              <td style="text-align:right;">${fmtNum(totalBrownKg)}</td>
+              <td></td><td></td>
+              <td style="text-align:right;">¥${fmtNum(totalCost)}</td>
+            </tr>
+            <tr style="font-size:11px;color:var(--text-secondary);">
+              <td colspan="5"></td>
+              <td style="text-align:right;">${(totalBrownKg / 1000).toFixed(1)}t</td>
+              <td colspan="2"></td>
+              <td style="text-align:right;">¥${(totalCost / 10000).toFixed(0)}万</td>
             </tr>
           </tfoot>
         </table>
@@ -894,7 +1010,8 @@ export function renderBrewingPlan(
   alcoholSettings: Record<string, BrewingAlcoholSetting> = {},
   yearlyShipments: BrewingYearlyShipment[] = [],
   seasonalPattern: BrewingSeasonalPattern[] = [],
-  forecastOverrides: Record<string, number> = {}
+  forecastOverrides: Record<string, number> = {},
+  riceParams: Record<string, BrewingRiceParams> = {}
 ): string {
   const now = new Date();
   const currentFY = now.getMonth() >= 9 ? now.getFullYear() : now.getFullYear() - 1;
@@ -931,7 +1048,11 @@ export function renderBrewingPlan(
 
       ${buildSummaryCards(data, stockEntries, alcoholSettings, customCategories)}
 
-      ${buildForecastSection(yearlyShipments, stockEntries, alcoholSettings, customCategories, seasonalPattern, forecastOverrides)}
+      ${(() => {
+        // 予測セ���ション + 調達計画を連続描画（必要醸造量を共有）
+        const forecastResult = buildForecastWithNeed(yearlyShipments, stockEntries, alcoholSettings, customCategories, seasonalPattern, forecastOverrides);
+        return forecastResult.html + buildRiceProcurement(forecastResult.needByCategory, riceParams, customCategories);
+      })()}
 
       ${buildStockProjection(data)}
 
