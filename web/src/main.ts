@@ -6144,6 +6144,29 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 醸造計画: 米パラメータ一括適用
+  root.querySelector<HTMLButtonElement>("[data-action='brew-rice-bulk-apply']")?.addEventListener("click", async () => {
+    const perL = parseFloat((root.querySelector<HTMLInputElement>("#rice-bulk-per-l")?.value ?? "0.50"));
+    const koji = parseFloat((root.querySelector<HTMLInputElement>("#rice-bulk-koji")?.value ?? "0.30"));
+    if (isNaN(perL) || isNaN(koji)) return;
+    const { saveBrewingRiceParams } = await import("./api");
+    const cats = Object.keys(state.brewingRiceParams);
+    // 未登録の区分も含めるため、予測に出ている区分を全部対象にする
+    const allCats = new Set([...cats, ...state.brewingYearlyShipments.map(s => s.brewCategory)]);
+    for (const cat of allCats) {
+      const current = state.brewingRiceParams[cat] ?? {
+        brewCategory: cat, polishingRatio: 0.70, ricePerLiterKg: 0.50,
+        kojiRatio: 0.30, kojiVariety: "山田錦", kojiPricePerKg: 600,
+        kakeVariety: "一般米", kakePricePerKg: 350
+      };
+      current.ricePerLiterKg = perL;
+      current.kojiRatio = koji;
+      state.brewingRiceParams[cat] = current;
+      await saveBrewingRiceParams(cat, current);
+    }
+    renderApp();
+  });
+
   // 醸造計画: 米パラメータ変更
   root.querySelectorAll<HTMLInputElement>("[data-action='brew-rice-edit']").forEach((input) => {
     input.addEventListener("change", async () => {
@@ -6152,8 +6175,8 @@ function bindEvents(root: HTMLElement): void {
       const val = parseFloat(input.value);
       if (!cat || !field || isNaN(val)) return;
       const current = state.brewingRiceParams[cat] ?? {
-        brewCategory: cat, polishingRatio: 0.70, ricePerLiterKg: 0.85,
-        kojiRatio: 0.20, kojiVariety: "山田錦", kojiPricePerKg: 600,
+        brewCategory: cat, polishingRatio: 0.70, ricePerLiterKg: 0.50,
+        kojiRatio: 0.30, kojiVariety: "山田錦", kojiPricePerKg: 600,
         kakeVariety: "一般米", kakePricePerKg: 350
       };
       (current as any)[field] = val;

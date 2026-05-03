@@ -611,8 +611,8 @@ function buildRiceProcurement(
   cats.sort((a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
 
   const defaultP: BrewingRiceParams = {
-    brewCategory: "", polishingRatio: 0.70, ricePerLiterKg: 0.85,
-    kojiRatio: 0.20, kojiVariety: "山田錦", kojiPricePerKg: 600,
+    brewCategory: "", polishingRatio: 0.70, ricePerLiterKg: 0.50,
+    kojiRatio: 0.30, kojiVariety: "山田錦", kojiPricePerKg: 600,
     kakeVariety: "一般米", kakePricePerKg: 350
   };
 
@@ -683,9 +683,22 @@ function buildRiceProcurement(
   return `
     <div class="card" style="margin-bottom:16px;">
       <h3 style="font-size:14px;margin:0 0 4px 0;">原料米 調達計画</h3>
-      <p style="font-size:11px;color:#6b7280;margin:0 0 12px;">
+      <p style="font-size:11px;color:#6b7280;margin:0 0 8px;">
         醸造量 × 白米/L = 白米kg → 麹米比率で分割 → ÷ 精米歩合 = 玄米kg → × 単価 = 予算
       </p>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;padding:8px;background:var(--surface-alt);border-radius:6px;">
+        <span style="font-size:11px;font-weight:600;">一括設定:</span>
+        <label style="font-size:11px;display:flex;align-items:center;gap:3px;">
+          白米/L <input id="rice-bulk-per-l" type="number" min="0.1" max="2" step="0.01" value="0.50"
+            style="width:48px;height:22px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 2px;" />
+        </label>
+        <label style="font-size:11px;display:flex;align-items:center;gap:3px;">
+          麹比率 <input id="rice-bulk-koji" type="number" min="0.05" max="0.5" step="0.01" value="0.30"
+            style="width:48px;height:22px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 2px;" />
+        </label>
+        <button data-action="brew-rice-bulk-apply" class="button primary"
+          style="font-size:11px;padding:3px 10px;">全区分に適用</button>
+      </div>
       <div class="table-wrap">
         <table class="data-table" style="font-size:12px;">
           <thead>
