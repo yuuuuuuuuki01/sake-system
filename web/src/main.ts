@@ -1599,39 +1599,23 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const results = await Promise.allSettled([
-          fetchBrewingPlanSummary(fyStart, fyEnd),
-          fetchBrewingMonthlyTrend(fyStart, fyEnd),
-          fetchBrewingSchedule(fy),
-          fetchBrewingProductDetail(fyStart, fyEnd),
-          fetchBrewingCustomCategories(),
-          fetchBrewingCategoryOverrides(),
-          fetchAllBrewingStockEntries(),
-          fetchCategoryTypeLinks(),
-          fetchAvailableProductionTypes(),
-          fetchBrewingAlcoholSettings(),
-          fetchBrewingYearlyShipments(),
-          fetchBrewingSeasonalPattern(),
-          fetchBrewingForecastOverrides(),
-          fetchBrewingRiceParams(),
-          fetchRiceVarieties()
+        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal, forecastOvr, riceParams, riceVars] = await Promise.all([
+          fetchBrewingPlanSummary(fyStart, fyEnd).catch(() => []),
+          fetchBrewingMonthlyTrend(fyStart, fyEnd).catch(() => []),
+          fetchBrewingSchedule(fy).catch(() => []),
+          fetchBrewingProductDetail(fyStart, fyEnd).catch(() => []),
+          fetchBrewingCustomCategories().catch(() => []),
+          fetchBrewingCategoryOverrides().catch(() => ({})),
+          fetchAllBrewingStockEntries().catch(() => []),
+          fetchCategoryTypeLinks().catch(() => ({})),
+          fetchAvailableProductionTypes().catch(() => []),
+          fetchBrewingAlcoholSettings().catch(() => ({})),
+          fetchBrewingYearlyShipments().catch(() => []),
+          fetchBrewingSeasonalPattern().catch(() => []),
+          fetchBrewingForecastOverrides().catch(() => ({})),
+          fetchBrewingRiceParams().catch(() => ({})),
+          fetchRiceVarieties().catch(() => [])
         ]);
-        const val = <T>(i: number, fallback: T): T => results[i].status === "fulfilled" ? (results[i] as PromiseFulfilledResult<T>).value : fallback;
-        const summary = val(0, [] as any[]);
-        const trend = val(1, [] as any[]);
-        const schedule = val(2, [] as any[]);
-        const products = val(3, [] as any[]);
-        const customCats = val(4, [] as any[]);
-        const overrides = val(5, {} as any);
-        const stockEntries = val(6, [] as any[]);
-        const typeLinks = val(7, {} as any);
-        const availTypes = val(8, [] as any[]);
-        const alcSettings = val(9, {} as any);
-        const yearlyShipments = val(10, [] as any[]);
-        const seasonal = val(11, [] as any[]);
-        const forecastOvr = val(12, {} as any);
-        const riceParams = val(13, {} as any);
-        const riceVars = val(14, [] as any[]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
         state.brewingSchedule = schedule;
