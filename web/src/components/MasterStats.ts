@@ -23,6 +23,14 @@ export function renderEditCustomerModal(c: MasterCustomer): string {
             <div class="form-row"><label>支払日</label><input type="number" id="ec-payment" value="${c.paymentDay || ""}" /></div>
             <div class="form-row"><label>支払サイト</label><input type="text" id="ec-pay-cycle" value="${c.paymentCycle || ""}" /></div>
             <div class="form-row"><label>与信限度額</label><input type="number" id="ec-credit" value="${c.creditLimit || ""}" /></div>
+            <div class="form-row"><label>取引区分</label>
+              <select id="ec-trade-type">
+                <option value="" ${!c.tradeType ? "selected" : ""}>―未設定―</option>
+                <option value="B2B"   ${c.tradeType === "B2B"   ? "selected" : ""}>B2B（卸取引）</option>
+                <option value="B2B2C" ${c.tradeType === "B2B2C" ? "selected" : ""}>B2B2C（生産者向け）</option>
+                <option value="B2C"   ${c.tradeType === "B2C"   ? "selected" : ""}>B2C（小売・直販）</option>
+              </select>
+            </div>
             <div class="form-row"><label>価格区分</label>
               <select id="ec-price-type">
                 <option value="" ${!c.priceType ? "selected" : ""}>未設定</option>
@@ -96,6 +104,7 @@ export function renderEditProductModal(p: MasterProduct): string {
 export interface MasterFilterState {
   query: string;
   businessType: string;
+  tradeType: string;
   areaCode: string;
   activeOnly: string;
   page: number;
@@ -104,6 +113,7 @@ export interface MasterFilterState {
 export const defaultMasterFilter: MasterFilterState = {
   query: "",
   businessType: "",
+  tradeType: "",
   areaCode: "",
   activeOnly: "",
   page: 1
@@ -131,6 +141,10 @@ export function filterCustomers(
 
   if (filter.businessType) {
     filtered = filtered.filter((c) => c.businessType === filter.businessType);
+  }
+
+  if (filter.tradeType) {
+    filtered = filtered.filter((c) => c.tradeType === filter.tradeType);
   }
 
   if (filter.areaCode) {
@@ -199,6 +213,13 @@ function renderFilterBar(customers: MasterCustomer[], filter: MasterFilterState)
           ${businessTypes.map((bt) => `<option value="${bt}" ${filter.businessType === bt ? "selected" : ""}>${bt}</option>`).join("")}
         </select>
       </div>
+      <div class="form-group" style="min-width:120px;">
+        <label class="form-label">取引区分</label>
+        <select id="master-trade-type" class="form-input">
+          <option value="">すべて</option>
+          ${Object.entries(TRADE_TYPE_LABELS).map(([k, v]) => `<option value="${k}" ${filter.tradeType === k ? "selected" : ""}>${v}</option>`).join("")}
+        </select>
+      </div>
       <div class="form-group" style="min-width:100px;">
         <label class="form-label">地区</label>
         <select id="master-area-code" class="form-input">
@@ -233,6 +254,23 @@ function formatPriceType(pt: string): string {
   }
 }
 
+const TRADE_TYPE_LABELS: Record<string, string> = {
+  "B2B":   "B2B（卸）",
+  "B2B2C": "B2B2C（生産者）",
+  "B2C":   "B2C（小売）",
+};
+
+function tradeTypeBadge(tt: string): string {
+  if (!tt) return "―";
+  const colors: Record<string, string> = {
+    B2B:   "#3b82f6",
+    B2B2C: "#8b5cf6",
+    B2C:   "#10b981",
+  };
+  const bg = colors[tt] ?? "#999";
+  return `<span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;background:${bg};">${tt}</span>`;
+}
+
 function renderCustomerRows(customers: MasterCustomer[]): string {
   return customers
     .map(
@@ -244,6 +282,7 @@ function renderCustomerRows(customers: MasterCustomer[]): string {
           <td>${customer.shortName || ""}</td>
           <td>${customer.businessType || ""}</td>
           <td>${customer.salesCategory || ""}</td>
+          <td>${tradeTypeBadge(customer.tradeType)}</td>
           <td>${formatPriceType(customer.priceType)}</td>
           <td>${customer.priceGroup || ""}</td>
           <td>${customer.phone || ""}</td>
@@ -359,6 +398,7 @@ export function renderMasterStats(
                 <th>略称</th>
                 ${makeSortableHeader("businessType", "業態", sortState)}
                 <th>販売区分</th>
+                <th>取引区分</th>
                 <th>価格区分</th>
                 <th>単価G</th>
                 <th>電話</th>

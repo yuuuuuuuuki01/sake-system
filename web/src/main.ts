@@ -2709,6 +2709,7 @@ function bindEvents(root: HTMLElement): void {
       document.getElementById("edit-customer-form")?.addEventListener("submit", async (e) => {
         e.preventDefault();
         const r = document.getElementById("edit-result") as HTMLSpanElement;
+        const tradeTypeVal = (document.getElementById("ec-trade-type") as HTMLSelectElement)?.value || null;
         const ok = await updateCustomer(id, {
           name: (document.getElementById("ec-name") as HTMLInputElement).value,
           kana_name: (document.getElementById("ec-kana") as HTMLInputElement).value,
@@ -2718,6 +2719,7 @@ function bindEvents(root: HTMLElement): void {
           address1: (document.getElementById("ec-address") as HTMLInputElement).value,
           closing_day: parseInt((document.getElementById("ec-closing") as HTMLInputElement).value) || null,
           payment_day: parseInt((document.getElementById("ec-payment") as HTMLInputElement).value) || null,
+          trade_type: tradeTypeVal,
           manual_override: true,
         });
         if (r) { r.textContent = ok ? "保存しました" : "保存に失敗"; r.className = `fr-result ${ok ? "success" : "error"}`; }
@@ -4162,6 +4164,7 @@ function bindEvents(root: HTMLElement): void {
     state.masterFilter = {
       query: root.querySelector<HTMLInputElement>("#master-search")?.value ?? "",
       businessType: root.querySelector<HTMLSelectElement>("#master-business-type")?.value ?? "",
+      tradeType: root.querySelector<HTMLSelectElement>("#master-trade-type")?.value ?? "",
       areaCode: root.querySelector<HTMLSelectElement>("#master-area-code")?.value ?? "",
       activeOnly: root.querySelector<HTMLSelectElement>("#master-active-only")?.value ?? "",
       page: 1

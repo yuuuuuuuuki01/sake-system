@@ -154,6 +154,7 @@ export interface MasterCustomer {
   invoiceType: string;
   priceGroup: string;
   priceType: string;
+  tradeType: string;  // B2B=卸, B2B2C=生産者向け, B2C=小売
   customerGroup1: string;
   customerGroup2: string;
   bankName: string;
@@ -723,6 +724,7 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
             invoiceType: getString(row, ["invoice_type"], ""),
             priceGroup: String(memo.price_group ?? ""),
             priceType: String(memo.price_type ?? ""),
+            tradeType: getString(row, ["trade_type"], ""),
             customerGroup1: String(memo.customer_group1 ?? ""),
             customerGroup2: String(memo.customer_group2 ?? ""),
             bankName: getString(row, ["bank_name"], ""),
