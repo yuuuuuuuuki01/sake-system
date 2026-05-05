@@ -1,6 +1,6 @@
 export const SUPABASE_URL = "https://ridspyczkxwkcbmwndhm.supabase.co";
 const DEFAULT_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpZHNweWN6a3h3a2NibXduZGhtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc5MzkwODAsImV4cCI6MjA5MzUxNTA4MH0.ppWbfEsrUdUL8sRPO3BPHWA-r12ueMgJ3C44n1FvK3o";
-export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || DEFAULT_ANON_KEY;
+export const SUPABASE_ANON_KEY = DEFAULT_ANON_KEY;
 
 export async function supabaseInsert<T>(
   table: string,
