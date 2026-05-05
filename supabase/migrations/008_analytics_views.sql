@@ -1,3 +1,6 @@
+ALTER TABLE sales_document_lines ADD COLUMN IF NOT EXISTS sales_document_header_id uuid REFERENCES sales_document_headers(id);
+CREATE INDEX IF NOT EXISTS idx_sdl_header_id ON sales_document_lines(sales_document_header_id);
+
 -- =============================================================================
 -- 008_analytics_views.sql : 営業分析ビュー・集計テーブル・日次更新関数
 --
