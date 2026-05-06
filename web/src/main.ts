@@ -1651,13 +1651,15 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-process": {
-        const { fetchBrewingBatches, fetchBrewingProcessSteps, fetchBrewingCustomCategories } = await import("./api");
+        const { fetchBrewingBatches, fetchBrewingProcessSteps, fetchBrewingCustomCategories, fetchBrewingSchedule } = await import("./api");
         const fy = state.brewingPlanFY;
-        const [batches, customCats] = await Promise.all([
+        const [batches, customCats, schedule] = await Promise.all([
           fetchBrewingBatches(fy).catch(() => []),
-          fetchBrewingCustomCategories().catch(() => [])
+          fetchBrewingCustomCategories().catch(() => []),
+          fetchBrewingSchedule(fy).catch(() => [])
         ]);
         state.brewingBatches = batches;
+        state.brewingSchedule = schedule;
         if (batches.length > 0) {
           state.brewingProcessSteps = await fetchBrewingProcessSteps(batches.map(b => b.id)).catch(() => []);
         } else {
@@ -2024,7 +2026,9 @@ function renderView(): string {
         ...state.brewingCustomCategories.map(c => c.name)
       ])];
       return renderBrewingProcess(state.brewingBatches, state.brewingProcessSteps, cats, {
-        expandedBatchId: state.bpExpandedBatchId, showNewForm: state.bpShowNewForm
+        expandedBatchId: state.bpExpandedBatchId, showNewForm: state.bpShowNewForm,
+        schedule: state.brewingSchedule.map(s => ({ brewCategory: s.brewCategory, fy: s.fy, brewMonth: s.brewMonth, durationMonths: s.durationMonths, plannedVolumeL: s.plannedVolumeL })),
+        fy: state.brewingPlanFY
       });
     }
     case "/jikomi":
@@ -6445,6 +6449,26 @@ function bindEvents(root: HTMLElement): void {
   function fmtNum(n: number): string { return n.toLocaleString("ja-JP"); }
 
   // ─── 醸造工程管理 イベントハンドラ ──────────────────────────────────────────
+  // 醸造工程: 調達計画から一括取込
+  root.querySelector<HTMLButtonElement>("[data-action='bp-import-schedule']")?.addEventListener("click", async () => {
+    const checks = root.querySelectorAll<HTMLInputElement>("[data-action='bp-import-check']:checked");
+    if (checks.length === 0) return;
+    const { createBrewingBatch, fetchBrewingBatches, fetchBrewingProcessSteps } = await import("./api");
+    for (const cb of checks) {
+      const cat = cb.dataset.cat ?? "";
+      const code = cb.dataset.code ?? "";
+      const vol = parseFloat(cb.dataset.vol ?? "0");
+      const date = cb.dataset.date ?? "";
+      if (!cat || !code || !date) continue;
+      await createBrewingBatch(cat, code, state.brewingPlanFY, vol, date);
+    }
+    state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
+    if (state.brewingBatches.length > 0) {
+      state.brewingProcessSteps = await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id));
+    }
+    renderApp();
+  });
+
   root.querySelector<HTMLButtonElement>("[data-action='bp-show-new-form']")?.addEventListener("click", () => {
     state.bpShowNewForm = !state.bpShowNewForm;
     renderApp();

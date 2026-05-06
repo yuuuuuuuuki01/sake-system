@@ -280,13 +280,21 @@ function renderNewBatchForm(categories: string[]): string {
 
 // ─── Main Renderer ───────────────────────────────────────────────────────────
 
+export interface ScheduleEntry {
+  brewCategory: string;
+  fy: number;
+  brewMonth: number;
+  durationMonths: number;
+  plannedVolumeL: number;
+}
+
 export function renderBrewingProcess(
   batches: BrewingBatch[],
   steps: BrewingProcessStep[],
   categories: string[],
-  opts: { expandedBatchId?: string; showNewForm?: boolean } = {}
+  opts: { expandedBatchId?: string; showNewForm?: boolean; schedule?: ScheduleEntry[]; fy?: number } = {}
 ): string {
-  const { expandedBatchId, showNewForm } = opts;
+  const { expandedBatchId, showNewForm, schedule = [], fy = 2026 } = opts;
 
   // Build step lookup
   const stepsByBatch: Record<string, BrewingProcessStep[]> = {};
@@ -357,7 +365,55 @@ export function renderBrewingProcess(
 
     ${showNewForm ? renderNewBatchForm(categories) : ""}
 
+    ${schedule.length > 0 ? (() => {
+      // 既存バッチと照合して未取込のスケジュールを特定
+      const existingKeys = new Set(batches.map(b => `${b.brewCategory}:${b.startDate?.slice(0,7)}`));
+      const unimported = schedule.filter(s => {
+        const yr = s.brewMonth >= 10 ? s.fy : s.fy + 1;
+        const key = `${s.brewCategory}:${yr}-${String(s.brewMonth).padStart(2, "0")}`;
+        return !existingKeys.has(key) && s.plannedVolumeL > 0;
+      });
+      if (unimported.length === 0) return "";
+      const rows = unimported.map(s => {
+        const yr = s.brewMonth >= 10 ? s.fy : s.fy + 1;
+        const startDate = `${yr}-${String(s.brewMonth).padStart(2, "0")}-01`;
+        const code = `${s.brewCategory}-${s.fy}-${String(s.brewMonth).padStart(2, "0")}`;
+        const color = catColor(s.brewCategory);
+        return `<tr>
+          <td style="padding:6px 8px"><span style="color:${color};font-weight:600">${s.brewCategory}</span></td>
+          <td style="padding:6px 8px">${code}</td>
+          <td style="padding:6px 8px;text-align:right">${fmtNum(Math.round(s.plannedVolumeL))} L</td>
+          <td style="padding:6px 8px">${s.brewMonth}月（${startDate}）</td>
+          <td style="padding:6px 8px">${s.durationMonths}ヶ月</td>
+          <td style="padding:6px 4px"><input type="checkbox" data-action="bp-import-check" data-cat="${s.brewCategory}" data-month="${s.brewMonth}" data-vol="${Math.round(s.plannedVolumeL)}" data-date="${startDate}" data-code="${code}" checked></td>
+        </tr>`;
+      }).join("");
+      return `
+        <section class="panel" style="margin-bottom:16px">
+          <div class="panel-header">
+            <div>
+              <h2>調達計画から取込</h2>
+              <p class="panel-caption">醸造スケジュールから未登録のバッチを一括作成</p>
+            </div>
+            <button class="button primary" data-action="bp-import-schedule">チェック分を一括登録</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+              <thead><tr style="border-bottom:2px solid #e5e7eb;color:#6b7280;text-align:left">
+                <th style="padding:4px 8px">区分</th>
+                <th style="padding:4px 8px">バッチコード</th>
+                <th style="padding:4px 8px;text-align:right">醸造量</th>
+                <th style="padding:4px 8px">開始月</th>
+                <th style="padding:4px 8px">期間</th>
+                <th style="padding:4px 4px">取込</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </section>`;
+    })() : ""}
+
     <section>
-      ${groupHtml || '<div class="panel" style="padding:24px;text-align:center;color:#9ca3af">バッチが登録されていません</div>'}
+      ${groupHtml || '<div class="panel" style="padding:24px;text-align:center;color:#9ca3af">バッチが登録されていません。調達計画でスケジュールを設定するか、上の「新規バッチ」から追加してください。</div>'}
     </section>`;
 }
