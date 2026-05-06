@@ -821,16 +821,32 @@ function buildQuarterlyDepletion(
     if (s > 0) catStock.set(cc.name, s);
   }
 
-  const allCats = [...catStock.keys()].filter(c => catStock.get(c)! > 0 || (seasonMap.get(c)?.size ?? 0) > 0);
-  const order = [...CATEGORY_ORDER, ...customCategories.map(c => c.name)];
-  allCats.sort((a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
+  // 親→子の順で並べる
+  const childCatsOf = new Map<string, BrewingCustomCategory[]>();
+  for (const cc of customCategories) {
+    if (!childCatsOf.has(cc.parentCategory)) childCatsOf.set(cc.parentCategory, []);
+    childCatsOf.get(cc.parentCategory)!.push(cc);
+  }
 
-  const rows = allCats.map(cat => {
+  // 表示順: 標準区分 → その子 → 次の標準区分 → その子 ...
+  const orderedCats: Array<{ cat: string; isChild: boolean }> = [];
+  for (const parentCat of CATEGORY_ORDER) {
+    if (catStock.has(parentCat) || (seasonMap.get(parentCat)?.size ?? 0) > 0) {
+      orderedCats.push({ cat: parentCat, isChild: false });
+    }
+    for (const cc of (childCatsOf.get(parentCat) ?? [])) {
+      if (catStock.has(cc.name) || (seasonMap.get(cc.name)?.size ?? 0) > 0) {
+        orderedCats.push({ cat: cc.name, isChild: true });
+      }
+    }
+  }
+
+  function buildRow(cat: string, isChild: boolean): string {
     const alc = alcoholSettings[cat];
     const dilution = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
-    let stock = (catStock.get(cat) ?? 0) * dilution; // 加水後
+    let stock = (catStock.get(cat) ?? 0) * dilution;
     const seasonal = seasonMap.get(cat) ?? new Map();
-    const color = CATEGORY_COLORS[cat] ?? "#6366f1";
+    const color = CATEGORY_COLORS[cat] ?? (isChild ? "#6366f1" : "#9ca3af");
 
     let depletionLabel = "";
     const qValues: string[] = [];
@@ -838,14 +854,12 @@ function buildQuarterlyDepletion(
     const excludedMonthly = excludedMonthlyByParent.get(cat) ?? 0;
 
     for (const q of quarters) {
-      // 季節パターンから除外商品の月平均分を差し引き（3ヶ月分）
       const qShipment = Math.max(0, q.months.reduce((s, { m }) => s + (seasonal.get(m) ?? 0), 0) - excludedMonthly * 3);
       const stockBefore = stock;
       stock = Math.max(0, stock - qShipment);
       const depleted = stockBefore > 0 && stock <= 0;
 
       if (depleted && !depletionLabel) {
-        // この四半期で枯渇
         depletionLabel = q.label;
       }
 
@@ -854,8 +868,8 @@ function buildQuarterlyDepletion(
     }
 
     return `
-      <tr>
-        <td style="color:${color};font-weight:600;padding:4px 6px;white-space:nowrap;">${cat}</td>
+      <tr style="${isChild ? "background:rgba(99,102,241,0.02);" : ""}">
+        <td style="color:${color};font-weight:${isChild ? "500" : "600"};padding:4px 6px;white-space:nowrap;${isChild ? "padding-left:20px;font-size:11px;" : ""}">${isChild ? "┗ " : ""}${cat}</td>
         <td style="text-align:right;padding:4px 6px;">${fmtNum(Math.round((catStock.get(cat) ?? 0) * dilution))}</td>
         ${qValues.join("")}
         <td style="padding:4px 6px;font-size:11px;color:${depletionLabel ? "#ef4444" : "#22c55e"};font-weight:600;">
@@ -863,7 +877,9 @@ function buildQuarterlyDepletion(
         </td>
       </tr>
     `;
-  }).join("");
+  }
+
+  const rows = orderedCats.map(({ cat, isChild }) => buildRow(cat, isChild)).join("");
 
   return `
     <div class="card" style="margin-bottom:16px;">
