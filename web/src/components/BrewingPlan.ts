@@ -474,8 +474,11 @@ function buildForecastWithNeed(
     const color = CATEGORY_COLORS[cat] ?? "#6366f1";
     const seasonal = seasonMap.get(cat) ?? new Map();
 
-    // 完了年度の実績値だけで増減率を計算
-    const completedVals = completedFYs.filter(fy => data.has(fy)).map(fy => data.get(fy)!.shipL);
+    // 除外商品の年間出荷量(L) — 各年度から差し引く
+    const excludedAnnualL = (excludedMlByParent.get(cat) ?? 0) / 1000;
+
+    // 完了年度の実績から除外商品分を差し引いてから増減率を計算
+    const completedVals = completedFYs.filter(fy => data.has(fy)).map(fy => Math.max(0, data.get(fy)!.shipL - excludedAnnualL));
     let growthRate = 0;
     if (completedVals.length >= 2) {
       const rates: number[] = [];
@@ -485,11 +488,12 @@ function buildForecastWithNeed(
       growthRate = rates.length > 0 ? rates.reduce((s, r) => s + r, 0) / rates.length : 0;
     }
 
-    // 予測のベース = 直近の完了年度の実績
-    const baseAnnual = completedVals.length > 0 ? completedVals[completedVals.length - 1] : (data.get(currentFYStart)?.annualL ?? 0);
+    // 予測のベース = 直近の完了年度の実績（除外済み）
+    const baseAnnual = completedVals.length > 0 ? completedVals[completedVals.length - 1] : Math.max(0, (data.get(currentFYStart)?.annualL ?? 0) - excludedAnnualL);
 
-    // 今月〜9月の残り出荷量（季節パターンベース）
-    const remainingShipL = remainingMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
+    // 今月〜9月の残り出荷量（季節パターンから除外商品の月平均を引く）
+    const excludedMonthlyL = excludedAnnualL / 12;
+    const remainingShipL = remainingMonths.reduce((s, m) => s + Math.max(0, (seasonal.get(m) ?? 0) - excludedMonthlyL), 0);
 
     // 現在庫（加水後）
     const stockL = stockEntries.filter(e => e.brewCategory === cat).reduce((s, e) => s + e.volumeL, 0);
@@ -505,9 +509,8 @@ function buildForecastWithNeed(
     const effectiveGrowth = hasOverride ? forecastOverrides[cat] : growthRate;
     const effectiveGrowthPct = Math.round(effectiveGrowth * 100);
 
-    // 翌年度の出荷予測（除外された商品の分を差し引き）
-    const excludedL = Math.round((excludedMlByParent.get(cat) ?? 0) / 1000);
-    const forecastL = Math.max(0, Math.round(baseAnnual * (1 + effectiveGrowth)) - excludedL);
+    // 翌年度の出荷予測（baseAnnualは既に除外済み）
+    const forecastL = Math.round(baseAnnual * (1 + effectiveGrowth));
 
     // 必要醸造量
     const needL = Math.max(0, forecastL - projectedStockOct);
@@ -544,19 +547,21 @@ function buildForecastWithNeed(
   for (const cat of allCats) {
     const data = catData.get(cat)!;
     const seasonal = seasonMap.get(cat) ?? new Map();
-    const cVals = completedFYs.filter(fy => data.has(fy)).map(fy => data.get(fy)!.shipL);
+    const exclAnnL = (excludedMlByParent.get(cat) ?? 0) / 1000;
+    const exclMonL = exclAnnL / 12;
+    const cVals = completedFYs.filter(fy => data.has(fy)).map(fy => Math.max(0, data.get(fy)!.shipL - exclAnnL));
     let gr = 0;
     if (cVals.length >= 2) {
       const rates: number[] = [];
       for (let i = 1; i < cVals.length; i++) { if (cVals[i-1] > 0) rates.push((cVals[i]-cVals[i-1])/cVals[i-1]); }
       gr = rates.length > 0 ? rates.reduce((a,b)=>a+b,0)/rates.length : 0;
     }
-    const base = cVals.length > 0 ? cVals[cVals.length - 1] : (data.get(currentFYStart)?.annualL ?? 0);
+    const base = cVals.length > 0 ? cVals[cVals.length - 1] : Math.max(0, (data.get(currentFYStart)?.annualL ?? 0) - exclAnnL);
     const stk = stockEntries.filter(e => e.brewCategory === cat).reduce((a, e) => a + e.volumeL, 0);
     const alc = alcoholSettings[cat];
     const dil = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
     const effNow = Math.round(stk * dil);
-    const rem = remainingMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
+    const rem = remainingMonths.reduce((s, m) => s + Math.max(0, (seasonal.get(m) ?? 0) - exclMonL), 0);
     const projOct = Math.max(0, effNow - Math.round(rem));
     const effGr = (cat in forecastOverrides) ? forecastOverrides[cat] : gr;
     const fc = Math.round(base * (1 + effGr));
