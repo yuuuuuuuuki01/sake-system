@@ -223,6 +223,56 @@ export function renderProcurement(
     </div>
 
     <section class="panel" style="margin-bottom:16px;">
+      <div class="panel-header"><h2>年間タイムライン</h2><p class="panel-caption">米入荷と醸造の月別スケジュール</p></div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:600px;">
+          <thead>
+            <tr>
+              <th style="width:90px;text-align:left;padding:4px;">区分/品種</th>
+              ${MONTH_LABELS.map(l => `<th style="text-align:center;padding:4px;min-width:40px;">${l}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${(() => {
+              const rows: string[] = [];
+              // 米入荷行（品種ごと）
+              const deliveryByVariety = new Map<string, number[]>();
+              for (const c of commitments) {
+                if (!c.deliveryMonth) continue;
+                if (!deliveryByVariety.has(c.varietyName)) deliveryByVariety.set(c.varietyName, []);
+                deliveryByVariety.get(c.varietyName)!.push(c.deliveryMonth);
+              }
+              for (const [variety, months] of deliveryByVariety) {
+                const cells = FY_MONTHS.map(m => {
+                  const has = months.includes(m);
+                  const bales = commitments.filter(c => c.varietyName === variety && c.deliveryMonth === m).reduce((s, c) => s + c.committedBales, 0);
+                  return `<td style="text-align:center;padding:3px;${has ? "background:#dcfce7;" : ""}">
+                    ${has ? `<div style="font-size:9px;font-weight:600;color:#16a34a;">🌾${bales}俵</div>` : ""}
+                  </td>`;
+                }).join("");
+                rows.push(`<tr><td style="padding:4px;color:#16a34a;font-weight:500;">📥 ${variety}</td>${cells}</tr>`);
+              }
+              // 醸造行（区分ごと）
+              for (const cat of allCats) {
+                const catSched = scheduleMap.get(cat) ?? [];
+                if (catSched.length === 0) continue;
+                const color = CATEGORY_COLORS[cat] ?? "#6366f1";
+                const cells = FY_MONTHS.map(m => {
+                  const s = catSched.find(sc => sc.brewMonth === m);
+                  return `<td style="text-align:center;padding:3px;${s ? `background:${color}12;` : ""}">
+                    ${s ? `<div style="font-size:9px;font-weight:600;color:${color};">${fmtNum(Math.round(s.plannedVolumeL))}L</div>` : ""}
+                  </td>`;
+                }).join("");
+                rows.push(`<tr><td style="padding:4px;color:${color};font-weight:500;">🍶 ${cat}</td>${cells}</tr>`);
+              }
+              return rows.join("") || `<tr><td colspan="13" style="text-align:center;color:var(--text-secondary);padding:12px;">スケジュール・入荷予定を登録すると表示されます</td></tr>`;
+            })()}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" style="margin-bottom:16px;">
       <div class="panel-header"><h2>区分別 醸造量・米必要量</h2><p class="panel-caption">横棒で全区分を一覧比較</p></div>
       ${(() => {
         // 全区分のデータを集めてバーチャート
@@ -406,8 +456,12 @@ export function renderProcurement(
               style="width:70px;height:28px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
             <input id="proc-commit-price" type="number" min="0" step="10" placeholder="円/kg"
               style="width:70px;height:28px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
+            <select id="proc-commit-month" style="height:28px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:0 4px;">
+              <option value="">入荷月</option>
+              ${FY_MONTHS.map((m, i) => `<option value="${m}">${MONTH_LABELS[i]}</option>`).join("")}
+            </select>
             <input id="proc-commit-supplier" type="text" placeholder="仕入先"
-              style="width:100px;height:28px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
+              style="width:80px;height:28px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
             <button data-action="proc-add-commitment" class="button primary"
               style="font-size:12px;padding:4px 12px;">追加</button>
           </div>

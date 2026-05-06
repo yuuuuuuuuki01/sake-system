@@ -6285,10 +6285,11 @@ function bindEvents(root: HTMLElement): void {
     const variety = (root.querySelector<HTMLSelectElement>("#proc-commit-variety")?.value ?? "").trim();
     const bales = parseFloat((root.querySelector<HTMLInputElement>("#proc-commit-bales")?.value ?? "0"));
     const price = parseFloat((root.querySelector<HTMLInputElement>("#proc-commit-price")?.value ?? "0"));
+    const deliveryMonth = parseInt((root.querySelector<HTMLSelectElement>("#proc-commit-month")?.value ?? "0")) || null;
     const supplier = (root.querySelector<HTMLInputElement>("#proc-commit-supplier")?.value ?? "").trim();
     if (!variety || bales <= 0) return;
     const { saveRicePurchaseCommitment, fetchRicePurchaseCommitments } = await import("./api");
-    await saveRicePurchaseCommitment({ varietyName: variety, committedBales: bales, pricePerKg: price, supplier, fy: state.brewingPlanFY });
+    await saveRicePurchaseCommitment({ varietyName: variety, committedBales: bales, pricePerKg: price, deliveryMonth, supplier, fy: state.brewingPlanFY });
     state.ricePurchaseCommitments = await fetchRicePurchaseCommitments(state.brewingPlanFY);
     renderApp();
   });
