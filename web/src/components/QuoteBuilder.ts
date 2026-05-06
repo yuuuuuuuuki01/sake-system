@@ -116,7 +116,7 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 .q-meta-box { display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
 .q-meta-item { display:flex; align-items:center; gap:5px; font-size:9px; }
 .q-meta-label { color:#888; font-weight:400; white-space:nowrap; }
-.q-meta-val { font-weight:600; border:1px solid #c0c8d8; border-radius:2px; padding:1px 6px; line-height:1.4; white-space:nowrap; }
+.q-meta-val { font-weight:600; padding:1px 0; line-height:1.4; white-space:nowrap; }
 /* 取引先＋自社情報（2カラム） */
 .q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:14px; }
 .q-customer { flex:1; }
@@ -166,7 +166,7 @@ function makeDocCssSpa(accent: string): string {
 .q-doc .q-meta-box { display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
 .q-doc .q-meta-item { display:flex; align-items:center; gap:6px; font-size:11px; }
 .q-doc .q-meta-label { color:#888; font-weight:400; white-space:nowrap; }
-.q-doc .q-meta-val { font-weight:600; border:1px solid #c0c8d8; border-radius:3px; padding:2px 8px; line-height:1.4; white-space:nowrap; }
+.q-doc .q-meta-val { font-weight:600; padding:2px 0; line-height:1.4; white-space:nowrap; }
 /* 取引先＋自社情報（2カラム） */
 .q-doc .q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:16px; }
 .q-doc .q-customer { flex:1; }
