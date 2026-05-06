@@ -7715,6 +7715,10 @@ async function loadData(): Promise<void> {
   state.loading = !cached;
   if (!cached) renderApp();
   try {
+    // 各フェッチが応答なしでぶら下がらないよう 30 秒の全体タイムアウトを設ける
+    const loadTimeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("データ読み込みがタイムアウトしました（30秒）")), 30000)
+    );
     const [
       salesSummary,
       paymentStatus,
@@ -7725,16 +7729,19 @@ async function loadData(): Promise<void> {
       salesAnalytics,
       syncDashboard,
       dbCompanySettings,
-    ] = await Promise.all([
-      fetchSalesSummary(),
-      fetchPaymentStatus(),
-      fetchMasterStats(),
-      fetchPipelineMeta(),
-      fetchInvoices(state.invoiceFilter),
-      fetchCustomerLedger(state.ledgerCustomerCode),
-      fetchSalesAnalytics(),
-      fetchSyncDashboard(),
-      fetchSystemSetting<QuoteCompanySettings>("quote_company"),
+    ] = await Promise.race([
+      Promise.all([
+        fetchSalesSummary(),
+        fetchPaymentStatus(),
+        fetchMasterStats(),
+        fetchPipelineMeta(),
+        fetchInvoices(state.invoiceFilter),
+        fetchCustomerLedger(state.ledgerCustomerCode),
+        fetchSalesAnalytics(),
+        fetchSyncDashboard(),
+        fetchSystemSetting<QuoteCompanySettings>("quote_company"),
+      ]),
+      loadTimeout,
     ]);
 
     state.salesSummary = salesSummary;
