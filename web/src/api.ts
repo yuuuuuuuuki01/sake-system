@@ -724,7 +724,15 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
             invoiceType: getString(row, ["invoice_type"], ""),
             priceGroup: String(memo.price_group ?? ""),
             priceType: String(memo.price_type ?? ""),
-            tradeType: getString(row, ["trade_type"], ""),
+            tradeType: (() => {
+              const stored = getString(row, ["trade_type"], "");
+              if (stored) return stored;
+              // DBにtrade_typeがまだない場合はprice_typeから自動導出
+              const pt = String(memo.price_type ?? "");
+              if (pt === "000") return "B2B2C";
+              if (pt === "001") return "B2C";
+              return "B2B";  // 002・未設定はデフォルト卸
+            })(),
             customerGroup1: String(memo.customer_group1 ?? ""),
             customerGroup2: String(memo.customer_group2 ?? ""),
             bankName: getString(row, ["bank_name"], ""),

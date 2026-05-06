@@ -206,6 +206,14 @@ def _extract_fields(slot_data: bytes, start: int, remaining: int) -> dict[str, A
     customer_group1 = decode_cp932(s(252, 3)) if remaining > 254 else None
     customer_group2 = decode_cp932(s(255, 2)) if remaining > 256 else None
 
+    # price_type から取引区分を自動導出
+    if price_type == "000":
+        trade_type = "B2B2C"   # 生産者・酒蔵向け
+    elif price_type == "001":
+        trade_type = "B2C"     # 小売・直販
+    else:
+        trade_type = "B2B"     # 卸（002 / 未設定のデフォルト）
+
     return {
         "id": str(uuid.uuid5(SAKE_UUID_NS, f"customer:{code}")),
         "legacy_customer_code": code,
@@ -225,6 +233,7 @@ def _extract_fields(slot_data: bytes, start: int, remaining: int) -> dict[str, A
         "payment_day": payment_day if payment_day and payment_day < 32 else None,
         "billing_cycle_type": payment_type or None,
         "tax_mode": str(tax_calc) if tax_calc is not None else None,
+        "trade_type": trade_type,
         "memo": json.dumps({
             "invoice_issue": invoice_issue,
             "sales_category": sales_category,

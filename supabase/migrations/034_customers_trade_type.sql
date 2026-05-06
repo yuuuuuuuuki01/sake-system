@@ -11,3 +11,15 @@ COMMENT ON COLUMN customers.trade_type IS
   'B2B=卸(002価格), B2B2C=生産者向け(000価格), B2C=小売・直販(001価格)';
 
 CREATE INDEX IF NOT EXISTS idx_customers_trade_type ON customers(trade_type);
+
+-- 既存データを memo->>'price_type' から一括自動設定
+-- price_type='000' → B2B2C（生産者向け）
+-- price_type='001' → B2C（小売・直販）
+-- それ以外（'002' / 未設定）→ B2B（卸）
+UPDATE customers
+SET trade_type = CASE
+  WHEN memo IS NOT NULL AND (memo::jsonb)->>'price_type' = '000' THEN 'B2B2C'
+  WHEN memo IS NOT NULL AND (memo::jsonb)->>'price_type' = '001' THEN 'B2C'
+  ELSE 'B2B'
+END
+WHERE trade_type IS NULL;
