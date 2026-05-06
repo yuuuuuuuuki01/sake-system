@@ -189,6 +189,7 @@ import { renderDemandForecast, buildForecastsFromShipments, buildDeliveriesFromS
 import { renderDemandPlanning, buildDefaultShifts, optimizeShifts, DEFAULT_PART_CAPACITY, DEFAULT_EMP_CAPACITY, type DemandTab, type DemandSortState, type DayShift, type CalendarCapacity } from "./components/DemandPlanning";
 import { renderBrewingPlan } from "./components/BrewingPlan";
 import { renderProcurement } from "./components/Procurement";
+import { renderBrewingProcess } from "./components/BrewingProcess";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { CHURN_REASONS } from "./api";
 const CHURN_REASONS_MAP: Record<string, string> = Object.fromEntries(CHURN_REASONS.map((r) => [r.value, r.label]));
@@ -262,7 +263,8 @@ type RoutePath =
   | "/demand"
   | "/shipment-calendar"
   | "/brewing-plan"
-  | "/procurement";
+  | "/procurement"
+  | "/brewing-process";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
 
@@ -336,7 +338,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/demand",
   "/shipment-calendar",
   "/brewing-plan",
-  "/procurement"
+  "/procurement",
+  "/brewing-process"
 ];
 
 let EMAIL_RECIPIENTS: EmailRecipientRecord[] = [];
@@ -405,7 +408,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/demand", title: "需要分析・安全在庫・生産計画" },
   { path: "/shipment-calendar", title: "出荷カレンダー" },
   { path: "/brewing-plan", title: "醸造計画" },
-  { path: "/procurement", title: "調達計画" }
+  { path: "/procurement", title: "調達計画" },
+  { path: "/brewing-process", title: "醸造工程" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -710,6 +714,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/demand":
     case "/brewing-plan":
     case "/procurement":
+    case "/brewing-process":
       return "brewery";
     case "/master":
     case "/calendar":
@@ -975,6 +980,10 @@ const state: AppState = {
   riceVarieties: [] as import("./api").RiceVariety[],
   ricePurchaseCommitments: [] as import("./api").RicePurchaseCommitment[],
   procurementDecisions: {} as Record<string, number>,
+  brewingBatches: [] as import("./api").BrewingBatchRow[],
+  brewingProcessSteps: [] as import("./api").BrewingProcessStepRow[],
+  bpExpandedBatchId: "",
+  bpShowNewForm: false,
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1641,6 +1650,22 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.brewingAlcoholSettings = alcSettings;
         break;
       }
+      case "/brewing-process": {
+        const { fetchBrewingBatches, fetchBrewingProcessSteps, fetchBrewingCustomCategories } = await import("./api");
+        const fy = state.brewingPlanFY;
+        const [batches, customCats] = await Promise.all([
+          fetchBrewingBatches(fy).catch(() => []),
+          fetchBrewingCustomCategories().catch(() => [])
+        ]);
+        state.brewingBatches = batches;
+        if (batches.length > 0) {
+          state.brewingProcessSteps = await fetchBrewingProcessSteps(batches.map(b => b.id)).catch(() => []);
+        } else {
+          state.brewingProcessSteps = [];
+        }
+        state.brewingCustomCategories = customCats;
+        break;
+      }
       case "/jikomi":
         if (state.jikomiList.length === 0) {
           state.jikomiList = await fetchJikomiList();
@@ -1993,6 +2018,15 @@ function renderView(): string {
       return state.visitPlanner
         ? renderVisitPlanner(state.visitPlanner)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">訪問計画を生成中…</p></div></section>`;
+    case "/brewing-process": {
+      const cats = [...new Set([
+        "純米大吟醸", "大吟醸", "純米吟醸", "純米", "本醸造", "普通酒", "リキュール",
+        ...state.brewingCustomCategories.map(c => c.name)
+      ])];
+      return renderBrewingProcess(state.brewingBatches, state.brewingProcessSteps, cats, {
+        expandedBatchId: state.bpExpandedBatchId, showNewForm: state.bpShowNewForm
+      });
+    }
     case "/jikomi":
       return state.jikomiView === "calendar"
         ? `${renderJikomi(state.jikomiList, state.jikomiView)}${renderJikomiCalendar(state.jikomiList)}`
@@ -6238,22 +6272,29 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // ─── ガントチャート: ドラッグ移動・リサイズ・ダブルクリック量編集 ─────────
+  // ─── ガントチャート: ドラッグ移動・リサイズ・タップ量編集（タッチ対応）──
   (() => {
     const gantt = root.querySelector<HTMLElement>("#gantt-timeline");
     if (!gantt) return;
+    const BREW_M = [9,10,11,12,1,2,3,4,5];
+    const nCols = BREW_M.length;
     let dragState: null | {
       bar: HTMLElement; mode: "move" | "resize-left" | "resize-right";
-      cat: string; origMonth: number; origDur: number; origVol: number; maxVol: number;
-      startX: number; cellW: number; container: HTMLElement;
+      cat: string; origMonth: number; origDur: number; origVol: number;
+      startX: number; cellW: number; origLeftPct: number; origWidthPct: number;
     } = null;
+    let tapTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // pointer-events on bars
-    gantt.querySelectorAll<HTMLElement>(".gantt-bar").forEach(bar => {
-      bar.style.pointerEvents = "auto";
-    });
+    gantt.querySelectorAll<HTMLElement>(".gantt-bar").forEach(bar => { bar.style.pointerEvents = "auto"; });
 
-    gantt.addEventListener("mousedown", (e) => {
+    function getXFromEvent(e: MouseEvent | TouchEvent): number {
+      return "touches" in e ? e.touches[0].clientX : e.clientX;
+    }
+    function getXFromEnd(e: MouseEvent | TouchEvent): number {
+      return "changedTouches" in e ? e.changedTouches[0].clientX : (e as MouseEvent).clientX;
+    }
+
+    function startDrag(e: MouseEvent | TouchEvent) {
       const target = e.target as HTMLElement;
       const bar = target.closest<HTMLElement>(".gantt-bar");
       if (!bar) return;
@@ -6262,129 +6303,124 @@ function bindEvents(root: HTMLElement): void {
       const origMonth = parseInt(bar.dataset.month ?? "0");
       const origDur = parseInt(bar.dataset.dur ?? "1");
       const origVol = parseInt(bar.dataset.vol ?? "0");
-      const maxVol = parseInt(bar.dataset.max ?? "0");
-      const cellW = container.offsetWidth / 12;
+      const cellW = container.offsetWidth / nCols;
       let mode: "move" | "resize-left" | "resize-right" = "move";
       if (target.classList.contains("gantt-resize-right")) mode = "resize-right";
       else if (target.classList.contains("gantt-resize-left")) mode = "resize-left";
       bar.style.cursor = mode === "move" ? "grabbing" : "ew-resize";
       bar.style.opacity = "0.8";
-      dragState = { bar, mode, cat, origMonth, origDur, origVol, maxVol, startX: e.clientX, cellW, container };
+      bar.style.zIndex = "10";
+      dragState = {
+        bar, mode, cat, origMonth, origDur, origVol,
+        startX: getXFromEvent(e), cellW,
+        origLeftPct: parseFloat(bar.style.left), origWidthPct: parseFloat(bar.style.width)
+      };
       e.preventDefault();
-    });
+    }
 
-    const FY_M = [10,11,12,1,2,3,4,5,6,7,8,9];
-
-    document.addEventListener("mousemove", (e) => {
+    function moveDrag(e: MouseEvent | TouchEvent) {
       if (!dragState) return;
-      const { bar, mode, origMonth, origDur, startX, cellW, container } = dragState;
-      const dx = e.clientX - startX;
+      const { bar, mode, origDur, startX, cellW, origLeftPct, origWidthPct } = dragState;
+      const dx = getXFromEvent(e) - startX;
       const cellDelta = Math.round(dx / cellW);
-      const origIdx = FY_M.indexOf(origMonth);
+      const origIdx = Math.round(origLeftPct / 100 * nCols);
       if (mode === "move") {
-        const newIdx = Math.max(0, Math.min(12 - origDur, origIdx + cellDelta));
-        const leftPct = (newIdx / 12 * 100).toFixed(2);
-        bar.style.left = leftPct + "%";
+        const newIdx = Math.max(0, Math.min(nCols - origDur, origIdx + cellDelta));
+        bar.style.left = (newIdx / nCols * 100).toFixed(2) + "%";
       } else if (mode === "resize-right") {
-        const newDur = Math.max(1, Math.min(12 - origIdx, origDur + cellDelta));
-        const widthPct = (newDur / 12 * 100).toFixed(2);
-        bar.style.width = widthPct + "%";
+        const newDur = Math.max(1, Math.min(nCols - origIdx, origDur + cellDelta));
+        bar.style.width = (newDur / nCols * 100).toFixed(2) + "%";
       } else if (mode === "resize-left") {
         const newIdx = Math.max(0, Math.min(origIdx + origDur - 1, origIdx + cellDelta));
         const newDur = origDur - (newIdx - origIdx);
-        bar.style.left = (newIdx / 12 * 100).toFixed(2) + "%";
-        bar.style.width = (newDur / 12 * 100).toFixed(2) + "%";
+        bar.style.left = (newIdx / nCols * 100).toFixed(2) + "%";
+        bar.style.width = (newDur / nCols * 100).toFixed(2) + "%";
       }
-    });
+    }
 
-    document.addEventListener("mouseup", async () => {
+    async function endDrag(e: MouseEvent | TouchEvent) {
       if (!dragState) return;
-      const { bar, mode, cat, origMonth, origDur, origVol, startX, cellW } = dragState;
-      const dx = parseFloat(bar.style.left) / 100 * 12;
-      const newStartIdx = Math.round(dx);
-      const newDur = Math.max(1, Math.round(parseFloat(bar.style.width) / 100 * 12));
-      const newMonth = FY_M[Math.max(0, Math.min(11, newStartIdx))];
-      bar.style.cursor = "grab";
-      bar.style.opacity = "1";
+      const { bar, cat, origMonth, origDur, origVol } = dragState;
+      const newStartIdx = Math.round(parseFloat(bar.style.left) / 100 * nCols);
+      const newDur = Math.max(1, Math.round(parseFloat(bar.style.width) / 100 * nCols));
+      const newMonth = BREW_M[Math.max(0, Math.min(nCols - 1, newStartIdx))];
+      bar.style.cursor = "grab"; bar.style.opacity = "1"; bar.style.zIndex = "";
       dragState = null;
-
-      // 変更があった場合のみ保存
       if (newMonth === origMonth && newDur === origDur) return;
-
       const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
-      // 現在の区分スケジュールを取得し、該当エントリを更新
-      const rows = state.brewingSchedule
-        .filter(s => s.brewCategory === cat)
-        .map(s => {
-          if (s.brewMonth === origMonth) {
-            return { brewMonth: newMonth, durationMonths: newDur, plannedVolumeL: origVol };
-          }
-          return { brewMonth: s.brewMonth, durationMonths: s.durationMonths, plannedVolumeL: s.plannedVolumeL };
-        });
+      const rows = state.brewingSchedule.filter(s => s.brewCategory === cat).map(s =>
+        s.brewMonth === origMonth
+          ? { brewMonth: newMonth, durationMonths: newDur, plannedVolumeL: origVol }
+          : { brewMonth: s.brewMonth, durationMonths: s.durationMonths, plannedVolumeL: s.plannedVolumeL }
+      );
       await saveBrewingSchedule(cat, state.brewingPlanFY, rows);
       state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
       renderApp();
-    });
+    }
 
-    // ダブルクリックで量編集
-    gantt.addEventListener("dblclick", (e) => {
-      const target = e.target as HTMLElement;
-      const bar = target.closest<HTMLElement>(".gantt-bar");
-      if (!bar) return;
+    gantt.addEventListener("mousedown", startDrag);
+    gantt.addEventListener("touchstart", startDrag, { passive: false });
+    document.addEventListener("mousemove", moveDrag);
+    document.addEventListener("touchmove", moveDrag, { passive: false });
+    document.addEventListener("mouseup", endDrag);
+    document.addEventListener("touchend", endDrag);
+
+    // ダブルクリック/ダブルタップで量編集
+    function openVolEditor(bar: HTMLElement) {
       const cat = bar.dataset.cat ?? "";
       const month = parseInt(bar.dataset.month ?? "0");
       const vol = parseInt(bar.dataset.vol ?? "0");
       const maxVol = parseInt(bar.dataset.max ?? "99999");
       const label = bar.querySelector<HTMLElement>(".gantt-bar-label");
-      if (!label) return;
+      if (!label || label.querySelector("input")) return;
       const input = document.createElement("input");
-      input.type = "number";
-      input.min = "0";
-      input.max = String(maxVol);
-      input.step = "100";
-      input.value = String(vol);
-      input.style.cssText = "width:60px;height:20px;font-size:11px;text-align:center;border:1px solid #2563eb;border-radius:3px;pointer-events:auto;";
-      label.textContent = "";
-      label.style.pointerEvents = "auto";
-      label.appendChild(input);
-      input.focus();
-      input.select();
-
+      input.type = "number"; input.min = "0"; input.max = String(maxVol);
+      input.step = "100"; input.value = String(vol);
+      input.style.cssText = "width:60px;height:24px;font-size:12px;text-align:center;border:1px solid #2563eb;border-radius:3px;pointer-events:auto;";
+      label.textContent = ""; label.style.pointerEvents = "auto";
+      label.appendChild(input); input.focus(); input.select();
       const finish = async () => {
         const newVol = parseFloat(input.value) || 0;
         label.style.pointerEvents = "none";
         label.textContent = fmtNum(Math.round(newVol)) + "L";
         if (Math.abs(newVol - vol) < 1) return;
         const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
-        const rows = state.brewingSchedule
-          .filter(s => s.brewCategory === cat)
-          .map(s => ({
-            brewMonth: s.brewMonth,
-            durationMonths: s.durationMonths,
-            plannedVolumeL: s.brewMonth === month ? newVol : s.plannedVolumeL
-          }));
+        const rows = state.brewingSchedule.filter(s => s.brewCategory === cat).map(s => ({
+          brewMonth: s.brewMonth, durationMonths: s.durationMonths,
+          plannedVolumeL: s.brewMonth === month ? newVol : s.plannedVolumeL
+        }));
         await saveBrewingSchedule(cat, state.brewingPlanFY, rows);
         state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
         renderApp();
       };
       input.addEventListener("blur", finish);
       input.addEventListener("keydown", (ke) => { if (ke.key === "Enter") input.blur(); });
+    }
+    gantt.addEventListener("dblclick", (e) => {
+      const bar = (e.target as HTMLElement).closest<HTMLElement>(".gantt-bar");
+      if (bar) openVolEditor(bar);
     });
+    // タップ: シングルタップで量編集（スマホ用）
+    gantt.addEventListener("touchstart", (e) => {
+      const bar = (e.target as HTMLElement).closest<HTMLElement>(".gantt-bar");
+      if (!bar) return;
+      if (tapTimer) { clearTimeout(tapTimer); tapTimer = null; openVolEditor(bar); return; }
+      tapTimer = setTimeout(() => { tapTimer = null; }, 300);
+    }, { passive: true });
 
-    // 空セルクリックで新規バー追加
+    // 空エリアクリック/タップで新規バー追加
     gantt.querySelectorAll<HTMLElement>(".gantt-bar-container").forEach(container => {
       container.style.pointerEvents = "auto";
-      container.addEventListener("click", async (e) => {
-        if ((e.target as HTMLElement).closest(".gantt-bar")) return;
+      const addBar = async (clientX: number) => {
+        if (dragState) return;
         const cat = container.dataset.cat ?? "";
         const maxVol = parseInt(container.dataset.max ?? "0");
         const rect = container.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const cellIdx = Math.floor(x / (rect.width / 12));
-        const month = FY_M[Math.max(0, Math.min(11, cellIdx))];
-        // 既にその月にスケジュールがあれば無視
+        const x = clientX - rect.left;
+        const cellIdx = Math.floor(x / (rect.width / nCols));
+        const month = BREW_M[Math.max(0, Math.min(nCols - 1, cellIdx))];
         if (state.brewingSchedule.some(s => s.brewCategory === cat && s.brewMonth === month)) return;
-        const vol = Math.round(maxVol * 0.3) || 500; // デフォルト量
+        const vol = Math.round(maxVol * 0.3) || 500;
         const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
         const rows = [
           ...state.brewingSchedule.filter(s => s.brewCategory === cat).map(s => ({
@@ -6395,12 +6431,76 @@ function bindEvents(root: HTMLElement): void {
         await saveBrewingSchedule(cat, state.brewingPlanFY, rows);
         state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
         renderApp();
+      };
+      container.addEventListener("click", (e) => {
+        if ((e.target as HTMLElement).closest(".gantt-bar")) return;
+        addBar(e.clientX);
       });
     });
   })();
 
-  // fmtNum for gantt inline edit
   function fmtNum(n: number): string { return n.toLocaleString("ja-JP"); }
+
+  // ─── 醸造工程管理 イベントハンドラ ──────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='bp-show-new-form']")?.addEventListener("click", () => {
+    state.bpShowNewForm = !state.bpShowNewForm;
+    renderApp();
+  });
+
+  root.querySelector<HTMLButtonElement>("[data-action='bp-create-batch']")?.addEventListener("click", async () => {
+    const cat = (root.querySelector<HTMLSelectElement>("#bp-new-cat") as HTMLSelectElement)?.value ?? "";
+    const code = (root.querySelector<HTMLInputElement>("#bp-new-code") as HTMLInputElement)?.value?.trim() ?? "";
+    const vol = parseFloat((root.querySelector<HTMLInputElement>("#bp-new-vol") as HTMLInputElement)?.value ?? "0");
+    const date = (root.querySelector<HTMLInputElement>("#bp-new-date") as HTMLInputElement)?.value ?? "";
+    if (!cat || !code || !date) return;
+    const { createBrewingBatch, fetchBrewingBatches, fetchBrewingProcessSteps } = await import("./api");
+    await createBrewingBatch(cat, code, state.brewingPlanFY, vol, date);
+    state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
+    state.brewingProcessSteps = await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id));
+    state.bpShowNewForm = false;
+    renderApp();
+  });
+
+  root.querySelectorAll<HTMLElement>("[data-action='bp-toggle-detail']").forEach(el => {
+    el.addEventListener("click", () => {
+      const id = el.dataset.batchId ?? "";
+      state.bpExpandedBatchId = state.bpExpandedBatchId === id ? "" : id;
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLSelectElement>("[data-action='bp-step-status']").forEach(sel => {
+    sel.addEventListener("change", async () => {
+      const stepId = sel.dataset.stepId ?? "";
+      if (!stepId) return;
+      const { updateBrewingProcessStep } = await import("./api");
+      const fields: Record<string, unknown> = { status: sel.value };
+      if (sel.value === "進行中" && !sel.dataset.actualStart) fields["actual_start"] = new Date().toISOString().split("T")[0];
+      if (sel.value === "完了" && !sel.dataset.actualEnd) fields["actual_end"] = new Date().toISOString().split("T")[0];
+      await updateBrewingProcessStep(stepId, fields);
+      const { fetchBrewingProcessSteps } = await import("./api");
+      state.brewingProcessSteps = await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id));
+      renderApp();
+    });
+  });
+
+  root.querySelectorAll<HTMLInputElement>("[data-action='bp-step-temp']").forEach(input => {
+    input.addEventListener("change", async () => {
+      const stepId = input.dataset.stepId ?? "";
+      if (!stepId) return;
+      const { updateBrewingProcessStep } = await import("./api");
+      await updateBrewingProcessStep(stepId, { temperature: parseFloat(input.value) || null });
+    });
+  });
+
+  root.querySelectorAll<HTMLInputElement>("[data-action='bp-step-notes']").forEach(input => {
+    input.addEventListener("change", async () => {
+      const stepId = input.dataset.stepId ?? "";
+      if (!stepId) return;
+      const { updateBrewingProcessStep } = await import("./api");
+      await updateBrewingProcessStep(stepId, { notes: input.value });
+    });
+  });
 
   // 調達計画: 醸造月スケジュール追加
   root.querySelectorAll<HTMLButtonElement>("[data-action='proc-add-schedule']").forEach((btn) => {

@@ -1655,6 +1655,65 @@ export async function saveProcurementDecision(brewCategory: string, fy: number, 
   return resp.ok;
 }
 
+// ─── 醸造工程管理 ────────────────────────────────────────────────────────────
+
+export interface BrewingBatchRow {
+  id: string; brewCategory: string; batchCode: string; fy: number;
+  plannedVolumeL: number; tankNo: string; status: "planned" | "active" | "completed";
+  startDate: string; targetEndDate: string; notes: string;
+}
+
+export interface BrewingProcessStepRow {
+  id: string; batchId: string; stepOrder: number; stepName: string;
+  plannedStart: string; plannedEnd: string; actualStart: string; actualEnd: string;
+  status: "未着手" | "進行中" | "完了"; temperature: number | null; notes: string;
+}
+
+export async function fetchBrewingBatches(fy: number): Promise<BrewingBatchRow[]> {
+  const rows = await supabaseQuery<LooseRow>("brewing_batches", {
+    fy: `eq.${fy}`, order: "start_date.asc.nullsfirst"
+  });
+  return (rows ?? []).map(r => ({
+    id: getString(r, ["id"], ""), brewCategory: getString(r, ["brew_category"], ""),
+    batchCode: getString(r, ["batch_code"], ""), fy: getNumber(r, ["fy"], fy),
+    plannedVolumeL: getNumber(r, ["planned_volume_l"], 0), tankNo: getString(r, ["tank_no"], ""),
+    status: getString(r, ["status"], "planned") as "planned" | "active" | "completed",
+    startDate: getString(r, ["start_date"], ""), targetEndDate: getString(r, ["target_end_date"], ""),
+    notes: getString(r, ["notes"], "")
+  }));
+}
+
+export async function fetchBrewingProcessSteps(batchIds: string[]): Promise<BrewingProcessStepRow[]> {
+  if (batchIds.length === 0) return [];
+  const rows = await supabaseQuery<LooseRow>("brewing_process_steps", {
+    batch_id: `in.(${batchIds.join(",")})`, order: "batch_id.asc,step_order.asc"
+  });
+  return (rows ?? []).map(r => ({
+    id: getString(r, ["id"], ""), batchId: getString(r, ["batch_id"], ""),
+    stepOrder: getNumber(r, ["step_order"], 0), stepName: getString(r, ["step_name"], ""),
+    plannedStart: getString(r, ["planned_start"], ""), plannedEnd: getString(r, ["planned_end"], ""),
+    actualStart: getString(r, ["actual_start"], ""), actualEnd: getString(r, ["actual_end"], ""),
+    status: getString(r, ["status"], "未着手") as "未着手" | "進行中" | "完了",
+    temperature: r["temperature"] != null ? getNumber(r, ["temperature"], 0) : null,
+    notes: getString(r, ["notes"], "")
+  }));
+}
+
+export async function createBrewingBatch(cat: string, code: string, fy: number, volL: number, startDate: string): Promise<string | null> {
+  const result = await supabaseRpc<string>("create_brewing_batch", {
+    p_brew_category: cat, p_batch_code: code, p_fy: fy, p_volume_l: volL, p_start_date: startDate
+  });
+  return result;
+}
+
+export async function updateBrewingProcessStep(stepId: string, fields: Record<string, unknown>): Promise<boolean> {
+  return supabaseUpdate("brewing_process_steps", stepId, fields);
+}
+
+export async function updateBrewingBatch(batchId: string, fields: Record<string, unknown>): Promise<boolean> {
+  return supabaseUpdate("brewing_batches", batchId, { ...fields, updated_at: new Date().toISOString() });
+}
+
 // ─── 作付け予定（購入確定分） ──────────────────────────────────────────────────
 
 export interface RicePurchaseCommitment {
@@ -4389,18 +4448,18 @@ export async function saveProspect(p: Prospect): Promise<Prospect | null> {
     note: p.note || null,
     updated_at: new Date().toISOString()
   });
-  return r ? p : null;
+  if (!r) return null;
+  return { ...p, id: getString(r, ["id"], p.id) };
 }
 
 export async function deleteProspect(id: string): Promise<boolean> {
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
-  if (!key) return false;
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
   try {
-    const url = new URL(`/rest/v1/prospects`, "https://loarwnuyvfxiscjjsmiz.supabase.co");
+    const url = new URL(`/rest/v1/prospects`, SUPABASE_URL);
     url.searchParams.set("id", `eq.${id}`);
     const r = await fetch(url.toString(), {
       method: "DELETE",
-      headers: { apikey: key, Authorization: `Bearer ${key}` }
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
     });
     return r.ok;
   } catch {

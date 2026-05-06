@@ -10,6 +10,9 @@ const CATEGORY_ORDER = ["純米大吟醸", "大吟醸", "純米吟醸", "純米"
 // 会計年度の月順（10月〜9月）
 const FY_MONTHS = [10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 const MONTH_LABELS = ["10月", "11月", "12月", "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月"];
+// 醸造期間タイムライン用（9月〜5月）
+const BREW_MONTHS = [9, 10, 11, 12, 1, 2, 3, 4, 5];
+const BREW_MONTH_LABELS = ["9月", "10月", "11月", "12月", "1月", "2月", "3月", "4月", "5月"];
 
 function fmtNum(n: number): string { return n.toLocaleString("ja-JP"); }
 
@@ -251,14 +254,15 @@ export function renderProcurement(
     </div>
 
     <section class="panel" style="margin-bottom:16px;">
-      <div class="panel-header"><h2>年間タイムライン</h2><p class="panel-caption">バーをドラッグで移動・端をドラッグでリサイズ・ダブルクリックで量編集</p></div>
-      <div id="gantt-timeline" style="overflow-x:auto;min-width:600px;user-select:none;">
-        <div style="display:grid;grid-template-columns:90px repeat(12,1fr);font-size:11px;">
-          <div style="padding:4px;font-weight:600;">区分/品種</div>
-          ${MONTH_LABELS.map(l => `<div style="text-align:center;padding:4px;font-weight:600;border-left:1px solid var(--border);">${l}</div>`).join("")}
+      <div class="panel-header"><h2>醸造タイムライン（9月〜5月）</h2><p class="panel-caption">バーをドラッグで移動・端をドラッグでリサイズ・タップ/ダブルクリックで量編集</p></div>
+      <div id="gantt-timeline" style="overflow-x:auto;user-select:none;-webkit-user-select:none;touch-action:none;">
+        <div style="display:grid;grid-template-columns:80px repeat(${BREW_MONTHS.length},1fr);font-size:11px;min-width:500px;">
+          <div style="padding:4px;font-weight:600;">区分</div>
+          ${BREW_MONTH_LABELS.map(l => `<div style="text-align:center;padding:4px;font-weight:600;border-left:1px solid var(--border);">${l}</div>`).join("")}
         </div>
         ${(() => {
           const rows: string[] = [];
+          const nCols = BREW_MONTHS.length;
           // 米入荷行
           const deliveryByVariety = new Map<string, number[]>();
           for (const c of commitments) {
@@ -267,18 +271,20 @@ export function renderProcurement(
             deliveryByVariety.get(c.varietyName)!.push(c.deliveryMonth);
           }
           for (const [variety, months] of deliveryByVariety) {
-            const cells = FY_MONTHS.map(m => {
+            const cells = BREW_MONTHS.map(m => {
               const has = months.includes(m);
               const bales = commitments.filter(c => c.varietyName === variety && c.deliveryMonth === m).reduce((s, c) => s + c.committedBales, 0);
               return `<div style="text-align:center;padding:3px;border-left:1px solid var(--border);${has ? "background:#dcfce7;" : ""}">
                 ${has ? `<div style="font-size:9px;font-weight:600;color:#16a34a;">🌾${bales}俵</div>` : ""}
               </div>`;
             }).join("");
-            rows.push(`<div style="display:grid;grid-template-columns:90px repeat(12,1fr);border-top:1px solid var(--border);">
-              <div style="padding:4px;color:#16a34a;font-weight:500;font-size:11px;">📥 ${variety}</div>${cells}
+            rows.push(`<div style="display:grid;grid-template-columns:80px repeat(${nCols},1fr);border-top:1px solid var(--border);">
+              <div style="padding:4px;color:#16a34a;font-weight:500;font-size:10px;">📥 ${variety}</div>${cells}
             </div>`);
           }
-          // 醸造行（インタラクティブバー）
+          // 醸造行（バー重なり→段組み対応）
+          const BAR_H = 34;
+          const BAR_GAP = 2;
           for (const cat of allCats) {
             const catSched = scheduleMap.get(cat) ?? [];
             const color = CATEGORY_COLORS[cat] ?? "#6366f1";
@@ -286,31 +292,47 @@ export function renderProcurement(
             const tojiL = catSched.reduce((s, r) => s + r.plannedVolumeL, 0);
             const hasSched = catSched.length > 0;
             const maxL = hasDec ? decisions[cat] : (hasSched ? tojiL : (needByCategory[cat] ?? 0));
-            // 12セル背景グリッド
-            const gridCells = FY_MONTHS.map(() =>
-              `<div style="border-left:1px solid var(--border);height:36px;"></div>`
+            // 各バーのレーン割当（重なったら下段へ）
+            type BarInfo = { s: typeof catSched[0]; startIdx: number; dur: number; lane: number };
+            const barInfos: BarInfo[] = [];
+            const sorted = [...catSched].sort((a, b) => BREW_MONTHS.indexOf(a.brewMonth) - BREW_MONTHS.indexOf(b.brewMonth));
+            const laneEnds: number[] = []; // laneEnds[i] = end index of last bar in lane i
+            for (const s of sorted) {
+              const startIdx = BREW_MONTHS.indexOf(s.brewMonth);
+              if (startIdx < 0) continue;
+              const dur = Math.min(s.durationMonths, nCols - startIdx);
+              const endIdx = startIdx + dur;
+              let lane = 0;
+              while (lane < laneEnds.length && laneEnds[lane] > startIdx) lane++;
+              if (lane >= laneEnds.length) laneEnds.push(endIdx);
+              else laneEnds[lane] = endIdx;
+              barInfos.push({ s, startIdx, dur, lane });
+            }
+            const numLanes = Math.max(laneEnds.length, 1);
+            const rowH = numLanes * (BAR_H + BAR_GAP) + BAR_GAP;
+            // グリッド背景
+            const gridCells = BREW_MONTHS.map(() =>
+              `<div style="border-left:1px solid var(--border);height:${rowH}px;"></div>`
             ).join("");
-            // バー要素（各スケジュールエントリ）
-            const bars = catSched.map(s => {
-              const startIdx = FY_MONTHS.indexOf(s.brewMonth);
-              if (startIdx < 0) return "";
-              const dur = Math.min(s.durationMonths, 12 - startIdx);
-              const leftPct = (startIdx / 12 * 100).toFixed(2);
-              const widthPct = (dur / 12 * 100).toFixed(2);
+            // バー要素
+            const bars = barInfos.map(({ s, startIdx, dur, lane }) => {
+              const leftPct = (startIdx / nCols * 100).toFixed(2);
+              const widthPct = (dur / nCols * 100).toFixed(2);
+              const topPx = BAR_GAP + lane * (BAR_H + BAR_GAP);
               return `<div class="gantt-bar" data-cat="${cat}" data-month="${s.brewMonth}" data-dur="${dur}" data-vol="${Math.round(s.plannedVolumeL)}" data-max="${Math.round(maxL)}"
-                style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:2px;height:32px;
-                  background:${color}30;border:2px solid ${color};border-radius:4px;cursor:grab;
-                  display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:${color};overflow:hidden;box-sizing:border-box;">
-                <div class="gantt-resize-left" style="position:absolute;left:0;top:0;width:6px;height:100%;cursor:ew-resize;"></div>
+                style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:${topPx}px;height:${BAR_H}px;
+                  background:${color}30;border:2px solid ${color};border-radius:6px;cursor:grab;
+                  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:${color};overflow:hidden;box-sizing:border-box;">
+                <div class="gantt-resize-left" style="position:absolute;left:0;top:0;width:14px;height:100%;cursor:ew-resize;"></div>
                 <span class="gantt-bar-label" style="pointer-events:none;white-space:nowrap;">${fmtNum(Math.round(s.plannedVolumeL))}L</span>
-                <div class="gantt-resize-right" style="position:absolute;right:0;top:0;width:6px;height:100%;cursor:ew-resize;"></div>
+                <div class="gantt-resize-right" style="position:absolute;right:0;top:0;width:14px;height:100%;cursor:ew-resize;"></div>
               </div>`;
             }).join("");
-            rows.push(`<div style="display:grid;grid-template-columns:90px 1fr;border-top:1px solid var(--border);">
-              <div style="padding:4px;color:${color};font-weight:500;font-size:11px;display:flex;align-items:center;">🍶 ${cat}</div>
-              <div style="position:relative;display:grid;grid-template-columns:repeat(12,1fr);">
+            rows.push(`<div style="display:grid;grid-template-columns:80px 1fr;border-top:1px solid var(--border);">
+              <div style="padding:4px;color:${color};font-weight:500;font-size:10px;display:flex;align-items:center;">🍶 ${cat}</div>
+              <div style="position:relative;display:grid;grid-template-columns:repeat(${nCols},1fr);">
                 ${gridCells}
-                <div class="gantt-bar-container" data-cat="${cat}" data-max="${Math.round(maxL)}" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
+                <div class="gantt-bar-container" data-cat="${cat}" data-max="${Math.round(maxL)}" data-cols="${nCols}" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
                   ${bars}
                 </div>
               </div>
