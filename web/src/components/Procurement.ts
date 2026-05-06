@@ -1,4 +1,4 @@
-import type { BrewingRiceParams, BrewingCustomCategory, BrewingScheduleRow, RiceVariety } from "../api";
+import type { BrewingRiceParams, BrewingCustomCategory, BrewingScheduleRow, RiceVariety, RicePurchaseCommitment } from "../api";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "純米大吟醸": "#7c3aed", "大吟醸": "#a855f7", "純米吟醸": "#2563eb",
@@ -19,7 +19,8 @@ export function renderProcurement(
   customCategories: BrewingCustomCategory[],
   schedule: BrewingScheduleRow[] = [],
   fy: number = 2026,
-  riceVarieties: RiceVariety[] = []
+  riceVarieties: RiceVariety[] = [],
+  commitments: RicePurchaseCommitment[] = []
 ): string {
   // needByCategoryにある区分 + スケジュールだけ入っている区分（新規ブランド等）を統合
   const catSet = new Set([
@@ -332,6 +333,97 @@ export function renderProcurement(
           <div style="font-size:22px;font-weight:700;margin-top:4px;">¥${fmtNum(totalCost)}<span style="font-size:13px;font-weight:400;margin-left:4px;">(${(totalCost/10000).toFixed(0)}万)</span></div>
         </div>
       </div>
+    </section>
+
+    <section class="panel" style="margin-top:16px;">
+      <div class="panel-header">
+        <div>
+          <h2>作付け予定 vs 必要量</h2>
+          <p class="panel-caption">購入確定分（作付け）に対して、醸造計画でどれだけ消費するか</p>
+        </div>
+      </div>
+      ${(() => {
+        // 品種別の必要量（上のvarietyMapから）
+        const needed = new Map<string, number>();
+        for (const [variety, v] of varietyMap) needed.set(variety, v.brownKg);
+
+        // 作付け予定
+        const committedByVariety = new Map<string, { bales: number; kg: number; cost: number; suppliers: string[] }>();
+        for (const c of commitments) {
+          if (!committedByVariety.has(c.varietyName)) committedByVariety.set(c.varietyName, { bales: 0, kg: 0, cost: 0, suppliers: [] });
+          const cv = committedByVariety.get(c.varietyName)!;
+          cv.bales += c.committedBales;
+          cv.kg += c.committedBales * 60;
+          cv.cost += c.committedBales * 60 * c.pricePerKg;
+          if (c.supplier && !cv.suppliers.includes(c.supplier)) cv.suppliers.push(c.supplier);
+        }
+
+        // 全品種（確定 + 必要）
+        const allVarieties = [...new Set([...needed.keys(), ...committedByVariety.keys()])];
+        let totalCommittedKg = 0, totalNeededKg = 0, totalSaved = 0;
+
+        const rows = allVarieties.map(variety => {
+          const neededKg = needed.get(variety) ?? 0;
+          const committed = committedByVariety.get(variety);
+          const committedKg = committed?.kg ?? 0;
+          const surplus = committedKg - neededKg;
+          totalCommittedKg += committedKg;
+          totalNeededKg += neededKg;
+          if (surplus > 0) totalSaved += surplus;
+
+          const surplusColor = surplus >= 0 ? "#22c55e" : "#ef4444";
+          const surplusLabel = surplus >= 0 ? `+${fmtNum(Math.round(surplus))}kg余裕` : `${fmtNum(Math.round(surplus))}kg不足`;
+
+          // 使用率バー
+          const usePct = committedKg > 0 ? Math.min(neededKg / committedKg * 100, 100) : 0;
+
+          return `
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+              <div style="width:80px;font-weight:600;font-size:13px;">${variety}</div>
+              <div style="flex:1;">
+                <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;">
+                  <span>確保 ${fmtNum(Math.round(committedKg))}kg (${committed?.bales ?? 0}俵)</span>
+                  <span>必要 ${fmtNum(Math.round(neededKg))}kg</span>
+                </div>
+                <div style="height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;">
+                  <div style="height:100%;width:${usePct}%;background:${committedKg > 0 ? (surplus >= 0 ? "#22c55e" : "#ef4444") : "#9ca3af"};border-radius:4px;"></div>
+                </div>
+              </div>
+              <span style="width:90px;text-align:right;font-size:11px;font-weight:600;color:${surplusColor};">${committedKg > 0 ? surplusLabel : "未確保"}</span>
+            </div>
+          `;
+        }).join("");
+
+        const totalSurplus = totalCommittedKg - totalNeededKg;
+
+        return `
+          <div style="margin-bottom:12px;">
+            ${rows || `<p style="color:var(--text-secondary);text-align:center;padding:12px;">作付け予定が未登録です</p>`}
+          </div>
+          ${totalCommittedKg > 0 ? `
+            <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;padding:8px;background:var(--surface-alt);border-radius:6px;">
+              <span>確保合計: <strong>${fmtNum(Math.round(totalCommittedKg))}kg</strong> (${Math.ceil(totalCommittedKg/60)}俵)</span>
+              <span>必要合計: <strong>${fmtNum(Math.round(totalNeededKg))}kg</strong></span>
+              <span style="color:${totalSurplus >= 0 ? "#22c55e" : "#ef4444"};font-weight:600;">
+                ${totalSurplus >= 0 ? `余裕 ${fmtNum(Math.round(totalSurplus))}kg` : `不足 ${fmtNum(Math.round(-totalSurplus))}kg`}
+              </span>
+            </div>
+          ` : ""}
+          <div style="display:flex;gap:6px;align-items:center;margin-top:10px;flex-wrap:wrap;">
+            <select id="proc-commit-variety" style="height:28px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:0 6px;">
+              ${riceVarieties.map(v => `<option value="${v.name}">${v.name}</option>`).join("")}
+            </select>
+            <input id="proc-commit-bales" type="number" min="0" step="1" placeholder="俵数"
+              style="width:70px;height:28px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
+            <input id="proc-commit-price" type="number" min="0" step="10" placeholder="円/kg"
+              style="width:70px;height:28px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
+            <input id="proc-commit-supplier" type="text" placeholder="仕入先"
+              style="width:100px;height:28px;font-size:12px;border:1px solid var(--border);border-radius:4px;padding:0 6px;" />
+            <button data-action="proc-add-commitment" class="button primary"
+              style="font-size:12px;padding:4px 12px;">追加</button>
+          </div>
+        `;
+      })()}
     </section>
 
     <section class="panel" style="margin-top:16px;">

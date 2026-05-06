@@ -1620,6 +1620,56 @@ export async function fetchBrewingSeasonalPattern(): Promise<BrewingSeasonalPatt
   }));
 }
 
+// ─── 作付け予定（購入確定分） ──────────────────────────────────────────────────
+
+export interface RicePurchaseCommitment {
+  id: string;
+  varietyName: string;
+  committedBales: number;
+  pricePerKg: number;
+  supplier: string;
+  deliveryMonth: number | null;
+  fy: number;
+  notes: string;
+}
+
+export async function fetchRicePurchaseCommitments(fy: number): Promise<RicePurchaseCommitment[]> {
+  const rows = await supabaseQuery<LooseRow>("rice_purchase_commitments", { fy: `eq.${fy}`, order: "variety_name.asc" });
+  return (rows ?? []).map(r => ({
+    id: getString(r, ["id"], ""),
+    varietyName: getString(r, ["variety_name"], ""),
+    committedBales: getNumber(r, ["committed_bales"], 0),
+    pricePerKg: getNumber(r, ["price_per_kg"], 0),
+    supplier: getString(r, ["supplier"], ""),
+    deliveryMonth: getNumber(r, ["delivery_month"], 0) || null,
+    fy: getNumber(r, ["fy"], fy),
+    notes: getString(r, ["notes"], "")
+  }));
+}
+
+export async function saveRicePurchaseCommitment(item: Partial<RicePurchaseCommitment> & { varietyName: string; fy: number }): Promise<boolean> {
+  const result = await supabaseInsert("rice_purchase_commitments", {
+    variety_name: item.varietyName,
+    committed_bales: item.committedBales ?? 0,
+    price_per_kg: item.pricePerKg ?? 0,
+    supplier: item.supplier ?? "",
+    delivery_month: item.deliveryMonth ?? null,
+    fy: item.fy,
+    notes: item.notes ?? ""
+  });
+  return result !== null;
+}
+
+export async function deleteRicePurchaseCommitment(id: string): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  const resp = await fetch(
+    `${SUPABASE_URL}/rest/v1/rice_purchase_commitments?id=eq.${encodeURIComponent(id)}`,
+    { method: "DELETE", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+  );
+  return resp.ok;
+}
+
 // ─── 米品種マスタ ─────────────────────────────────────────────────────────────
 
 export interface RiceVariety {

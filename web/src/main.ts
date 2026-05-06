@@ -643,6 +643,7 @@ interface AppState {
   brewingForecastOverrides: Record<string, number>;
   brewingRiceParams: Record<string, import("./api").BrewingRiceParams>;
   riceVarieties: import("./api").RiceVariety[];
+  ricePurchaseCommitments: import("./api").RicePurchaseCommitment[];
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -971,6 +972,7 @@ const state: AppState = {
   brewingForecastOverrides: {} as Record<string, number>,
   brewingRiceParams: {} as Record<string, import("./api").BrewingRiceParams>,
   riceVarieties: [] as import("./api").RiceVariety[],
+  ricePurchaseCommitments: [] as import("./api").RicePurchaseCommitment[],
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1595,11 +1597,11 @@ async function loadRouteData(route: RoutePath): Promise<void> {
       }
       case "/procurement":
       case "/brewing-plan": {
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments, fetchBrewingSeasonalPattern, fetchBrewingForecastOverrides, fetchBrewingRiceParams, fetchRiceVarieties } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments, fetchBrewingSeasonalPattern, fetchBrewingForecastOverrides, fetchBrewingRiceParams, fetchRiceVarieties, fetchRicePurchaseCommitments } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal, forecastOvr, riceParams, riceVars] = await Promise.all([
+        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal, forecastOvr, riceParams, riceVars, commitments] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd).catch(() => []),
           fetchBrewingMonthlyTrend(fyStart, fyEnd).catch(() => []),
           fetchBrewingSchedule(fy).catch(() => []),
@@ -1614,7 +1616,8 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           fetchBrewingSeasonalPattern().catch(() => []),
           fetchBrewingForecastOverrides().catch(() => ({})),
           fetchBrewingRiceParams().catch(() => ({})),
-          fetchRiceVarieties().catch(() => [])
+          fetchRiceVarieties().catch(() => []),
+          fetchRicePurchaseCommitments(fy).catch(() => [])
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
@@ -1630,6 +1633,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.brewingForecastOverrides = forecastOvr;
         state.brewingRiceParams = riceParams;
         state.riceVarieties = riceVars;
+        state.ricePurchaseCommitments = commitments;
         state.brewingAlcoholSettings = alcSettings;
         break;
       }
@@ -1971,7 +1975,7 @@ function renderView(): string {
           needByCategory[cat] = Math.max(0, fc - projOct);
         }
       }
-      return renderProcurement(needByCategory, state.brewingRiceParams, state.brewingCustomCategories, state.brewingSchedule, state.brewingPlanFY, state.riceVarieties);
+      return renderProcurement(needByCategory, state.brewingRiceParams, state.brewingCustomCategories, state.brewingSchedule, state.brewingPlanFY, state.riceVarieties, state.ricePurchaseCommitments);
     }
     case "/churn-alert":
       return state.churnAlert
@@ -6282,6 +6286,19 @@ function bindEvents(root: HTMLElement): void {
       state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
       renderApp();
     });
+  });
+
+  // 調達計画: 作付け予定追加
+  root.querySelector<HTMLButtonElement>("[data-action='proc-add-commitment']")?.addEventListener("click", async () => {
+    const variety = (root.querySelector<HTMLSelectElement>("#proc-commit-variety")?.value ?? "").trim();
+    const bales = parseFloat((root.querySelector<HTMLInputElement>("#proc-commit-bales")?.value ?? "0"));
+    const price = parseFloat((root.querySelector<HTMLInputElement>("#proc-commit-price")?.value ?? "0"));
+    const supplier = (root.querySelector<HTMLInputElement>("#proc-commit-supplier")?.value ?? "").trim();
+    if (!variety || bales <= 0) return;
+    const { saveRicePurchaseCommitment, fetchRicePurchaseCommitments } = await import("./api");
+    await saveRicePurchaseCommitment({ varietyName: variety, committedBales: bales, pricePerKg: price, supplier, fy: state.brewingPlanFY });
+    state.ricePurchaseCommitments = await fetchRicePurchaseCommitments(state.brewingPlanFY);
+    renderApp();
   });
 
   // 調達計画: 米品種マスタ追加
