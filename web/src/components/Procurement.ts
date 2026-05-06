@@ -114,7 +114,7 @@ export function renderProcurement(
       }
     } else {
       // 均等配分（全月）
-      const perMonth = effectiveL / 12;
+      const perMonth = brewingL / 12;
       for (let i = 0; i < 12; i++) monthlyL[i] = perMonth;
     }
 
