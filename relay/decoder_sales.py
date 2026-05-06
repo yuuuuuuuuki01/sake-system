@@ -101,16 +101,26 @@ def fetch_and_decode(config: dict[str, Any], logger: logging.Logger, limit: int 
             if len(rec) < 450:
                 continue
 
-            # データノード判定: @234に日付(YYYYMMDD)があるか
-            date_raw = rec[234:242].decode("ascii", errors="replace").strip()
-            if not (len(date_raw) == 8 and date_raw.isdigit() and date_raw[:4] in
-                    ("2020", "2021", "2022", "2023", "2024", "2025", "2026", "2027")):
+            # データノード判定: @228〜@237 の範囲で YYYYMMDD 形式の日付をスキャン
+            import re as _re
+            _DATE_RE = _re.compile(rb"20[12]\d(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])")
+            date_raw_bytes: bytes | None = None
+            date_start = -1
+            for _s in range(228, 238):
+                _cand = rec[_s: _s + 8]
+                if _DATE_RE.fullmatch(_cand):
+                    date_raw_bytes = _cand
+                    date_start = _s
+                    break
+            if date_raw_bytes is None:
                 continue
+            date_raw = date_raw_bytes.decode()
 
-            # フィールド抽出
+            # フィールド抽出（date_start 相対オフセット）
             sales_date = f"{date_raw[:4]}-{date_raw[4:6]}-{date_raw[6:8]}"
 
-            bill_raw = rec[260:268].decode("ascii", errors="replace").strip()
+            bill_start = date_start + 26
+            bill_raw = rec[bill_start: bill_start + 8].decode("ascii", errors="replace").strip()
             bill_date = None
             if len(bill_raw) == 8 and bill_raw.isdigit():
                 bill_date = f"{bill_raw[:4]}-{bill_raw[4:6]}-{bill_raw[6:8]}"
@@ -118,10 +128,12 @@ def fetch_and_decode(config: dict[str, Any], logger: logging.Logger, limit: int 
             staff_code = rec[50:53].decode("ascii", errors="replace").strip() or None
             closing_day = rec[276:278].decode("ascii", errors="replace").strip() or None
 
-            cust_code = rec[330:336].decode("ascii", errors="replace").strip()
-            cust_name = decode_cp932_clean(rec[337:377])
-            remarks = decode_cp932_clean(rec[390:430])
-            doc_no = rec[444:456].decode("ascii", errors="replace").strip()
+            cust_off = date_start + 96
+            doc_off  = date_start + 210
+            cust_code = rec[cust_off: cust_off + 6].decode("ascii", errors="replace").strip()
+            cust_name = decode_cp932_clean(rec[cust_off + 7: cust_off + 47])
+            remarks = decode_cp932_clean(rec[cust_off + 60: cust_off + 100])
+            doc_no = rec[doc_off: doc_off + 12].decode("ascii", errors="replace").strip() if doc_off + 12 <= len(rec) else ""
 
             # 得意先コードが数字でないものはスキップ
             if not cust_code or not re.match(r"^\d+$", cust_code):

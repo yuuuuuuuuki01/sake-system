@@ -584,10 +584,37 @@ export async function upsertSystemSetting<T>(key: string, value: T): Promise<voi
 }
 
 export async function fetchSalesSummary(): Promise<SalesSummary> {
-  const salesRows = await supabaseQueryAll<DailySalesFactRow>("daily_sales_detail", {
-    select: "sales_date,amount,document_count,bottles,volume_ml,price_per_bottle,price_per_liter",
+  // daily_sales_fact から直接集計（MVリフレッシュ不要）
+  // daily_sales_detail (MV) は旧データのみ、daily_sales_fact は常に最新
+  const factRows = await supabaseQueryAll<Record<string, unknown>>("daily_sales_fact", {
+    select: "sales_date,sales_amount,quantity,document_count",
     order: "sales_date.desc"
   });
+
+  // 日別に集計
+  const dailyMap = new Map<string, { amount: number; qty: number; docs: number }>();
+  for (const row of factRows) {
+    const sd = String(row.sales_date ?? "");
+    if (!sd) continue;
+    const entry = dailyMap.get(sd) ?? { amount: 0, qty: 0, docs: 0 };
+    entry.amount += toNumber(row.sales_amount);
+    entry.qty += toNumber(row.quantity);
+    entry.docs += toNumber(row.document_count);
+    dailyMap.set(sd, entry);
+  }
+
+  const salesRows: DailySalesFactRow[] = Array.from(dailyMap.entries())
+    .map(([sd, v]) => ({
+      sales_date: sd,
+      sales_amount: v.amount,
+      amount: v.amount,
+      document_count: v.docs,
+      bottles: v.qty,
+      volume_ml: 0,
+      price_per_bottle: v.qty > 0 ? Math.round(v.amount / v.qty) : 0,
+      price_per_liter: 0,
+    } as unknown as DailySalesFactRow))
+    .sort((a, b) => b.sales_date.localeCompare(a.sales_date));
 
   if (salesRows.length > 0) {
     const [paymentRows, headerRows] = await Promise.all([
@@ -901,7 +928,7 @@ export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecor
   if (filter.documentNo.trim()) orClauses.push(`document_no.ilike.*${filter.documentNo.trim()}*`, `legacy_document_no.ilike.*${filter.documentNo.trim()}*`);
   if (orClauses.length > 0) params["or"] = `(${orClauses.join(",")})`;
 
-  const rows = await supabaseQuery<LooseRow>("mv_invoice_with_line_count", params);
+  const rows = await supabaseQuery<LooseRow>("sales_document_headers", params);
 
   if (rows.length > 0) {
     return rows.map((row, index) => ({
@@ -916,6 +943,32 @@ export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecor
   }
 
   return [];
+}
+
+export interface InvoiceLineDetail {
+  lineNo: number;
+  productCode: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+}
+
+export async function fetchInvoiceLines(documentNo: string): Promise<InvoiceLineDetail[]> {
+  const rows = await supabaseQuery<LooseRow>("sales_document_lines", {
+    select: "line_no,legacy_product_code,product_name,quantity,unit_price,amount",
+    or: `document_no.eq.${documentNo},legacy_document_no.eq.${documentNo}`,
+    order: "line_no",
+    limit: "100"
+  });
+  return rows.map((row) => ({
+    lineNo: getNumber(row, ["line_no"], 0),
+    productCode: getString(row, ["legacy_product_code"], ""),
+    productName: getString(row, ["product_name"], ""),
+    quantity: getNumber(row, ["quantity"], 0),
+    unitPrice: getNumber(row, ["unit_price"], 0),
+    amount: getNumber(row, ["amount"], 0)
+  }));
 }
 
 export async function fetchCustomerLedger(code: string): Promise<CustomerLedger> {

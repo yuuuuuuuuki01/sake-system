@@ -99,12 +99,23 @@ def find_changed_slots(data: bytes, record_size: int,
 
 # ─── レコード抽出 ─────────────────────────────────────────────────────────────
 
+def sanitize(s: str) -> str:
+    """PostgreSQL が受け付けないヌル文字 (\x00) と制御文字を除去する。"""
+    return s.replace("\x00", "").strip()
+
+
 def extract_headers(data: bytes, record_size: int,
                     slots: list[int]) -> list[dict[str, Any]]:
     """変更スロットからデータノードを抽出してヘッダ辞書リストを返す。
 
-    データノード判定: @234 に YYYYMMDD 形式の日付 AND @330 に数字の得意先コードがあるレコード。
-    decoder_sales.py と同じロジック。伝票番号(@444)が取れない場合はスロット番号を使う。
+    SHDEN_FIELDMAP 確定オフセット（固定）:
+      @234 : 計上日 (8B ASCII YYYYMMDD) — データノード判定条件1
+      @260 : 請求日 (8B ASCII YYYYMMDD)
+      @330 : 得意先コード (6B ASCII)     — データノード判定条件2
+      @337 : 得意先名 (40B CP932)
+      @390 : 備考 (40B CP932)
+      @444 : 伝票番号 (12B ASCII)
+      @50  : 担当コード (3B ASCII, 固定)
     """
     results: dict[str, dict[str, Any]] = {}   # doc_no → dict (重複排除)
     now = datetime.now(tz=UTC).isoformat()
@@ -112,27 +123,25 @@ def extract_headers(data: bytes, record_size: int,
     for slot in slots:
         offset = HEADER_SIZE + slot * record_size
         rec = data[offset: offset + record_size]
-        if len(rec) < 450:
+        if len(rec) < 456:
             continue
 
-        # データノード判定: @234 に有効な計上日
+        # データノード判定条件1: @234 が YYYYMMDD 形式
         date_raw = rec[234:242]
         if not DATE_RE.fullmatch(date_raw):
             continue
-        sales_date = f"{date_raw[:4].decode()}-{date_raw[4:6].decode()}-{date_raw[6:8].decode()}"
 
-        # 得意先コード @330 (6B ASCII) — なければ非データノードとしてスキップ
+        # データノード判定条件2: @330 が数字のみの得意先コード
         cust_raw = rec[330:336].decode("ascii", errors="replace").strip()
         if not cust_raw or not re.match(r"^\d+$", cust_raw):
             continue
         cust_code = cust_raw.lstrip("0") or cust_raw
 
-        # 伝票番号 @444 (6B+ ASCII) — 取れなければスロット番号をフォールバック
-        doc_raw = rec[444:456].decode("ascii", errors="replace").strip()
-        if doc_raw and doc_raw.isdigit():
-            doc_no = doc_raw
-        else:
-            doc_no = f"S{slot}"
+        sales_date = f"{date_raw[:4].decode()}-{date_raw[4:6].decode()}-{date_raw[6:8].decode()}"
+
+        # 伝票番号 @444
+        doc_raw = sanitize(rec[444:456].decode("ascii", errors="replace"))
+        doc_no  = doc_raw if (doc_raw and doc_raw.isdigit()) else f"S{slot}"
 
         if doc_no in results:
             continue   # 同一伝票の重複スロットはスキップ
@@ -143,7 +152,8 @@ def extract_headers(data: bytes, record_size: int,
         if DATE_RE.fullmatch(bill_raw):
             bill_date = f"{bill_raw[:4].decode()}-{bill_raw[4:6].decode()}-{bill_raw[6:8].decode()}"
 
-        staff_code = rec[50:53].decode("ascii", errors="replace").strip() or None
+        _sc = sanitize(rec[50:53].decode("ascii", errors="replace"))
+        staff_code = _sc if re.match(r"^[\w ]+$", _sc) else None
         cust_name  = decode_cp932(rec[337:377]) or None
         remarks    = decode_cp932(rec[390:430]) or None
 
@@ -156,7 +166,7 @@ def extract_headers(data: bytes, record_size: int,
             "legacy_customer_code": cust_code,
             "customer_name": cust_name,
             "staff_code": staff_code,
-            "note": remarks,
+            "remarks": remarks,
             "updated_at": now,
         }
 
@@ -171,7 +181,7 @@ def upsert(config: dict[str, Any], headers: list[dict[str, Any]],
         logger.info("[DRY-RUN] would upsert %d headers", len(headers))
         return len(headers)
 
-    url = config["supabase_url"].rstrip("/") + "/rest/v1/sales_document_headers"
+    url = config["supabase_url"].rstrip("/") + "/rest/v1/sales_document_headers?on_conflict=legacy_document_no"
     req_headers = {
         "apikey": config["supabase_anon_key"],
         "Authorization": f"Bearer {config['supabase_anon_key']}",

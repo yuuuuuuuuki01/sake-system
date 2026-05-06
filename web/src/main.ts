@@ -124,6 +124,7 @@ import { supabaseDelete } from "./supabase";
 import { toggleSort, type SortState } from "./utils/tableSort";
 import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter, type ProductPeriod } from "./components/BusinessIntelligence";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
+import { fetchInvoiceLines, type InvoiceLineDetail } from "./api";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
 import { renderKentei } from "./components/Kentei";
@@ -559,6 +560,8 @@ interface AppState {
   updateAvailable: boolean;
   salesFilter: { startDate: string; endDate: string };
   invoiceFilter: InvoiceFilter;
+  invoiceSelectedDocNo: string | null;
+  invoiceSelectedLines: InvoiceLineDetail[] | null;
   ledgerCustomerCode: string;
   salesPeriod: SalesPeriod;
   customRange: { start: string; end: string };
@@ -887,6 +890,8 @@ const state: AppState = {
   updateAvailable: false,
   salesFilter: { startDate: "", endDate: "" },
   invoiceFilter: { documentNo: "", startDate: "", endDate: "", customerCode: "" },
+  invoiceSelectedDocNo: null,
+  invoiceSelectedLines: null,
   ledgerCustomerCode: defaultLedgerCustomerCode,
   salesPeriod: "month",
   customRange: { start: "", end: "" },
@@ -2183,7 +2188,7 @@ function renderView(): string {
     case "/master":
       return renderMasterStats(state.masterStats, state.masterTab, state.masterFilter, state.masterSortState);
     case "/invoice":
-      return renderInvoiceSearch(state.invoiceRecords, state.invoiceFilter);
+      return renderInvoiceSearch(state.invoiceRecords, state.invoiceFilter, state.invoiceSelectedDocNo, state.invoiceSelectedLines);
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
@@ -4211,7 +4216,31 @@ function bindEvents(root: HTMLElement): void {
       customerCode: root.querySelector<HTMLInputElement>("#invoice-customer-code")?.value ?? ""
     };
     state.invoiceFilter = nextFilter;
+    state.invoiceSelectedDocNo = null;
+    state.invoiceSelectedLines = null;
     void reloadInvoices(nextFilter);
+  });
+
+  // 伝票行クリック → 明細表示
+  root.addEventListener("click", (e) => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>("tr[data-doc-no]");
+    if (!row) return;
+    const docNo = row.dataset.docNo ?? "";
+    if (state.invoiceSelectedDocNo === docNo) {
+      state.invoiceSelectedDocNo = null;
+      state.invoiceSelectedLines = null;
+      renderApp();
+      return;
+    }
+    state.invoiceSelectedDocNo = docNo;
+    state.invoiceSelectedLines = null;
+    renderApp();
+    fetchInvoiceLines(docNo).then((lines) => {
+      if (state.invoiceSelectedDocNo === docNo) {
+        state.invoiceSelectedLines = lines;
+        renderApp();
+      }
+    });
   });
 
   root.querySelector<HTMLButtonElement>("[data-action='ledger-search']")?.addEventListener("click", () => {
