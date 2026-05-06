@@ -10,3 +10,4 @@ relay/__pycache__/
 relay/parsers/__pycache__/
 
 web/dist/
+.vercel

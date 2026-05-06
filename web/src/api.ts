@@ -1723,7 +1723,7 @@ export interface BrewingProcessStepRow {
 }
 
 export async function fetchBrewingBatches(fy: number): Promise<BrewingBatchRow[]> {
-  const rows = await supabaseQuery<LooseRow>("brewing_batches", {
+  const rows = await supabaseQuery<LooseRow>("brewing_process_batches", {
     fy: `eq.${fy}`, order: "start_date.asc.nullsfirst"
   });
   return (rows ?? []).map(r => ({
@@ -1753,10 +1753,29 @@ export async function fetchBrewingProcessSteps(batchIds: string[]): Promise<Brew
 }
 
 export async function createBrewingBatch(cat: string, code: string, fy: number, volL: number, startDate: string): Promise<string | null> {
-  const result = await supabaseRpc<string>("create_brewing_batch", {
-    p_brew_category: cat, p_batch_code: code, p_fy: fy, p_volume_l: volL, p_start_date: startDate
+  const batch = await supabaseInsert<{ id: string }>("brewing_process_batches", {
+    brew_category: cat, batch_code: code, fy, planned_volume_l: volL, start_date: startDate
   });
-  return result;
+  if (!batch?.id) return null;
+  // 10工程を自動生成
+  const STEPS = [
+    { name: "洗米・浸漬", days: 1 }, { name: "蒸米", days: 1 }, { name: "製麹", days: 2 },
+    { name: "酒母", days: 14 }, { name: "仕込み(添/仲/留)", days: 4 }, { name: "醪管理", days: 25 },
+    { name: "上槽", days: 2 }, { name: "濾過・火入れ", days: 1 }, { name: "貯蔵", days: 30 }, { name: "瓶詰め", days: 1 }
+  ];
+  let d = new Date(startDate);
+  for (let i = 0; i < STEPS.length; i++) {
+    const ps = d.toISOString().slice(0, 10);
+    const pe = new Date(d.getTime() + (STEPS[i].days - 1) * 86400000).toISOString().slice(0, 10);
+    await supabaseInsert("brewing_process_steps", {
+      batch_id: batch.id, step_order: i + 1, step_name: STEPS[i].name,
+      planned_start: ps, planned_end: pe
+    });
+    d = new Date(d.getTime() + STEPS[i].days * 86400000);
+  }
+  // target_end_dateを更新
+  await supabaseUpdate("brewing_process_batches", batch.id, { target_end_date: d.toISOString().slice(0, 10) });
+  return batch.id;
 }
 
 export async function updateBrewingProcessStep(stepId: string, fields: Record<string, unknown>): Promise<boolean> {
@@ -1764,7 +1783,7 @@ export async function updateBrewingProcessStep(stepId: string, fields: Record<st
 }
 
 export async function updateBrewingBatch(batchId: string, fields: Record<string, unknown>): Promise<boolean> {
-  return supabaseUpdate("brewing_batches", batchId, { ...fields, updated_at: new Date().toISOString() });
+  return supabaseUpdate("brewing_process_batches", batchId, { ...fields, updated_at: new Date().toISOString() });
 }
 
 // ─── 作付け予定（購入確定分） ──────────────────────────────────────────────────

@@ -101,10 +101,17 @@ def save_checkpoint() -> None:
 
 
 def parse_csv(logger: logging.Logger) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """CSVを解析して (headers, lines) を返す。"""
+    """CSVを解析して (headers, lines) を返す。
+
+    売掛金元帳CSVは同一明細が複数行に出力される場合がある（集計行・明細行の重複等）。
+    同一伝票内で (prod_code, amount, qty, unit_price) が一致する行は重複としてスキップ。
+    """
     headers: dict[str, dict[str, Any]] = {}
     lines: list[dict[str, Any]] = []
     line_counts: dict[str, int] = {}
+    # 伝票ごとの重複検出セット: doc_no → set of (prod_code, amount, qty, unit_price)
+    seen_lines: dict[str, set] = {}
+    skipped = 0
 
     with open(CSV_PATH, "r", encoding="cp932", errors="replace") as f:
         reader = csv.reader(f)
@@ -147,6 +154,17 @@ def parse_csv(logger: logging.Logger) -> tuple[list[dict[str, Any]], list[dict[s
                     "total_amount": 0,
                     "updated_at": datetime.now(tz=UTC).isoformat(),
                 }
+
+            # 明細重複チェック: 同一伝票内で (prod_code, amount, qty, unit_price) が同じ行はスキップ
+            qty = total_qty or bara_count or 1
+            dedup_key = (prod_code or "", sales_amount or 0, qty, unit_price or 0)
+            if doc_no not in seen_lines:
+                seen_lines[doc_no] = set()
+            if dedup_key in seen_lines[doc_no]:
+                skipped += 1
+                continue
+            seen_lines[doc_no].add(dedup_key)
+
             if sales_amount:
                 headers[doc_no]["total_amount"] = (headers[doc_no]["total_amount"] or 0) + sales_amount
 
@@ -161,13 +179,14 @@ def parse_csv(logger: logging.Logger) -> tuple[list[dict[str, Any]], list[dict[s
                 "line_no": line_no,
                 "legacy_product_code": prod_code,
                 "product_name": prod_name,
-                "quantity": total_qty or bara_count or 1,
+                "quantity": qty,
                 "unit_price": unit_price,
                 "line_amount": sales_amount or 0,
                 "amount": sales_amount or 0,
                 "note": f"date:{sale_date} cust:{cust_code} type:{trade_code}({trade_name}) src:csv",
             })
 
+    logger.info("CSV重複スキップ: %d行", skipped)
     return list(headers.values()), lines
 
 

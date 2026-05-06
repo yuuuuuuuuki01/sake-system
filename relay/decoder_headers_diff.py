@@ -158,7 +158,6 @@ def extract_headers(data: bytes, record_size: int,
         remarks    = decode_cp932(rec[390:430]) or None
 
         results[doc_no] = {
-            "id": str(uuid.uuid5(SAKE_UUID_NS, f"sales_header:{doc_no}")),
             "legacy_document_no": doc_no,
             "document_no": doc_no,
             "sales_date": sales_date,
