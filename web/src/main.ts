@@ -6579,6 +6579,57 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 醸造工程: バッチ削除
+  root.querySelectorAll<HTMLButtonElement>("[data-action='bp-batch-delete']").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const batchId = btn.dataset.batchId ?? "";
+      if (!batchId || !confirm("このバッチを削除しますか？")) return;
+      const { supabaseDelete } = await import("./supabase");
+      await supabaseDelete("brewing_process_batches", batchId);
+      const { fetchBrewingBatches, fetchBrewingProcessSteps } = await import("./api");
+      state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
+      state.brewingProcessSteps = state.brewingBatches.length > 0
+        ? await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id)) : [];
+      state.bpExpandedBatchId = "";
+      renderApp();
+    });
+  });
+
+  // 醸造工程: バッチ醸造量変更
+  root.querySelectorAll<HTMLInputElement>("[data-action='bp-batch-vol']").forEach(input => {
+    input.addEventListener("change", async () => {
+      const batchId = input.dataset.batchId ?? "";
+      if (!batchId) return;
+      const { updateBrewingBatch } = await import("./api");
+      await updateBrewingBatch(batchId, { planned_volume_l: parseFloat(input.value) || 0 });
+    });
+  });
+
+  // 醸造工程: バッチ開始日変更
+  root.querySelectorAll<HTMLInputElement>("[data-action='bp-batch-date']").forEach(input => {
+    input.addEventListener("change", async () => {
+      const batchId = input.dataset.batchId ?? "";
+      if (!batchId) return;
+      const { updateBrewingBatch } = await import("./api");
+      await updateBrewingBatch(batchId, { start_date: input.value });
+      // TODO: 工程日程も再計算する場合はここに追加
+    });
+  });
+
+  // 醸造工程: バッチステータス変更
+  root.querySelectorAll<HTMLSelectElement>("[data-action='bp-batch-status']").forEach(sel => {
+    sel.addEventListener("change", async () => {
+      const batchId = sel.dataset.batchId ?? "";
+      if (!batchId) return;
+      const { updateBrewingBatch, fetchBrewingBatches, fetchBrewingProcessSteps } = await import("./api");
+      await updateBrewingBatch(batchId, { status: sel.value });
+      state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
+      state.brewingProcessSteps = state.brewingBatches.length > 0
+        ? await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id)) : [];
+      renderApp();
+    });
+  });
+
   // 調達計画: 醸造月スケジュール追加
   root.querySelectorAll<HTMLButtonElement>("[data-action='proc-add-schedule']").forEach((btn) => {
     btn.addEventListener("click", async () => {

@@ -27,259 +27,6 @@ export interface BrewingProcessStep {
   notes: string;
 }
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const CATEGORY_COLORS: Record<string, string> = {
-  "純米大吟醸": "#7c3aed",
-  "大吟醸": "#a855f7",
-  "純米吟醸": "#2563eb",
-  "純米": "#059669",
-  "本醸造": "#d97706",
-  "普通酒": "#6b7280",
-  "リキュール": "#e11d48",
-  "その他": "#9ca3af",
-};
-
-const STATUS_LABELS: Record<BrewingBatch["status"], string> = {
-  planned: "計画中",
-  active: "進行中",
-  completed: "完了",
-};
-
-const STATUS_PILL: Record<BrewingBatch["status"], string> = {
-  planned: "neutral",
-  active: "warning",
-  completed: "success",
-};
-
-const STEP_COLORS: Record<BrewingProcessStep["status"], string> = {
-  "未着手": "#e5e7eb",
-  "進行中": "#3b82f6",
-  "完了": "#22c55e",
-};
-
-const DAY_COL_PX = 12;
-
-// ─── Utilities ───────────────────────────────────────────────────────────────
-
-function fmtNum(n: number): string {
-  return n.toLocaleString("ja-JP");
-}
-
-function daysBetween(a: string, b: string): number {
-  const msA = new Date(a).getTime();
-  const msB = new Date(b).getTime();
-  return Math.round((msB - msA) / 86_400_000);
-}
-
-function addDays(base: string, days: number): string {
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-function catColor(cat: string): string {
-  return CATEGORY_COLORS[cat] ?? "#9ca3af";
-}
-
-// ─── Sub-renderers ───────────────────────────────────────────────────────────
-
-function renderBatchCard(
-  batch: BrewingBatch,
-  batchSteps: BrewingProcessStep[],
-  expanded: boolean
-): string {
-  const sorted = [...batchSteps].sort((a, b) => a.stepOrder - b.stepOrder);
-  const totalSteps = sorted.length;
-  const doneSteps = sorted.filter((s) => s.status === "完了").length;
-  const pct = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
-  const currentStep = sorted.find((s) => s.status === "進行中");
-  const color = catColor(batch.brewCategory);
-
-  return `
-    <article class="panel" style="border-left:4px solid ${color};margin-bottom:8px">
-      <div style="display:flex;align-items:center;gap:12px;cursor:pointer"
-           data-action="bp-toggle-detail" data-batch-id="${batch.id}">
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <strong style="font-size:1.05rem">${batch.batchCode}</strong>
-            <span style="background:${color};color:#fff;font-size:0.7rem;padding:2px 8px;border-radius:9999px">
-              ${batch.brewCategory}
-            </span>
-            <span class="status-pill ${STATUS_PILL[batch.status]}">${STATUS_LABELS[batch.status]}</span>
-          </div>
-          <div style="font-size:0.82rem;color:#6b7280;margin-top:4px">
-            タンク ${batch.tankNo} ｜ ${fmtNum(batch.plannedVolumeL)} L ｜ ${batch.startDate} 〜 ${batch.targetEndDate}
-          </div>
-        </div>
-        <div style="width:140px;flex-shrink:0;text-align:right">
-          <div style="font-size:0.75rem;color:#6b7280;margin-bottom:2px">
-            ${doneSteps}/${totalSteps} 工程 ${currentStep ? "▸ " + currentStep.stepName : ""}
-          </div>
-          <div style="height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden">
-            <div style="width:${pct}%;height:100%;background:${color};border-radius:3px"></div>
-          </div>
-        </div>
-        <span style="font-size:1.1rem;color:#9ca3af">${expanded ? "▲" : "▼"}</span>
-      </div>
-      ${expanded ? renderBatchDetail(batch, sorted) : ""}
-    </article>`;
-}
-
-function renderBatchDetail(
-  batch: BrewingBatch,
-  steps: BrewingProcessStep[]
-): string {
-  if (steps.length === 0) {
-    return `<div style="padding:16px 0;color:#9ca3af;font-size:0.85rem">工程が登録されていません</div>`;
-  }
-
-  // Compute timeline range from all steps
-  const allDates = steps.flatMap((s) => [s.plannedStart, s.plannedEnd].filter(Boolean));
-  if (allDates.length === 0) {
-    return `<div style="padding:16px 0;color:#9ca3af;font-size:0.85rem">日程未設定</div>`;
-  }
-  allDates.sort();
-  const origin = allDates[0];
-  const last = allDates[allDates.length - 1];
-  const totalDays = Math.max(daysBetween(origin, last) + 1, 1);
-  const cappedDays = Math.min(totalDays, 80);
-  const gridW = cappedDays * DAY_COL_PX;
-
-  // Month labels
-  const monthLabels: string[] = [];
-  let prevLabel = "";
-  for (let d = 0; d < cappedDays; d++) {
-    const dt = addDays(origin, d);
-    const label = dt.slice(5, 7) + "/" + dt.slice(8, 10);
-    const monthKey = dt.slice(0, 7);
-    if (monthKey !== prevLabel) {
-      monthLabels.push(
-        `<span style="position:absolute;left:${d * DAY_COL_PX}px;font-size:0.65rem;color:#9ca3af;white-space:nowrap">${dt.slice(5, 7)}月</span>`
-      );
-      prevLabel = monthKey;
-    }
-  }
-
-  // Step rows
-  const stepRows = steps
-    .map((s) => {
-      const startOff = Math.max(daysBetween(origin, s.plannedStart), 0);
-      const endOff = Math.min(daysBetween(origin, s.plannedEnd), cappedDays - 1);
-      const barLeft = startOff * DAY_COL_PX;
-      const barWidth = Math.max((endOff - startOff + 1) * DAY_COL_PX, DAY_COL_PX);
-      const barColor = STEP_COLORS[s.status];
-      const textColor = s.status === "未着手" ? "#374151" : "#fff";
-
-      return `
-      <div style="display:flex;align-items:center;gap:0;margin-bottom:2px;min-height:28px">
-        <div style="width:120px;flex-shrink:0;font-size:0.78rem;padding-right:6px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis${
-          s.status === "進行中" ? ";font-weight:700;color:#2563eb" : ""
-        }">${s.stepName}</div>
-        <div style="position:relative;width:${gridW}px;height:22px;background:repeating-linear-gradient(90deg,#f3f4f6 0 ${DAY_COL_PX - 1}px,#e5e7eb ${DAY_COL_PX - 1}px ${DAY_COL_PX}px);border-radius:3px">
-          <div style="position:absolute;left:${barLeft}px;top:2px;width:${barWidth}px;height:18px;background:${barColor};border-radius:3px;color:${textColor};font-size:0.65rem;line-height:18px;padding:0 4px;overflow:hidden;white-space:nowrap">
-            ${s.plannedStart.slice(5)} – ${s.plannedEnd.slice(5)}
-          </div>
-        </div>
-      </div>`;
-    })
-    .join("");
-
-  // Step detail table
-  const stepDetailRows = steps
-    .map(
-      (s) => `
-    <tr style="border-bottom:1px solid #f3f4f6">
-      <td style="padding:6px 8px;font-size:0.82rem;font-weight:${s.status === "進行中" ? 700 : 400}">${s.stepName}</td>
-      <td style="padding:6px 8px;font-size:0.78rem;color:#6b7280">${s.plannedStart} 〜 ${s.plannedEnd}</td>
-      <td style="padding:6px 8px;font-size:0.78rem;color:#6b7280">${s.actualStart || "―"} 〜 ${s.actualEnd || "―"}</td>
-      <td style="padding:6px 4px">
-        <select data-action="bp-step-status" data-step-id="${s.id}" style="font-size:0.78rem;padding:2px 4px;border:1px solid #d1d5db;border-radius:4px">
-          ${(["未着手", "進行中", "完了"] as const).map(
-            (opt) => `<option value="${opt}"${s.status === opt ? " selected" : ""}>${opt}</option>`
-          ).join("")}
-        </select>
-      </td>
-      <td style="padding:6px 4px">
-        <input type="number" step="0.1" data-action="bp-step-temp" data-step-id="${s.id}"
-               value="${s.temperature ?? ""}" placeholder="℃"
-               style="width:60px;font-size:0.78rem;padding:2px 4px;border:1px solid #d1d5db;border-radius:4px">
-      </td>
-      <td style="padding:6px 4px">
-        <input type="text" data-action="bp-step-notes" data-step-id="${s.id}"
-               value="${s.notes}" placeholder="メモ"
-               style="width:120px;font-size:0.78rem;padding:2px 4px;border:1px solid #d1d5db;border-radius:4px">
-      </td>
-    </tr>`
-    )
-    .join("");
-
-  return `
-    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #e5e7eb">
-      <!-- Gantt -->
-      <div style="overflow-x:auto;margin-bottom:16px">
-        <div style="position:relative;height:18px;width:${gridW}px;margin-left:120px;margin-bottom:4px">
-          ${monthLabels.join("")}
-        </div>
-        ${stepRows}
-      </div>
-      <!-- Step table -->
-      <table style="width:100%;border-collapse:collapse">
-        <thead>
-          <tr style="border-bottom:2px solid #e5e7eb;font-size:0.75rem;color:#6b7280;text-align:left">
-            <th style="padding:4px 8px">工程</th>
-            <th style="padding:4px 8px">予定</th>
-            <th style="padding:4px 8px">実績</th>
-            <th style="padding:4px 4px">ステータス</th>
-            <th style="padding:4px 4px">温度</th>
-            <th style="padding:4px 4px">メモ</th>
-          </tr>
-        </thead>
-        <tbody>${stepDetailRows}</tbody>
-      </table>
-      ${batch.notes ? `<div style="margin-top:8px;font-size:0.8rem;color:#6b7280">備考: ${batch.notes}</div>` : ""}
-    </div>`;
-}
-
-function renderNewBatchForm(categories: string[]): string {
-  const options = categories
-    .map((c) => `<option value="${c}">${c}</option>`)
-    .join("");
-
-  return `
-    <div class="panel" style="margin-bottom:16px">
-      <div class="panel-header">新規バッチ登録</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;padding:12px 0">
-        <label style="font-size:0.82rem">
-          カテゴリ
-          <select data-field="bp-category" style="width:100%;margin-top:4px;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem">
-            ${options}
-          </select>
-        </label>
-        <label style="font-size:0.82rem">
-          バッチコード
-          <input type="text" data-field="bp-batch-code" placeholder="R8-J01"
-                 style="width:100%;margin-top:4px;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem">
-        </label>
-        <label style="font-size:0.82rem">
-          計画数量 (L)
-          <input type="number" data-field="bp-volume" placeholder="1800"
-                 style="width:100%;margin-top:4px;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem">
-        </label>
-        <label style="font-size:0.82rem">
-          開始日
-          <input type="date" data-field="bp-start-date"
-                 style="width:100%;margin-top:4px;padding:6px;border:1px solid #d1d5db;border-radius:6px;font-size:0.85rem">
-        </label>
-      </div>
-      <div style="text-align:right;padding-top:4px">
-        <button class="button" data-action="bp-create-batch">登録</button>
-      </div>
-    </div>`;
-}
-
-// ─── Main Renderer ───────────────────────────────────────────────────────────
-
 export interface ScheduleEntry {
   brewCategory: string;
   fy: number;
@@ -287,6 +34,243 @@ export interface ScheduleEntry {
   durationMonths: number;
   plannedVolumeL: number;
 }
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const CATEGORY_COLORS: Record<string, string> = {
+  "純米大吟醸": "#7c3aed", "大吟醸": "#a855f7", "純米吟醸": "#2563eb",
+  "純米": "#059669", "本醸造": "#d97706", "普通酒": "#6b7280",
+  "リキュール": "#e11d48", "その他": "#9ca3af",
+};
+
+const STATUS_LABELS: Record<BrewingBatch["status"], string> = { planned: "計画中", active: "進行中", completed: "完了" };
+const STATUS_PILL: Record<BrewingBatch["status"], string> = { planned: "neutral", active: "warning", completed: "success" };
+const STEP_COLORS: Record<BrewingProcessStep["status"], string> = { "未着手": "#e5e7eb", "進行中": "#3b82f6", "完了": "#22c55e" };
+const DAY_PX = 8;
+
+function fmtNum(n: number): string { return n.toLocaleString("ja-JP"); }
+function catColor(cat: string): string { return CATEGORY_COLORS[cat] ?? "#6366f1"; }
+function daysBetween(a: string, b: string): number { return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000); }
+function addDays(base: string, days: number): string { const d = new Date(base); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); }
+function fmtMD(d: string): string { if (!d) return "―"; return d.slice(5).replace("-", "/"); }
+
+// ─── 進行表（全バッチ横並びガント）────────────────────────────────────────────
+
+function renderProgressChart(batches: BrewingBatch[], stepsByBatch: Record<string, BrewingProcessStep[]>): string {
+  const activeBatches = batches.filter(b => b.status !== "completed" && b.startDate && b.targetEndDate);
+  if (activeBatches.length === 0) return "";
+
+  // 全バッチの日付範囲
+  const allDates = activeBatches.flatMap(b => [b.startDate, b.targetEndDate]);
+  allDates.sort();
+  const origin = allDates[0];
+  const last = allDates[allDates.length - 1];
+  const totalDays = Math.min(daysBetween(origin, last) + 1, 150);
+  const gridW = totalDays * DAY_PX;
+
+  // 月ラベル
+  const monthLabels: string[] = [];
+  let prevMonth = "";
+  for (let d = 0; d < totalDays; d++) {
+    const dt = addDays(origin, d);
+    const mk = dt.slice(0, 7);
+    if (mk !== prevMonth) {
+      monthLabels.push(`<span style="position:absolute;left:${d * DAY_PX}px;font-size:9px;color:#9ca3af;white-space:nowrap;border-left:1px solid #d1d5db;padding-left:2px;">${parseInt(dt.slice(5, 7))}月</span>`);
+      prevMonth = mk;
+    }
+  }
+
+  // 今日の線
+  const today = new Date().toISOString().slice(0, 10);
+  const todayOff = daysBetween(origin, today);
+  const todayLine = todayOff >= 0 && todayOff < totalDays
+    ? `<div style="position:absolute;left:${todayOff * DAY_PX}px;top:0;width:2px;height:100%;background:#ef4444;z-index:5;opacity:0.6;"></div>`
+    : "";
+
+  const rows = activeBatches.map(b => {
+    const steps = (stepsByBatch[b.id] ?? []).sort((a, c) => a.stepOrder - c.stepOrder);
+    const color = catColor(b.brewCategory);
+    const currentStep = steps.find(s => s.status === "進行中");
+    const donePct = steps.length > 0 ? Math.round(steps.filter(s => s.status === "完了").length / steps.length * 100) : 0;
+
+    const bars = steps.map(s => {
+      const sOff = Math.max(daysBetween(origin, s.plannedStart), 0);
+      const eOff = Math.min(daysBetween(origin, s.plannedEnd), totalDays - 1);
+      const w = Math.max((eOff - sOff + 1) * DAY_PX, DAY_PX);
+      const bc = STEP_COLORS[s.status];
+      const tc = s.status === "未着手" ? "#666" : "#fff";
+      return `<div style="position:absolute;left:${sOff * DAY_PX}px;top:3px;width:${w}px;height:18px;background:${bc};border-radius:2px;font-size:7px;line-height:18px;padding:0 2px;color:${tc};overflow:hidden;white-space:nowrap;" title="${s.stepName} ${fmtMD(s.plannedStart)}〜${fmtMD(s.plannedEnd)}">${s.stepOrder <= 3 ? "" : s.stepName.slice(0, 3)}</div>`;
+    }).join("");
+
+    return `
+      <div style="display:flex;align-items:center;border-bottom:1px solid #f3f4f6;min-height:28px;">
+        <div style="width:140px;flex-shrink:0;padding:2px 6px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          <span style="color:${color};font-weight:600;">${b.batchCode}</span>
+          <span style="color:#9ca3af;margin-left:4px;">${donePct}%</span>
+          ${currentStep ? `<span style="color:#3b82f6;margin-left:2px;font-size:9px;">${currentStep.stepName}</span>` : ""}
+        </div>
+        <div style="position:relative;width:${gridW}px;height:24px;background:repeating-linear-gradient(90deg,transparent 0 ${DAY_PX * 7 - 1}px,#f3f4f6 ${DAY_PX * 7 - 1}px ${DAY_PX * 7}px);">
+          ${bars}
+        </div>
+      </div>`;
+  }).join("");
+
+  return `
+    <section class="panel" style="margin-bottom:16px;">
+      <div class="panel-header"><h2>進行表</h2><p class="panel-caption">全バッチの工程進捗を一覧表示</p></div>
+      <div style="overflow-x:auto;">
+        <div style="min-width:${gridW + 140}px;">
+          <div style="display:flex;align-items:flex-end;">
+            <div style="width:140px;flex-shrink:0;"></div>
+            <div style="position:relative;width:${gridW}px;height:20px;">
+              ${monthLabels.join("")}
+            </div>
+          </div>
+          <div style="position:relative;">
+            ${rows}
+            ${todayLine}
+          </div>
+        </div>
+      </div>
+    </section>`;
+}
+
+// ─── バッチカード ────────────────────────────────────────────────────────────
+
+function renderBatchCard(batch: BrewingBatch, batchSteps: BrewingProcessStep[], expanded: boolean): string {
+  const sorted = [...batchSteps].sort((a, b) => a.stepOrder - b.stepOrder);
+  const totalSteps = sorted.length;
+  const doneSteps = sorted.filter(s => s.status === "完了").length;
+  const pct = totalSteps > 0 ? Math.round(doneSteps / totalSteps * 100) : 0;
+  const currentStep = sorted.find(s => s.status === "進行中");
+  const color = catColor(batch.brewCategory);
+
+  return `
+    <article class="panel" style="border-left:4px solid ${color};margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div style="flex:1;min-width:0;cursor:pointer" data-action="bp-toggle-detail" data-batch-id="${batch.id}">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <strong style="font-size:0.95rem">${batch.batchCode}</strong>
+            <span style="background:${color};color:#fff;font-size:0.65rem;padding:1px 6px;border-radius:9999px">${batch.brewCategory}</span>
+            <span class="status-pill ${STATUS_PILL[batch.status]}" style="font-size:0.7rem">${STATUS_LABELS[batch.status]}</span>
+          </div>
+          <div style="font-size:0.78rem;color:#6b7280;margin-top:3px">
+            ${fmtNum(batch.plannedVolumeL)}L ｜ ${fmtMD(batch.startDate)}〜${fmtMD(batch.targetEndDate)}
+            ${currentStep ? ` ▸ ${currentStep.stepName}` : ""}
+          </div>
+        </div>
+        <div style="width:100px;flex-shrink:0;text-align:right">
+          <div style="font-size:0.7rem;color:#6b7280;margin-bottom:2px">${doneSteps}/${totalSteps}</div>
+          <div style="height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:${color};border-radius:3px"></div>
+          </div>
+        </div>
+        <span style="font-size:1rem;color:#9ca3af;cursor:pointer" data-action="bp-toggle-detail" data-batch-id="${batch.id}">${expanded ? "▲" : "▼"}</span>
+      </div>
+      ${expanded ? renderBatchDetail(batch, sorted) : ""}
+    </article>`;
+}
+
+function renderBatchDetail(batch: BrewingBatch, steps: BrewingProcessStep[]): string {
+  if (steps.length === 0) return `<div style="padding:12px 0;color:#9ca3af;font-size:0.82rem">工程未登録</div>`;
+
+  const allDates = steps.flatMap(s => [s.plannedStart, s.plannedEnd].filter(Boolean));
+  if (allDates.length === 0) return `<div style="padding:12px 0;color:#9ca3af;font-size:0.82rem">日程未設定</div>`;
+  allDates.sort();
+  const origin = allDates[0];
+  const last = allDates[allDates.length - 1];
+  const cappedDays = Math.min(daysBetween(origin, last) + 1, 100);
+  const gridW = cappedDays * DAY_PX;
+
+  const monthLabels: string[] = [];
+  let prev = "";
+  for (let d = 0; d < cappedDays; d++) {
+    const dt = addDays(origin, d);
+    const mk = dt.slice(0, 7);
+    if (mk !== prev) { monthLabels.push(`<span style="position:absolute;left:${d * DAY_PX}px;font-size:8px;color:#9ca3af;white-space:nowrap">${parseInt(dt.slice(5, 7))}月</span>`); prev = mk; }
+  }
+
+  const stepRows = steps.map(s => {
+    const sOff = Math.max(daysBetween(origin, s.plannedStart), 0);
+    const eOff = Math.min(daysBetween(origin, s.plannedEnd), cappedDays - 1);
+    const bL = sOff * DAY_PX, bW = Math.max((eOff - sOff + 1) * DAY_PX, DAY_PX);
+    const bc = STEP_COLORS[s.status], tc = s.status === "未着手" ? "#374151" : "#fff";
+    return `
+      <div style="display:flex;align-items:center;margin-bottom:1px;min-height:22px">
+        <div style="width:90px;flex-shrink:0;font-size:10px;text-align:right;padding-right:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${s.status === "進行中" ? "font-weight:700;color:#2563eb;" : ""}">${s.stepName}</div>
+        <div style="position:relative;width:${gridW}px;height:18px;background:repeating-linear-gradient(90deg,#f9fafb 0 ${DAY_PX - 1}px,#e5e7eb ${DAY_PX - 1}px ${DAY_PX}px);border-radius:2px">
+          <div style="position:absolute;left:${bL}px;top:1px;width:${bW}px;height:16px;background:${bc};border-radius:2px;color:${tc};font-size:8px;line-height:16px;padding:0 3px;overflow:hidden;white-space:nowrap">${fmtMD(s.plannedStart)}–${fmtMD(s.plannedEnd)}</div>
+        </div>
+      </div>`;
+  }).join("");
+
+  const stepDetailRows = steps.map(s => `
+    <tr style="border-bottom:1px solid #f3f4f6">
+      <td style="padding:4px 6px;font-size:11px;font-weight:${s.status === "進行中" ? 700 : 400}">${s.stepName}</td>
+      <td style="padding:4px 6px;font-size:10px;color:#6b7280">${fmtMD(s.plannedStart)}〜${fmtMD(s.plannedEnd)}</td>
+      <td style="padding:4px 6px;font-size:10px;color:#6b7280">${s.actualStart ? fmtMD(s.actualStart) : "―"}〜${s.actualEnd ? fmtMD(s.actualEnd) : "―"}</td>
+      <td style="padding:4px 3px">
+        <select data-action="bp-step-status" data-step-id="${s.id}" data-batch-id="${s.batchId}" style="font-size:10px;padding:2px 3px;border:1px solid #d1d5db;border-radius:3px">
+          ${(["未着手", "進行中", "完了"] as const).map(o => `<option value="${o}"${s.status === o ? " selected" : ""}>${o}</option>`).join("")}
+        </select>
+      </td>
+      <td style="padding:4px 3px"><input type="number" step="0.1" data-action="bp-step-temp" data-step-id="${s.id}" value="${s.temperature ?? ""}" placeholder="℃" style="width:50px;font-size:10px;padding:2px 3px;border:1px solid #d1d5db;border-radius:3px"></td>
+      <td style="padding:4px 3px"><input type="text" data-action="bp-step-notes" data-step-id="${s.id}" value="${s.notes}" placeholder="メモ" style="width:100px;font-size:10px;padding:2px 3px;border:1px solid #d1d5db;border-radius:3px"></td>
+    </tr>`).join("");
+
+  return `
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid #e5e7eb">
+      <!-- バッチ編集 -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:11px;">
+        <label style="display:flex;align-items:center;gap:3px;">量
+          <input type="number" min="0" step="100" value="${Math.round(batch.plannedVolumeL)}"
+            data-action="bp-batch-vol" data-batch-id="${batch.id}"
+            style="width:64px;height:24px;font-size:11px;text-align:right;border:1px solid #d1d5db;border-radius:3px;padding:0 4px;">L</label>
+        <label style="display:flex;align-items:center;gap:3px;">開始
+          <input type="date" value="${batch.startDate}"
+            data-action="bp-batch-date" data-batch-id="${batch.id}"
+            style="height:24px;font-size:11px;border:1px solid #d1d5db;border-radius:3px;padding:0 4px;"></label>
+        <label style="display:flex;align-items:center;gap:3px;">ステータス
+          <select data-action="bp-batch-status" data-batch-id="${batch.id}" style="height:24px;font-size:11px;border:1px solid #d1d5db;border-radius:3px;padding:0 4px;">
+            ${(["planned", "active", "completed"] as const).map(o => `<option value="${o}"${batch.status === o ? " selected" : ""}>${STATUS_LABELS[o]}</option>`).join("")}
+          </select></label>
+        <button data-action="bp-batch-delete" data-batch-id="${batch.id}" style="height:24px;font-size:11px;padding:0 10px;border:1px solid #ef4444;color:#ef4444;background:white;border-radius:3px;cursor:pointer;">削除</button>
+      </div>
+      <!-- ミニガント -->
+      <div style="overflow-x:auto;margin-bottom:12px">
+        <div style="position:relative;height:14px;width:${gridW}px;margin-left:90px;margin-bottom:2px">${monthLabels.join("")}</div>
+        ${stepRows}
+      </div>
+      <!-- 工程テーブル -->
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;min-width:500px">
+          <thead><tr style="border-bottom:2px solid #e5e7eb;font-size:10px;color:#6b7280;text-align:left">
+            <th style="padding:3px 6px">工程</th><th style="padding:3px 6px">予定</th><th style="padding:3px 6px">実績</th>
+            <th style="padding:3px 3px">状態</th><th style="padding:3px 3px">温度</th><th style="padding:3px 3px">メモ</th>
+          </tr></thead>
+          <tbody>${stepDetailRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function renderNewBatchForm(categories: string[]): string {
+  return `
+    <div class="panel" style="margin-bottom:16px">
+      <div class="panel-header">新規バッチ登録</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:10px 0;font-size:12px;">
+        <label>区分<br><select id="bp-new-cat" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
+          ${categories.map(c => `<option value="${c}">${c}</option>`).join("")}
+        </select></label>
+        <label>バッチコード<br><input id="bp-new-code" type="text" placeholder="JG-2026-01" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;width:120px;"></label>
+        <label>醸造量(L)<br><input id="bp-new-vol" type="number" placeholder="1800" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;width:80px;"></label>
+        <label>開始日<br><input id="bp-new-date" type="date" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></label>
+        <button class="button primary" data-action="bp-create-batch" style="font-size:12px;padding:6px 16px;">登録</button>
+      </div>
+    </div>`;
+}
+
+// ─── Main Renderer ───────────────────────────────────────────────────────────
 
 export function renderBrewingProcess(
   batches: BrewingBatch[],
@@ -296,124 +280,73 @@ export function renderBrewingProcess(
 ): string {
   const { expandedBatchId, showNewForm, schedule = [], fy = 2026 } = opts;
 
-  // Build step lookup
   const stepsByBatch: Record<string, BrewingProcessStep[]> = {};
-  for (const s of steps) {
-    (stepsByBatch[s.batchId] ??= []).push(s);
-  }
+  for (const s of steps) { (stepsByBatch[s.batchId] ??= []).push(s); }
 
-  // KPI counts
-  const activeCount = batches.filter((b) => b.status === "active").length;
-  const plannedCount = batches.filter((b) => b.status === "planned").length;
-  const completedCount = batches.filter((b) => b.status === "completed").length;
+  const activeCount = batches.filter(b => b.status === "active").length;
+  const plannedCount = batches.filter(b => b.status === "planned").length;
+  const completedCount = batches.filter(b => b.status === "completed").length;
 
-  // Group non-completed batches by category
-  const visibleBatches = batches.filter((b) => b.status !== "completed");
+  const visibleBatches = batches.filter(b => b.status !== "completed");
   const grouped: Record<string, BrewingBatch[]> = {};
-  for (const b of visibleBatches) {
-    (grouped[b.brewCategory] ??= []).push(b);
-  }
-  const orderedCats = categories.filter((c) => grouped[c]?.length);
+  for (const b of visibleBatches) { (grouped[b.brewCategory] ??= []).push(b); }
+  const orderedCats = categories.filter(c => grouped[c]?.length);
 
-  // Render category groups
-  const groupHtml = orderedCats
-    .map((cat) => {
-      const catBatches = grouped[cat];
-      const cards = catBatches
-        .map((b) =>
-          renderBatchCard(b, stepsByBatch[b.id] ?? [], expandedBatchId === b.id)
-        )
-        .join("");
-      return `
-        <div style="margin-bottom:20px">
-          <h3 style="font-size:0.9rem;color:${catColor(cat)};margin-bottom:8px;border-bottom:2px solid ${catColor(cat)};padding-bottom:4px;display:inline-block">
-            ${cat}（${catBatches.length}）
-          </h3>
-          ${cards}
-        </div>`;
-    })
-    .join("");
+  const groupHtml = orderedCats.map(cat => {
+    const catBatches = grouped[cat];
+    const cards = catBatches.map(b => renderBatchCard(b, stepsByBatch[b.id] ?? [], expandedBatchId === b.id)).join("");
+    return `<div style="margin-bottom:16px">
+      <h3 style="font-size:0.85rem;color:${catColor(cat)};margin-bottom:6px;border-bottom:2px solid ${catColor(cat)};padding-bottom:3px;display:inline-block">${cat}（${catBatches.length}）</h3>
+      ${cards}</div>`;
+  }).join("");
+
+  // 調達計画から取込セクション
+  const importSection = schedule.length > 0 ? (() => {
+    const existingKeys = new Set(batches.map(b => `${b.brewCategory}:${b.startDate?.slice(0, 7)}`));
+    const unimported = schedule.filter(s => {
+      const yr = s.brewMonth >= 10 ? s.fy : s.fy + 1;
+      const key = `${s.brewCategory}:${yr}-${String(s.brewMonth).padStart(2, "0")}`;
+      return !existingKeys.has(key) && s.plannedVolumeL > 0;
+    });
+    if (unimported.length === 0) return "";
+    const rows = unimported.map(s => {
+      const yr = s.brewMonth >= 10 ? s.fy : s.fy + 1;
+      const startDate = `${yr}-${String(s.brewMonth).padStart(2, "0")}-01`;
+      const code = `${s.brewCategory}-${s.fy}-${String(s.brewMonth).padStart(2, "0")}`;
+      const color = catColor(s.brewCategory);
+      return `<tr>
+        <td style="padding:5px 6px"><span style="color:${color};font-weight:600;font-size:11px;">${s.brewCategory}</span></td>
+        <td style="padding:5px 6px;font-size:11px;">${code}</td>
+        <td style="padding:5px 6px;text-align:right;font-size:11px;">${fmtNum(Math.round(s.plannedVolumeL))}L</td>
+        <td style="padding:5px 6px;font-size:11px;">${s.brewMonth}月（${startDate}）</td>
+        <td style="padding:5px 3px;text-align:center;"><input type="checkbox" data-action="bp-import-check" data-cat="${s.brewCategory}" data-month="${s.brewMonth}" data-vol="${Math.round(s.plannedVolumeL)}" data-date="${startDate}" data-code="${code}" checked></td>
+      </tr>`;
+    }).join("");
+    return `<section class="panel" style="margin-bottom:16px">
+      <div class="panel-header">
+        <div><h2>調達計画から取込</h2><p class="panel-caption">未登録のスケジュールを一括でバッチ作成</p></div>
+        <button class="button primary" data-action="bp-import-schedule" style="font-size:12px;">一括登録</button>
+      </div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr style="border-bottom:2px solid #e5e7eb;color:#6b7280;text-align:left;font-size:10px">
+          <th style="padding:3px 6px">区分</th><th style="padding:3px 6px">コード</th><th style="padding:3px 6px;text-align:right">醸造量</th><th style="padding:3px 6px">開始月</th><th style="padding:3px 3px;text-align:center">選択</th>
+        </tr></thead><tbody>${rows}</tbody></table></div>
+    </section>`;
+  })() : "";
 
   return `
     <section class="page-head">
-      <div>
-        <p class="eyebrow">蔵内管理</p>
-        <h1>醸造工程管理</h1>
-      </div>
-      <div class="meta-stack">
-        <button class="button" data-action="bp-show-new-form">＋ 新規バッチ</button>
-      </div>
+      <div><p class="eyebrow">蔵内管理</p><h1>醸造工程管理</h1></div>
+      <div class="meta-stack"><button class="button" data-action="bp-show-new-form">＋ 新規バッチ</button></div>
     </section>
-
     <section class="kpi-grid compact">
-      <article class="panel kpi-card">
-        <p class="panel-title">進行中</p>
-        <p class="kpi-value">${activeCount} 本</p>
-        <p class="kpi-sub">アクティブバッチ</p>
-      </article>
-      <article class="panel kpi-card">
-        <p class="panel-title">計画中</p>
-        <p class="kpi-value">${plannedCount} 本</p>
-        <p class="kpi-sub">未着手</p>
-      </article>
-      <article class="panel kpi-card">
-        <p class="panel-title">完了</p>
-        <p class="kpi-value">${completedCount} 本</p>
-        <p class="kpi-sub">今期累計</p>
-      </article>
+      <article class="panel kpi-card"><p class="panel-title">進行中</p><p class="kpi-value">${activeCount}</p><p class="kpi-sub">アクティブ</p></article>
+      <article class="panel kpi-card"><p class="panel-title">計画中</p><p class="kpi-value">${plannedCount}</p><p class="kpi-sub">未着手</p></article>
+      <article class="panel kpi-card"><p class="panel-title">完了</p><p class="kpi-value">${completedCount}</p><p class="kpi-sub">今期</p></article>
     </section>
 
+    ${renderProgressChart(batches, stepsByBatch)}
     ${showNewForm ? renderNewBatchForm(categories) : ""}
-
-    ${schedule.length > 0 ? (() => {
-      // 既存バッチと照合して未取込のスケジュールを特定
-      const existingKeys = new Set(batches.map(b => `${b.brewCategory}:${b.startDate?.slice(0,7)}`));
-      const unimported = schedule.filter(s => {
-        const yr = s.brewMonth >= 10 ? s.fy : s.fy + 1;
-        const key = `${s.brewCategory}:${yr}-${String(s.brewMonth).padStart(2, "0")}`;
-        return !existingKeys.has(key) && s.plannedVolumeL > 0;
-      });
-      if (unimported.length === 0) return "";
-      const rows = unimported.map(s => {
-        const yr = s.brewMonth >= 10 ? s.fy : s.fy + 1;
-        const startDate = `${yr}-${String(s.brewMonth).padStart(2, "0")}-01`;
-        const code = `${s.brewCategory}-${s.fy}-${String(s.brewMonth).padStart(2, "0")}`;
-        const color = catColor(s.brewCategory);
-        return `<tr>
-          <td style="padding:6px 8px"><span style="color:${color};font-weight:600">${s.brewCategory}</span></td>
-          <td style="padding:6px 8px">${code}</td>
-          <td style="padding:6px 8px;text-align:right">${fmtNum(Math.round(s.plannedVolumeL))} L</td>
-          <td style="padding:6px 8px">${s.brewMonth}月（${startDate}）</td>
-          <td style="padding:6px 8px">${s.durationMonths}ヶ月</td>
-          <td style="padding:6px 4px"><input type="checkbox" data-action="bp-import-check" data-cat="${s.brewCategory}" data-month="${s.brewMonth}" data-vol="${Math.round(s.plannedVolumeL)}" data-date="${startDate}" data-code="${code}" checked></td>
-        </tr>`;
-      }).join("");
-      return `
-        <section class="panel" style="margin-bottom:16px">
-          <div class="panel-header">
-            <div>
-              <h2>調達計画から取込</h2>
-              <p class="panel-caption">醸造スケジュールから未登録のバッチを一括作成</p>
-            </div>
-            <button class="button primary" data-action="bp-import-schedule">チェック分を一括登録</button>
-          </div>
-          <div style="overflow-x:auto">
-            <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
-              <thead><tr style="border-bottom:2px solid #e5e7eb;color:#6b7280;text-align:left">
-                <th style="padding:4px 8px">区分</th>
-                <th style="padding:4px 8px">バッチコード</th>
-                <th style="padding:4px 8px;text-align:right">醸造量</th>
-                <th style="padding:4px 8px">開始月</th>
-                <th style="padding:4px 8px">期間</th>
-                <th style="padding:4px 4px">取込</th>
-              </tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>
-        </section>`;
-    })() : ""}
-
-    <section>
-      ${groupHtml || '<div class="panel" style="padding:24px;text-align:center;color:#9ca3af">バッチが登録されていません。調達計画でスケジュールを設定するか、上の「新規バッチ」から追加してください。</div>'}
-    </section>`;
+    ${importSection}
+    <section>${groupHtml || '<div class="panel" style="padding:20px;text-align:center;color:#9ca3af">バッチ未登録。調達計画から取込むか、新規バッチを追加してください。</div>'}</section>`;
 }
