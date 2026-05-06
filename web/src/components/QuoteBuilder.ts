@@ -113,9 +113,9 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 /* タイトル行: 左=御見積書、右=見積番号・日付（右寄せ） */
 .q-title-row { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid ${accent}; padding-bottom:8px; margin-bottom:12px; }
 .q-title { font-size:22px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
-.q-meta-table { font-size:10px; border-collapse:collapse; }
-.q-meta-table th { text-align:left; padding:2px 8px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
-.q-meta-table td { font-weight:600; text-align:right; padding-left:12px; }
+.q-meta-table { font-size:10px; border-collapse:collapse; border:1px solid #d0d8e8; }
+.q-meta-table th { text-align:right; padding:3px 6px; color:#666; white-space:nowrap; font-weight:400; border:1px solid #d0d8e8; background:#f8f9fb; }
+.q-meta-table td { font-weight:600; text-align:right; padding:3px 8px; border:1px solid #d0d8e8; }
 /* 取引先＋自社情報（2カラム） */
 .q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:14px; }
 .q-customer { flex:1; }
@@ -162,9 +162,9 @@ function makeDocCssSpa(accent: string): string {
 /* タイトル行: 左=御見積書、右=見積番号・日付（右寄せ） */
 .q-doc .q-title-row { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid ${accent}; padding-bottom:10px; margin-bottom:14px; }
 .q-doc .q-title { font-size:26px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
-.q-doc .q-meta-table { font-size:12px; border-collapse:collapse; }
-.q-doc .q-meta-table th { text-align:left; padding:2px 10px 2px 0; color:#666; white-space:nowrap; font-weight:400; }
-.q-doc .q-meta-table td { font-weight:600; text-align:right; padding-left:14px; }
+.q-doc .q-meta-table { font-size:11px; border-collapse:collapse; border:1px solid #d0d8e8; }
+.q-doc .q-meta-table th { text-align:right; padding:4px 8px; color:#666; white-space:nowrap; font-weight:400; border:1px solid #d0d8e8; background:#f8f9fb; }
+.q-doc .q-meta-table td { font-weight:600; text-align:right; padding:4px 10px; border:1px solid #d0d8e8; }
 /* 取引先＋自社情報（2カラム） */
 .q-doc .q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:16px; }
 .q-doc .q-customer { flex:1; }
