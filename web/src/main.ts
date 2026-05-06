@@ -2315,6 +2315,7 @@ function renderHome(): string {
         card("/demand", "📆", "需要・生産計画", "需要予測・生産計画"),
         card("/brewing-plan", "🗓️", "醸造計画", "年間醸造スケジュール"),
         card("/procurement", "🌾", "調達計画", "原料米の調達・予算"),
+        card("/brewing-process", "🍶", "醸造工程", "バッチ別の醸造工程管理"),
       ].join(""),
     },
     {
@@ -2398,6 +2399,7 @@ function renderShell(): string {
     "/demand": "需要・生産計画",
     "/brewing-plan": "醸造計画",
     "/procurement": "調達計画",
+    "/brewing-process": "醸造工程",
     "/master": "マスタ管理",
     "/calendar": "カレンダー",
     "/store": "店舗・直売所",
@@ -3371,7 +3373,8 @@ function bindEvents(root: HTMLElement): void {
     const btn = e.currentTarget as HTMLButtonElement;
     btn.disabled = true;
     btn.textContent = "生成中…";
-    syncQuoteFormToState(state.quoteState);
+    // プレビューモード中はフォームがDOMに存在しないため sync しない（編集→プレビュー時に sync済み）
+    if (!state.quoteState.previewMode) syncQuoteFormToState(state.quoteState);
     try {
       await generateQuotePdf(state.quoteState, state.quoteCompanySettings);
     } finally {
