@@ -750,7 +750,8 @@ function buildRiceProcurement(
 
 // ─── Stock Projection Bars ────────────────────────────────────────────────────
 
-function buildStockProjection(data: BrewingPlanRow[]): string {
+function buildStockProjection(data: BrewingPlanRow[], stockEntries: BrewingStockEntry[], customCategories: BrewingCustomCategory[]): string {
+  // 標準区分: RPCデータから
   const cats = new Map<string, { avgMl: number; totalMl: number; stockL: number }>();
   for (const r of data) {
     if (!cats.has(r.brewCategory)) {
@@ -761,25 +762,41 @@ function buildStockProjection(data: BrewingPlanRow[]): string {
     c.totalMl += r.totalShipmentMl;
   }
 
-  const bars = CATEGORY_ORDER
-    .filter(c => cats.has(c))
+  // カスタム子区分: stockEntriesからタンク在庫を集計
+  for (const cc of customCategories) {
+    const ccStock = stockEntries.filter(e => e.brewCategory === cc.name).reduce((s, e) => s + e.volumeL, 0);
+    if (ccStock > 0 || cats.has(cc.name)) {
+      if (!cats.has(cc.name)) {
+        // 子区分はRPCに出荷データがない場合、親の月平均を使う（概算）
+        const parentData = cats.get(cc.parentCategory);
+        cats.set(cc.name, { avgMl: 0, totalMl: 0, stockL: ccStock });
+      } else {
+        cats.get(cc.name)!.stockL = ccStock;
+      }
+    }
+  }
+
+  const allCatNames = [...CATEGORY_ORDER, ...customCategories.map(c => c.name)];
+
+  const bars = allCatNames
+    .filter(c => cats.has(c) && (cats.get(c)!.stockL > 0 || cats.get(c)!.totalMl > 0))
     .map(cat => {
       const g = cats.get(cat)!;
       const months = g.avgMl > 0 ? Math.round(g.stockL * 1000 / g.avgMl * 10) / 10 : 0;
       const annualL = g.totalMl / 1000;
       const coveragePct = annualL > 0 ? Math.round(g.stockL / annualL * 100) : 0;
-      const color = CATEGORY_COLORS[cat] ?? "#9ca3af";
-      const sc = stockColor(months);
-      const pct = Math.min(months / 12 * 100, 100);
+      const isCustom = customCategories.some(c => c.name === cat);
+      const color = CATEGORY_COLORS[cat] ?? (isCustom ? "#6366f1" : "#9ca3af");
+      const sc = g.avgMl > 0 ? stockColor(months) : (g.stockL > 0 ? "#22c55e" : "#9ca3af");
+      const pct = g.avgMl > 0 ? Math.min(months / 12 * 100, 100) : (g.stockL > 0 ? 100 : 0);
+      const label = g.avgMl > 0 ? `${months.toFixed(1)}ヶ月 / 年間の${coveragePct}%` : `${fmtNum(g.stockL)}L在庫`;
 
       return `
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-          <span style="width:80px;font-size:12px;font-weight:500;color:${color};text-align:right;">${cat}</span>
+          <span style="width:100px;font-size:12px;font-weight:500;color:${color};text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${cat}">${isCustom ? "┗ " : ""}${cat}</span>
           <div style="flex:1;background:#e5e7eb;border-radius:4px;height:24px;overflow:hidden;position:relative;">
             <div style="background:${sc};height:100%;width:${pct}%;border-radius:4px;transition:width 0.3s;"></div>
-            <span style="position:absolute;top:3px;left:8px;font-size:11px;font-weight:600;color:#374151;">
-              ${months.toFixed(1)}ヶ月 / 年間の${coveragePct}%
-            </span>
+            <span style="position:absolute;top:3px;left:8px;font-size:11px;font-weight:600;color:#374151;">${label}</span>
           </div>
           <span style="width:60px;font-size:11px;text-align:right;color:${g.stockL > 0 ? "var(--text)" : "#ef4444"};">${fmtNum(g.stockL)}L</span>
         </div>
@@ -1092,7 +1109,7 @@ export function renderBrewingPlan(
         return forecastResult.html;
       })()}
 
-      ${buildStockProjection(data)}
+      ${buildStockProjection(data, stockEntries, customCategories)}
 
       ${buildProductDetail(productDetail, excludedProducts, customCategories, overrides, stockEntries)}
 
