@@ -146,7 +146,35 @@ export function renderProcurement(
           </label>
           ${alcRatio > 0 ? `<span style="color:var(--text-secondary);">−${Math.round(alcRatio*100)}%→${fmtNum(Math.round(riceBasedL))}L</span>` : ""}
           ${needL > 0 && Math.abs(needL - brewingL) > 10 ? `<span style="color:var(--text-secondary);font-size:11px;">(予測${fmtNum(Math.round(needL))})</span>` : ""}
-          ${catSchedule.length > 0 ? catSchedule.map(s => `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${color}12;color:${color};">${s.brewMonth}月</span>`).join("") : ""}
+        </div>
+
+        <div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:8px;background:var(--surface-alt);">
+          <div style="font-size:11px;font-weight:600;color:${color};margin-bottom:6px;">醸造スケジュール${catSchedule.length > 0 ? ` (${fmtNum(Math.round(catSchedule.reduce((s, r) => s + r.plannedVolumeL, 0)))}L / ${fmtNum(Math.round(brewingL))}L)` : ""}</div>
+          ${catSchedule.length > 0 ? `
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">
+              ${catSchedule.map(s => `
+                <div style="display:flex;align-items:center;gap:3px;padding:3px 8px;border-radius:4px;background:${color}15;border:1px solid ${color}30;">
+                  <span style="font-size:11px;font-weight:600;color:${color};">${s.brewMonth}月</span>
+                  <input type="number" min="0" max="${Math.round(brewingL)}" step="100" value="${Math.round(s.plannedVolumeL)}"
+                    data-action="proc-sched-edit-vol" data-cat="${cat}" data-month="${s.brewMonth}"
+                    style="width:56px;height:22px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 3px;" />L
+                  <button data-action="proc-sched-remove" data-cat="${cat}" data-month="${s.brewMonth}"
+                    style="border:none;background:none;color:#ef4444;cursor:pointer;font-size:14px;padding:0 2px;line-height:1;">×</button>
+                </div>
+              `).join("")}
+            </div>
+          ` : `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">醸造月を追加してください</div>`}
+          <div style="display:flex;align-items:center;gap:4px;">
+            <select data-action="proc-add-month-select" data-cat="${cat}"
+              style="height:24px;font-size:11px;border:1px solid var(--border);border-radius:3px;padding:0 4px;">
+              ${[10,11,12,1,2,3,4,5,6,7,8,9].filter(m => !catSchedule.some(s => s.brewMonth === m)).map(m => `<option value="${m}">${m}月</option>`).join("")}
+            </select>
+            <input type="number" min="0" max="${Math.round(brewingL)}" step="100" placeholder="L"
+              data-action="proc-add-month-vol" data-cat="${cat}"
+              style="width:56px;height:24px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 3px;" />
+            <button data-action="proc-add-schedule" data-cat="${cat}"
+              style="height:24px;font-size:11px;padding:0 8px;border:1px solid ${color};background:${color}10;color:${color};border-radius:3px;cursor:pointer;">+追加</button>
+          </div>
         </div>
 
         <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px;margin-bottom:8px;">

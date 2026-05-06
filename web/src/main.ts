@@ -3213,7 +3213,7 @@ function bindEvents(root: HTMLElement): void {
       const companyName = (overlay.querySelector<HTMLInputElement>("#pq-company")?.value ?? "").trim();
       if (!companyName) { showToast("会社名は必須です", "warning"); return; }
       const newProspect: import("./api").Prospect = {
-        id: `p_${Date.now()}`,
+        id: crypto.randomUUID(),
         companyName,
         contactName: overlay.querySelector<HTMLInputElement>("#pq-contact")?.value.trim() || undefined,
         address: overlay.querySelector<HTMLInputElement>("#pq-address")?.value.trim() || undefined,
@@ -6267,6 +6267,43 @@ function bindEvents(root: HTMLElement): void {
       const rows = state.brewingSchedule
         .filter(s => s.brewCategory === cat && s.brewMonth !== month)
         .map(s => ({ brewMonth: s.brewMonth, durationMonths: s.durationMonths, plannedVolumeL: s.plannedVolumeL }));
+      const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
+      await saveBrewingSchedule(cat, state.brewingPlanFY, rows);
+      state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
+      renderApp();
+    });
+  });
+
+  // 調達計画: スケジュール削除（カード内×ボタン）
+  root.querySelectorAll<HTMLButtonElement>("[data-action='proc-sched-remove']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const cat = btn.dataset.cat ?? "";
+      const month = parseInt(btn.dataset.month ?? "0");
+      if (!cat || !month) return;
+      const rows = state.brewingSchedule
+        .filter(s => s.brewCategory === cat && s.brewMonth !== month)
+        .map(s => ({ brewMonth: s.brewMonth, durationMonths: s.durationMonths, plannedVolumeL: s.plannedVolumeL }));
+      const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
+      await saveBrewingSchedule(cat, state.brewingPlanFY, rows);
+      state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
+      renderApp();
+    });
+  });
+
+  // 調達計画: スケジュール量変更（カード内インライン編集）
+  root.querySelectorAll<HTMLInputElement>("[data-action='proc-sched-edit-vol']").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const cat = input.dataset.cat ?? "";
+      const month = parseInt(input.dataset.month ?? "0");
+      const vol = parseFloat(input.value) || 0;
+      if (!cat || !month) return;
+      const rows = state.brewingSchedule
+        .filter(s => s.brewCategory === cat)
+        .map(s => ({
+          brewMonth: s.brewMonth,
+          durationMonths: s.durationMonths,
+          plannedVolumeL: s.brewMonth === month ? vol : s.plannedVolumeL
+        }));
       const { saveBrewingSchedule, fetchBrewingSchedule } = await import("./api");
       await saveBrewingSchedule(cat, state.brewingPlanFY, rows);
       state.brewingSchedule = await fetchBrewingSchedule(state.brewingPlanFY);
