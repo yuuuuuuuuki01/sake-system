@@ -768,7 +768,9 @@ function buildQuarterlyDepletion(
   stockEntries: BrewingStockEntry[],
   seasonalPattern: BrewingSeasonalPattern[],
   alcoholSettings: Record<string, BrewingAlcoholSetting>,
-  customCategories: BrewingCustomCategory[]
+  customCategories: BrewingCustomCategory[],
+  excludedProducts: Set<string> = new Set(),
+  productDetail: BrewingProductDetail[] = []
 ): string {
   if (data.length === 0) return "";
 
@@ -799,6 +801,16 @@ function buildQuarterlyDepletion(
     seasonMap.get(sp.brewCategory)!.set(sp.monthNum, sp.avgMonthlyL);
   }
 
+  // 除外商品の月平均出荷を親区分から減算
+  // （除外されたがまだオーバーライドされていない商品の分）
+  const excludedMonthlyByParent = new Map<string, number>();
+  for (const p of productDetail) {
+    if (excludedProducts.has(p.productCode)) {
+      const monthlyL = p.monthlyAvgMl / 1000;
+      excludedMonthlyByParent.set(p.brewCategory, (excludedMonthlyByParent.get(p.brewCategory) ?? 0) + monthlyL);
+    }
+  }
+
   // 区分ごとの在庫集計
   const catStock = new Map<string, number>();
   for (const r of data) {
@@ -823,8 +835,11 @@ function buildQuarterlyDepletion(
     let depletionLabel = "";
     const qValues: string[] = [];
 
+    const excludedMonthly = excludedMonthlyByParent.get(cat) ?? 0;
+
     for (const q of quarters) {
-      const qShipment = q.months.reduce((s, { m }) => s + (seasonal.get(m) ?? 0), 0);
+      // 季節パターンから除外商品の月平均分を差し引き（3ヶ月分）
+      const qShipment = Math.max(0, q.months.reduce((s, { m }) => s + (seasonal.get(m) ?? 0), 0) - excludedMonthly * 3);
       const stockBefore = stock;
       stock = Math.max(0, stock - qShipment);
       const depleted = stockBefore > 0 && stock <= 0;
@@ -1232,7 +1247,7 @@ export function renderBrewingPlan(
 
       ${buildStockProjection(data, stockEntries, customCategories)}
 
-      ${buildQuarterlyDepletion(data, stockEntries, seasonalPattern, alcoholSettings, customCategories)}
+      ${buildQuarterlyDepletion(data, stockEntries, seasonalPattern, alcoholSettings, customCategories, excludedProducts, productDetail)}
 
       ${buildProductDetail(productDetail, excludedProducts, customCategories, overrides, stockEntries)}
 
