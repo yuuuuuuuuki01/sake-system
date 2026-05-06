@@ -115,8 +115,9 @@ export function renderShipmentCalendar(
           </div>
         </div>
 
-        <div class="sc-detail-col">
+        <div class="sc-detail-col${selectedDate ? " sc-detail-active" : ""}">
           ${detailHtml}
+          ${selectedDate ? `<button class="sc-detail-close" data-sc-date="">✕ 閉じる</button>` : ""}
         </div>
       </div>
     </section>
@@ -165,6 +166,7 @@ export function renderShipmentCalendar(
 
       .sc-detail-col { padding: 16px; overflow-y: auto; max-height: 600px; }
       .sc-detail-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted, #6b7280); font-size: 0.9rem; text-align: center; padding: 40px 20px; }
+      .sc-detail-close { display: none; }
 
       .sc-detail-date { font-size: 1rem; font-weight: 700; margin: 0 0 4px; }
       .sc-detail-meta { font-size: 0.8rem; color: var(--text-muted, #6b7280); margin-bottom: 12px; }
@@ -173,6 +175,55 @@ export function renderShipmentCalendar(
       .sc-customer-row { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; font-size: 0.8rem; border-bottom: 1px solid var(--border, #e5e7eb); gap: 8px; }
       .sc-customer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .sc-customer-amt { flex-shrink: 0; color: var(--text-muted, #6b7280); font-size: 0.75rem; }
+
+      /* ── スマホ: 1画面レイアウト ── */
+      @media (max-width: 640px) {
+        .sc-header { padding: 10px 12px 8px; }
+        .sc-title { font-size: 0.95rem; }
+        .sc-title-row { margin-bottom: 6px; gap: 8px; }
+        .sc-month-summary { font-size: 0.75rem; }
+        .sc-nav-btn { padding: 3px 10px; }
+        .sc-month-label { font-size: 0.9rem; min-width: 80px; }
+
+        .sc-body { grid-template-columns: 1fr; min-height: unset; }
+        .sc-calendar-col { padding: 6px 8px; border-right: none; }
+        .sc-weekday { font-size: 0.7rem; padding: 2px 0; }
+
+        /* セルを低くして6行が画面に収まるように */
+        .sc-cell { min-height: 44px; padding: 2px 3px; border-radius: 4px; }
+        .sc-day-num { font-size: 0.75rem; }
+        .sc-badge { font-size: 0.6rem; padding: 1px 4px; }
+        /* 都市タグはセル内に非表示 (タップで詳細表示するため) */
+        .sc-cities { display: none; }
+
+        /* 詳細パネル: 下から出るボトムシート */
+        .sc-detail-col { display: none; }
+        .sc-detail-col.sc-detail-active {
+          display: block;
+          position: fixed;
+          bottom: 0; left: 0; right: 0;
+          background: #fff;
+          border-top: 2px solid var(--primary, #0F5B8D);
+          border-radius: 16px 16px 0 0;
+          box-shadow: 0 -4px 24px rgba(0,0,0,0.18);
+          max-height: 50vh;
+          overflow-y: auto;
+          padding: 12px 16px 20px;
+          z-index: 200;
+        }
+        .sc-detail-close {
+          display: block;
+          width: 100%;
+          margin-top: 12px;
+          padding: 8px;
+          background: var(--bg-subtle, #f3f4f6);
+          border: 1px solid var(--border, #e5e7eb);
+          border-radius: 8px;
+          font-size: 0.85rem;
+          cursor: pointer;
+          color: var(--text-muted, #6b7280);
+        }
+      }
     </style>
   `;
 }

@@ -7269,8 +7269,10 @@ function bindEvents(root: HTMLElement): void {
   root.querySelectorAll<HTMLElement>("[data-sc-date]").forEach((cell) => {
     cell.addEventListener("click", () => {
       const date = cell.dataset.scDate;
-      if (!date) return;
-      state.shipmentCalendarSelectedDate = state.shipmentCalendarSelectedDate === date ? null : date;
+      if (date === undefined) return;
+      // 空文字は閉じるボタン
+      state.shipmentCalendarSelectedDate = !date ? null
+        : state.shipmentCalendarSelectedDate === date ? null : date;
       renderApp();
     });
   });
