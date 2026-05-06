@@ -410,22 +410,11 @@ function buildForecastWithNeed(
   alcoholSettings: Record<string, BrewingAlcoholSetting>,
   customCategories: BrewingCustomCategory[],
   seasonalPattern: BrewingSeasonalPattern[],
-  forecastOverrides: Record<string, number> = {},
-  excludedProducts: Set<string> = new Set(),
-  productDetail: BrewingProductDetail[] = []
+  forecastOverrides: Record<string, number> = {}
 ): { html: string; needByCategory: Record<string, number> } {
   const empty = { html: "", needByCategory: {} };
   if (yearlyShipments.length === 0) return empty;
 
-  // 親区分から除外された商品の年間出荷量を集計（予測から減算するため）
-  const excludedMlByParent = new Map<string, number>();
-  for (const p of productDetail) {
-    if (excludedProducts.has(p.productCode)) {
-      // この商品の本来の親区分を特定（オーバーライドされていなければbrewCategory）
-      const parent = p.brewCategory;
-      excludedMlByParent.set(parent, (excludedMlByParent.get(parent) ?? 0) + p.annualMl);
-    }
-  }
 
   const needByCategory: Record<string, number> = {};
   const now = new Date();
@@ -474,11 +463,8 @@ function buildForecastWithNeed(
     const color = CATEGORY_COLORS[cat] ?? "#6366f1";
     const seasonal = seasonMap.get(cat) ?? new Map();
 
-    // 除外商品の年間出荷量(L) — 各年度から差し引く
-    const excludedAnnualL = (excludedMlByParent.get(cat) ?? 0) / 1000;
-
-    // 完了年度の実績から除外商品分を差し引いてから増減率を計算
-    const completedVals = completedFYs.filter(fy => data.has(fy)).map(fy => Math.max(0, data.get(fy)!.shipL - excludedAnnualL));
+    // 完了年度の実績値で増減率を計算（RPCが既にオーバーライド反映済み）
+    const completedVals = completedFYs.filter(fy => data.has(fy)).map(fy => data.get(fy)!.shipL);
     let growthRate = 0;
     if (completedVals.length >= 2) {
       const rates: number[] = [];
@@ -488,12 +474,11 @@ function buildForecastWithNeed(
       growthRate = rates.length > 0 ? rates.reduce((s, r) => s + r, 0) / rates.length : 0;
     }
 
-    // 予測のベース = 直近の完了年度の実績（除外済み）
-    const baseAnnual = completedVals.length > 0 ? completedVals[completedVals.length - 1] : Math.max(0, (data.get(currentFYStart)?.annualL ?? 0) - excludedAnnualL);
+    // 予測のベース = 直近の完了年度の実績
+    const baseAnnual = completedVals.length > 0 ? completedVals[completedVals.length - 1] : (data.get(currentFYStart)?.annualL ?? 0);
 
-    // 今月〜9月の残り出荷量（季節パターンから除外商品の月平均を引く）
-    const excludedMonthlyL = excludedAnnualL / 12;
-    const remainingShipL = remainingMonths.reduce((s, m) => s + Math.max(0, (seasonal.get(m) ?? 0) - excludedMonthlyL), 0);
+    // 今月〜9月の残り出荷量（季節パターンベース）
+    const remainingShipL = remainingMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
 
     // 現在庫（加水後）
     const stockL = stockEntries.filter(e => e.brewCategory === cat).reduce((s, e) => s + e.volumeL, 0);
@@ -547,21 +532,19 @@ function buildForecastWithNeed(
   for (const cat of allCats) {
     const data = catData.get(cat)!;
     const seasonal = seasonMap.get(cat) ?? new Map();
-    const exclAnnL = (excludedMlByParent.get(cat) ?? 0) / 1000;
-    const exclMonL = exclAnnL / 12;
-    const cVals = completedFYs.filter(fy => data.has(fy)).map(fy => Math.max(0, data.get(fy)!.shipL - exclAnnL));
+    const cVals = completedFYs.filter(fy => data.has(fy)).map(fy => data.get(fy)!.shipL);
     let gr = 0;
     if (cVals.length >= 2) {
       const rates: number[] = [];
       for (let i = 1; i < cVals.length; i++) { if (cVals[i-1] > 0) rates.push((cVals[i]-cVals[i-1])/cVals[i-1]); }
       gr = rates.length > 0 ? rates.reduce((a,b)=>a+b,0)/rates.length : 0;
     }
-    const base = cVals.length > 0 ? cVals[cVals.length - 1] : Math.max(0, (data.get(currentFYStart)?.annualL ?? 0) - exclAnnL);
+    const base = cVals.length > 0 ? cVals[cVals.length - 1] : (data.get(currentFYStart)?.annualL ?? 0);
     const stk = stockEntries.filter(e => e.brewCategory === cat).reduce((a, e) => a + e.volumeL, 0);
     const alc = alcoholSettings[cat];
     const dil = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
     const effNow = Math.round(stk * dil);
-    const rem = remainingMonths.reduce((s, m) => s + Math.max(0, (seasonal.get(m) ?? 0) - exclMonL), 0);
+    const rem = remainingMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
     const projOct = Math.max(0, effNow - Math.round(rem));
     const effGr = (cat in forecastOverrides) ? forecastOverrides[cat] : gr;
     const fc = Math.round(base * (1 + effGr));
@@ -773,9 +756,7 @@ function buildQuarterlyDepletion(
   stockEntries: BrewingStockEntry[],
   seasonalPattern: BrewingSeasonalPattern[],
   alcoholSettings: Record<string, BrewingAlcoholSetting>,
-  customCategories: BrewingCustomCategory[],
-  excludedProducts: Set<string> = new Set(),
-  productDetail: BrewingProductDetail[] = []
+  customCategories: BrewingCustomCategory[]
 ): string {
   if (data.length === 0) return "";
 
@@ -806,15 +787,6 @@ function buildQuarterlyDepletion(
     seasonMap.get(sp.brewCategory)!.set(sp.monthNum, sp.avgMonthlyL);
   }
 
-  // 除外商品の月平均出荷を親区分から減算
-  // （除外されたがまだオーバーライドされていない商品の分）
-  const excludedMonthlyByParent = new Map<string, number>();
-  for (const p of productDetail) {
-    if (excludedProducts.has(p.productCode)) {
-      const monthlyL = p.monthlyAvgMl / 1000;
-      excludedMonthlyByParent.set(p.brewCategory, (excludedMonthlyByParent.get(p.brewCategory) ?? 0) + monthlyL);
-    }
-  }
 
   // 区分ごとの在庫集計
   const catStock = new Map<string, number>();
@@ -856,10 +828,8 @@ function buildQuarterlyDepletion(
     let depletionLabel = "";
     const qValues: string[] = [];
 
-    const excludedMonthly = excludedMonthlyByParent.get(cat) ?? 0;
-
     for (const q of quarters) {
-      const qShipment = Math.max(0, q.months.reduce((s, { m }) => s + (seasonal.get(m) ?? 0), 0) - excludedMonthly * 3);
+      const qShipment = q.months.reduce((s, { m }) => s + (seasonal.get(m) ?? 0), 0);
       const stockBefore = stock;
       stock = Math.max(0, stock - qShipment);
       const depleted = stockBefore > 0 && stock <= 0;
@@ -1262,13 +1232,13 @@ export function renderBrewingPlan(
 
       ${(() => {
         // 予測セ���ション + 調達計画を連続描画（必要醸造量を共有）
-        const forecastResult = buildForecastWithNeed(yearlyShipments, stockEntries, alcoholSettings, customCategories, seasonalPattern, forecastOverrides, excludedProducts, productDetail);
+        const forecastResult = buildForecastWithNeed(yearlyShipments, stockEntries, alcoholSettings, customCategories, seasonalPattern, forecastOverrides);
         return forecastResult.html;
       })()}
 
       ${buildStockProjection(data, stockEntries, customCategories)}
 
-      ${buildQuarterlyDepletion(data, stockEntries, seasonalPattern, alcoholSettings, customCategories, excludedProducts, productDetail)}
+      ${buildQuarterlyDepletion(data, stockEntries, seasonalPattern, alcoholSettings, customCategories)}
 
       ${buildProductDetail(productDetail, excludedProducts, customCategories, overrides, stockEntries)}
 
