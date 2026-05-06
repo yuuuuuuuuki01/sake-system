@@ -4094,6 +4094,26 @@ function bindEvents(root: HTMLElement): void {
     if (state.visitPlanner) { state.visitPlanner.filterMinScore = parseInt((e.target as HTMLInputElement).value) || 0; renderApp(); }
   });
 
+  // Visit planner: refresh analytics
+  root.querySelector<HTMLButtonElement>("[data-action='refresh-analytics']")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "更新中…";
+    try {
+      const { supabaseRpc } = await import("./supabase");
+      await supabaseRpc("refresh_analytics", {});
+      state.visitPlanner = null; // 再取得を強制
+      state.shipmentCalendarData = null; // カレンダーも再取得
+      showToast("分析データを更新しました", "success");
+      renderApp();
+    } catch (err) {
+      console.error("[refresh-analytics]", err);
+      showToast("更新に失敗しました", "error");
+      btn.disabled = false;
+      btn.textContent = "⟳ データ更新";
+    }
+  });
+
   root.querySelectorAll<HTMLElement>("[data-sort-col]").forEach((th) => {
     th.addEventListener("click", (e) => {
       const col = th.dataset.sortCol ?? "";

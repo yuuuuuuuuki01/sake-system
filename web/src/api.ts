@@ -5525,18 +5525,18 @@ export async function fetchShipmentCalendar(yearMonth: string): Promise<Shipment
     order: "sales_date.asc"
   });
 
-  // 得意先住所マップを取得
+  // 得意先住所マップを取得（legacy_customer_code でキー）
   const customers = await supabaseQueryAll<{
-    id: string;
+    legacy_customer_code: string;
     address1: string | null;
   }>("customers", {
-    select: "id,address1",
+    select: "legacy_customer_code,address1",
     address1: "not.is.null"
   });
 
   const cityMap: Record<string, string> = {};
   for (const c of customers) {
-    if (c.address1) cityMap[c.id] = extractCity(c.address1);
+    if (c.address1) cityMap[c.legacy_customer_code] = extractCity(c.address1);
   }
 
   // 日付ごとに集計

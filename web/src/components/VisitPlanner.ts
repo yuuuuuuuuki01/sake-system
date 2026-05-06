@@ -215,6 +215,9 @@ export function renderVisitPlanner(state: VisitPlannerState): string {
         <p class="eyebrow">営業支援</p>
         <h1>訪問計画 / ルート最適化</h1>
       </div>
+      <div class="meta-stack">
+        <button class="button secondary" data-action="refresh-analytics" style="min-height:36px;">⟳ データ更新</button>
+      </div>
     </section>
 
     <div class="kpi-grid">
