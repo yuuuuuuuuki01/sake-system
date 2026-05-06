@@ -463,19 +463,29 @@ function buildForecastWithNeed(
     const color = CATEGORY_COLORS[cat] ?? "#6366f1";
     const seasonal = seasonMap.get(cat) ?? new Map();
 
-    // 完了年度の実績値で増減率を計算（RPCが既にオーバーライド反映済み）
+    // 完了年度の実績値で増減率を加重平均で計算（直近を重視）
     const completedVals = completedFYs.filter(fy => data.has(fy)).map(fy => data.get(fy)!.shipL);
     let growthRate = 0;
     if (completedVals.length >= 2) {
-      const rates: number[] = [];
+      let weightedSum = 0;
+      let weightTotal = 0;
       for (let i = 1; i < completedVals.length; i++) {
-        if (completedVals[i - 1] > 0) rates.push((completedVals[i] - completedVals[i - 1]) / completedVals[i - 1]);
+        if (completedVals[i - 1] > 0) {
+          const rate = (completedVals[i] - completedVals[i - 1]) / completedVals[i - 1];
+          const weight = i; // 直近ほど重い（1,2,3...）
+          weightedSum += rate * weight;
+          weightTotal += weight;
+        }
       }
-      growthRate = rates.length > 0 ? rates.reduce((s, r) => s + r, 0) / rates.length : 0;
+      growthRate = weightTotal > 0 ? weightedSum / weightTotal : 0;
     }
 
-    // 予測のベース = 直近の完了年度の実績
-    const baseAnnual = completedVals.length > 0 ? completedVals[completedVals.length - 1] : (data.get(currentFYStart)?.annualL ?? 0);
+    // 予測のベース = 直近完了年度と当年度(年換算)の加重平均
+    const currentAnnualized = data.get(currentFYStart)?.annualL ?? 0;
+    const lastCompleted = completedVals.length > 0 ? completedVals[completedVals.length - 1] : 0;
+    const baseAnnual = currentAnnualized > 0 && lastCompleted > 0
+      ? Math.round(lastCompleted * 0.4 + currentAnnualized * 0.6)  // 当年度60%:前年40%
+      : (lastCompleted || currentAnnualized);
 
     // 今月〜9月の残り出荷量（季節パターンベース）
     const remainingShipL = remainingMonths.reduce((s, m) => s + (seasonal.get(m) ?? 0), 0);
@@ -536,10 +546,15 @@ function buildForecastWithNeed(
     let gr = 0;
     if (cVals.length >= 2) {
       const rates: number[] = [];
-      for (let i = 1; i < cVals.length; i++) { if (cVals[i-1] > 0) rates.push((cVals[i]-cVals[i-1])/cVals[i-1]); }
-      gr = rates.length > 0 ? rates.reduce((a,b)=>a+b,0)/rates.length : 0;
+      let wSum = 0, wTot = 0;
+      for (let i = 1; i < cVals.length; i++) {
+        if (cVals[i-1] > 0) { const r = (cVals[i]-cVals[i-1])/cVals[i-1]; wSum += r * i; wTot += i; }
+      }
+      gr = wTot > 0 ? wSum / wTot : 0;
     }
-    const base = cVals.length > 0 ? cVals[cVals.length - 1] : (data.get(currentFYStart)?.annualL ?? 0);
+    const curAnn = data.get(currentFYStart)?.annualL ?? 0;
+    const lastC = cVals.length > 0 ? cVals[cVals.length - 1] : 0;
+    const base = curAnn > 0 && lastC > 0 ? Math.round(lastC * 0.4 + curAnn * 0.6) : (lastC || curAnn);
     const stk = stockEntries.filter(e => e.brewCategory === cat).reduce((a, e) => a + e.volumeL, 0);
     const alc = alcoholSettings[cat];
     const dil = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
