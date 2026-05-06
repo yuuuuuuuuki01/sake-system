@@ -72,7 +72,9 @@ export function renderProcurement(
 
     // 杜氏の醸造予定量（スケジュールにplanned_volume_lがあればそれ、なければ必要醸造量を使用）
     const tojiTotalL = catSchedule.reduce((s, r) => s + r.plannedVolumeL, 0);
-    const brewingL = tojiTotalL > 0 ? tojiTotalL : needL;
+    // スケジュールが存在すればその値（0含む=醸造しない判断）、なければ予測値
+    const hasSchedule = catSchedule.length > 0;
+    const brewingL = hasSchedule ? tojiTotalL : needL;
 
     // アル添比率: この分は米由来ではない
     const alcRatio = p.alcoholAdditionRatio ?? 0;
@@ -159,7 +161,7 @@ export function renderProcurement(
       <div class="card" style="border-top:3px solid ${color};margin-bottom:12px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:4px;">
           <h4 style="margin:0;font-size:14px;color:${color};">${cat}</h4>
-          <div style="font-size:12px;">予算 <strong>¥${fmtNum(kojiCost + kakeCost)}</strong></div>
+          <div style="font-size:12px;">${brewingL > 0 ? `予算 <strong>¥${fmtNum(kojiCost + kakeCost)}</strong>` : `<span style="color:#6b7280;font-weight:600;">醸造しない</span>`}</div>
         </div>
         <div style="display:flex;gap:10px;margin-bottom:8px;flex-wrap:wrap;align-items:center;font-size:12px;">
           <label style="display:flex;align-items:center;gap:3px;">
