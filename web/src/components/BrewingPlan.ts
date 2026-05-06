@@ -763,6 +763,114 @@ function buildRiceProcurement(
 
 // ─── Stock Projection Bars ────────────────────────────────────────────────────
 
+function buildQuarterlyDepletion(
+  data: BrewingPlanRow[],
+  stockEntries: BrewingStockEntry[],
+  seasonalPattern: BrewingSeasonalPattern[],
+  alcoholSettings: Record<string, BrewingAlcoholSetting>,
+  customCategories: BrewingCustomCategory[]
+): string {
+  if (data.length === 0) return "";
+
+  const now = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear = now.getFullYear();
+
+  // 四半期定義（今月から12ヶ月先まで4Q）
+  const quarters: Array<{ label: string; months: Array<{ y: number; m: number }> }> = [];
+  let m = currentMonth;
+  let y = currentYear;
+  for (let q = 0; q < 4; q++) {
+    const qMonths: Array<{ y: number; m: number }> = [];
+    for (let i = 0; i < 3; i++) {
+      qMonths.push({ y, m });
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+    const startLabel = `${qMonths[0].y}/${qMonths[0].m}`;
+    const endLabel = `${qMonths[2].y}/${qMonths[2].m}`;
+    quarters.push({ label: `${startLabel}-${endLabel}`, months: qMonths });
+  }
+
+  // 季節パターン: 区分×月 → 平均出荷L
+  const seasonMap = new Map<string, Map<number, number>>();
+  for (const sp of seasonalPattern) {
+    if (!seasonMap.has(sp.brewCategory)) seasonMap.set(sp.brewCategory, new Map());
+    seasonMap.get(sp.brewCategory)!.set(sp.monthNum, sp.avgMonthlyL);
+  }
+
+  // 区分ごとの在庫集計
+  const catStock = new Map<string, number>();
+  for (const r of data) {
+    if (!catStock.has(r.brewCategory)) catStock.set(r.brewCategory, r.currentStockL);
+  }
+  for (const cc of customCategories) {
+    const s = stockEntries.filter(e => e.brewCategory === cc.name).reduce((a, e) => a + e.volumeL, 0);
+    if (s > 0) catStock.set(cc.name, s);
+  }
+
+  const allCats = [...catStock.keys()].filter(c => catStock.get(c)! > 0 || (seasonMap.get(c)?.size ?? 0) > 0);
+  const order = [...CATEGORY_ORDER, ...customCategories.map(c => c.name)];
+  allCats.sort((a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
+
+  const rows = allCats.map(cat => {
+    const alc = alcoholSettings[cat];
+    const dilution = alc && alc.targetAlcoholPct > 0 ? alc.rawAlcoholPct / alc.targetAlcoholPct : 1;
+    let stock = (catStock.get(cat) ?? 0) * dilution; // 加水後
+    const seasonal = seasonMap.get(cat) ?? new Map();
+    const color = CATEGORY_COLORS[cat] ?? "#6366f1";
+
+    let depletionLabel = "";
+    const qValues: string[] = [];
+
+    for (const q of quarters) {
+      const qShipment = q.months.reduce((s, { m }) => s + (seasonal.get(m) ?? 0), 0);
+      const stockBefore = stock;
+      stock = Math.max(0, stock - qShipment);
+      const depleted = stockBefore > 0 && stock <= 0;
+
+      if (depleted && !depletionLabel) {
+        // この四半期で枯渇
+        depletionLabel = q.label;
+      }
+
+      const stockColor = stock <= 0 ? "#ef4444" : stock < qShipment ? "#eab308" : "#22c55e";
+      qValues.push(`<td style="text-align:right;padding:4px 6px;color:${stockColor};font-weight:${stock <= 0 ? "700" : "400"};">${stock > 0 ? fmtNum(Math.round(stock)) : "枯渇"}</td>`);
+    }
+
+    return `
+      <tr>
+        <td style="color:${color};font-weight:600;padding:4px 6px;white-space:nowrap;">${cat}</td>
+        <td style="text-align:right;padding:4px 6px;">${fmtNum(Math.round((catStock.get(cat) ?? 0) * dilution))}</td>
+        ${qValues.join("")}
+        <td style="padding:4px 6px;font-size:11px;color:${depletionLabel ? "#ef4444" : "#22c55e"};font-weight:600;">
+          ${depletionLabel ? `⚠ ${depletionLabel}` : "12ヶ月+"}
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  return `
+    <div class="card" style="margin-bottom:16px;">
+      <h3 style="font-size:14px;margin:0 0 8px 0;">四半期別 在庫枯渇予測</h3>
+      <p style="font-size:11px;color:#6b7280;margin:0 0 10px;">現在庫（加水後）から季節出荷を差し引いた残量推移</p>
+      <div class="table-wrap">
+        <table class="data-table" style="font-size:12px;">
+          <thead>
+            <tr>
+              <th style="padding:4px 6px;">区分</th>
+              <th style="text-align:right;padding:4px 6px;">現在庫(L)</th>
+              ${quarters.map(q => `<th style="text-align:right;padding:4px 6px;font-size:10px;">${q.label}</th>`).join("")}
+              <th style="padding:4px 6px;">枯渇時期</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function buildStockProjection(data: BrewingPlanRow[], stockEntries: BrewingStockEntry[], customCategories: BrewingCustomCategory[]): string {
   // 標準区分: RPCデータから
   const cats = new Map<string, { avgMl: number; totalMl: number; stockL: number }>();
@@ -1123,6 +1231,8 @@ export function renderBrewingPlan(
       })()}
 
       ${buildStockProjection(data, stockEntries, customCategories)}
+
+      ${buildQuarterlyDepletion(data, stockEntries, seasonalPattern, alcoholSettings, customCategories)}
 
       ${buildProductDetail(productDetail, excludedProducts, customCategories, overrides, stockEntries)}
 
