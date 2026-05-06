@@ -272,7 +272,7 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
   <!-- タイトル行: 左=御見積書、右=見積番号・日付（右寄せ） -->
   <div class="q-title-row">
     <h1 class="q-title">御 見 積 書</h1>
-    <table class="q-meta-table">
+    <table class="q-meta-table" style="margin-left:auto;text-align:right;">
       ${quote.quoteNo ? `<tr><th>見積番号</th><td>${esc(quote.quoteNo)}</td></tr>` : ""}
       <tr><th>見積日</th><td>${fmtDate(quote.quoteDate)}</td></tr>
     </table>
