@@ -113,9 +113,10 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
 /* タイトル行: 左=御見積書、右=見積番号・日付（右寄せ） */
 .q-title-row { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid ${accent}; padding-bottom:8px; margin-bottom:12px; }
 .q-title { font-size:22px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
-.q-meta-table { font-size:10px; border-collapse:collapse; border:1px solid #d0d8e8; }
-.q-meta-table th { text-align:right; padding:3px 6px; color:#666; white-space:nowrap; font-weight:400; border:1px solid #d0d8e8; background:#f8f9fb; }
-.q-meta-table td { font-weight:600; text-align:right; padding:3px 8px; border:1px solid #d0d8e8; }
+.q-meta-box { display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+.q-meta-item { display:flex; align-items:center; gap:5px; font-size:9px; }
+.q-meta-label { color:#888; font-weight:400; white-space:nowrap; }
+.q-meta-val { font-weight:600; border:1px solid #c0c8d8; border-radius:2px; padding:1px 6px; line-height:1.4; white-space:nowrap; }
 /* 取引先＋自社情報（2カラム） */
 .q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:14px; }
 .q-customer { flex:1; }
@@ -162,9 +163,10 @@ function makeDocCssSpa(accent: string): string {
 /* タイトル行: 左=御見積書、右=見積番号・日付（右寄せ） */
 .q-doc .q-title-row { display:flex; justify-content:space-between; align-items:flex-start; border-bottom:3px solid ${accent}; padding-bottom:10px; margin-bottom:14px; }
 .q-doc .q-title { font-size:26px; font-weight:700; letter-spacing:0.3em; color:${accent}; }
-.q-doc .q-meta-table { font-size:11px; border-collapse:collapse; border:1px solid #d0d8e8; }
-.q-doc .q-meta-table th { text-align:right; padding:4px 8px; color:#666; white-space:nowrap; font-weight:400; border:1px solid #d0d8e8; background:#f8f9fb; }
-.q-doc .q-meta-table td { font-weight:600; text-align:right; padding:4px 10px; border:1px solid #d0d8e8; }
+.q-doc .q-meta-box { display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
+.q-doc .q-meta-item { display:flex; align-items:center; gap:6px; font-size:11px; }
+.q-doc .q-meta-label { color:#888; font-weight:400; white-space:nowrap; }
+.q-doc .q-meta-val { font-weight:600; border:1px solid #c0c8d8; border-radius:3px; padding:2px 8px; line-height:1.4; white-space:nowrap; }
 /* 取引先＋自社情報（2カラム） */
 .q-doc .q-parties { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:16px; }
 .q-doc .q-customer { flex:1; }
@@ -272,10 +274,10 @@ function renderDocHtml(quote: QuoteState, settings: QuoteCompanySettings): strin
   <!-- タイトル行: 左=御見積書、右=見積番号・日付（右寄せ） -->
   <div class="q-title-row">
     <h1 class="q-title">御 見 積 書</h1>
-    <table class="q-meta-table" style="margin-left:auto;text-align:right;">
-      ${quote.quoteNo ? `<tr><th>見積番号</th><td>${esc(quote.quoteNo)}</td></tr>` : ""}
-      <tr><th>見積日</th><td>${fmtDate(quote.quoteDate)}</td></tr>
-    </table>
+    <div class="q-meta-box">
+      ${quote.quoteNo ? `<div class="q-meta-item"><span class="q-meta-label">見積番号</span><span class="q-meta-val">${esc(quote.quoteNo)}</span></div>` : ""}
+      <div class="q-meta-item"><span class="q-meta-label">見積日</span><span class="q-meta-val">${fmtDate(quote.quoteDate)}</span></div>
+    </div>
   </div>
 
   <!-- 取引先（左）・自社情報（右） -->
