@@ -7715,49 +7715,44 @@ async function loadData(): Promise<void> {
   state.loading = !cached;
   if (!cached) renderApp();
   try {
-    // 各フェッチが応答なしでぶら下がらないよう 30 秒の全体タイムアウトを設ける
-    const loadTimeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("データ読み込みがタイムアウトしました（30秒）")), 30000)
-    );
-    const [
-      salesSummary,
-      paymentStatus,
-      masterStats,
-      pipelineMeta,
-      invoiceRecords,
-      customerLedger,
-      salesAnalytics,
-      syncDashboard,
-      dbCompanySettings,
-    ] = await Promise.race([
-      Promise.all([
-        fetchSalesSummary(),
-        fetchPaymentStatus(),
-        fetchMasterStats(),
-        fetchPipelineMeta(),
-        fetchInvoices(state.invoiceFilter),
-        fetchCustomerLedger(state.ledgerCustomerCode),
-        fetchSalesAnalytics(),
-        fetchSyncDashboard(),
-        fetchSystemSetting<QuoteCompanySettings>("quote_company"),
-      ]),
-      loadTimeout,
+    // Promise.allSettled で一部が遅くても他の結果を使えるようにする
+    // fetchMasterStats は全件取得で重いため初期ロードから除外しバックグラウンド化
+    const results = await Promise.allSettled([
+      fetchSalesSummary(),          // 0
+      fetchPaymentStatus(),         // 1
+      fetchPipelineMeta(),          // 2
+      fetchInvoices(state.invoiceFilter), // 3
+      fetchCustomerLedger(state.ledgerCustomerCode), // 4
+      fetchSalesAnalytics(),        // 5
+      fetchSyncDashboard(),         // 6
+      fetchSystemSetting<QuoteCompanySettings>("quote_company"), // 7
     ]);
 
-    state.salesSummary = salesSummary;
-    state.paymentStatus = paymentStatus;
-    state.masterStats = masterStats;
-    state.pipelineMeta = pipelineMeta;
-    state.invoiceRecords = invoiceRecords;
-    state.customerLedger = customerLedger;
-    state.salesAnalytics = salesAnalytics;
-    state.syncDashboard = syncDashboard;
+    const get = <T>(i: number, fallback: T): T =>
+      results[i].status === "fulfilled" ? (results[i] as PromiseFulfilledResult<T>).value : fallback;
 
-    // DB設定をローカル設定にマージ（DB優先）
+    const salesSummary = get<typeof state.salesSummary>(0, state.salesSummary);
+    state.salesSummary     = salesSummary;
+    state.paymentStatus    = get(1, state.paymentStatus);
+    state.pipelineMeta     = get(2, state.pipelineMeta);
+    state.invoiceRecords   = get(3, state.invoiceRecords);
+    state.customerLedger   = get(4, state.customerLedger);
+    state.salesAnalytics   = get(5, state.salesAnalytics);
+    state.syncDashboard    = get(6, state.syncDashboard);
+
+    const dbCompanySettings = get<QuoteCompanySettings | null>(7, null);
     if (dbCompanySettings) {
       const merged = { ...defaultCompanySettings, ...loadQuoteSettings(), ...dbCompanySettings };
       state.quoteCompanySettings = merged;
-      saveQuoteSettings(merged); // localStorageにも書き戻す（オフライン用）
+      saveQuoteSettings(merged);
+    }
+
+    // masterStats は重いのでバックグラウンドで取得（ホーム表示をブロックしない）
+    if (!state.masterStats) {
+      fetchMasterStats().then((stats) => {
+        state.masterStats = stats;
+        renderApp();
+      }).catch(() => {/* サイレント失敗 */});
     }
 
     // お知らせ取得
@@ -7779,8 +7774,8 @@ async function loadData(): Promise<void> {
       });
     }
 
-    if (!state.salesFilter.startDate || !state.salesFilter.endDate) {
-      const sortedRecords = [...salesSummary.salesRecords].sort(
+    if (salesSummary && !state.salesFilter.startDate || !state.salesFilter.endDate) {
+      const sortedRecords = [...(salesSummary?.salesRecords ?? [])].sort(
         (left, right) => new Date(right.date).getTime() - new Date(left.date).getTime()
       );
       const latestDate = sortedRecords[0]?.date ?? new Date().toISOString();
