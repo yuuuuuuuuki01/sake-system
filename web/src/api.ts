@@ -1620,6 +1620,33 @@ export async function fetchBrewingSeasonalPattern(): Promise<BrewingSeasonalPatt
   }));
 }
 
+// ─── 調達計画の醸造量決定値 ───────────────────────────────────────────────────
+
+export async function fetchProcurementDecisions(fy: number): Promise<Record<string, number>> {
+  const rows = await supabaseQuery<LooseRow>("procurement_decisions", { fy: `eq.${fy}` });
+  const map: Record<string, number> = {};
+  for (const r of rows ?? []) {
+    const cat = getString(r, ["brew_category"], "");
+    const vol = getNumber(r, ["decided_brewing_l"], -1);
+    if (cat && vol >= 0) map[cat] = vol;
+  }
+  return map;
+}
+
+export async function saveProcurementDecision(brewCategory: string, fy: number, decidedL: number): Promise<boolean> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  if (!SUPABASE_ANON_KEY) return false;
+  const resp = await fetch(`${SUPABASE_URL}/rest/v1/procurement_decisions`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json", Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify({ brew_category: brewCategory, fy, decided_brewing_l: decidedL, updated_at: new Date().toISOString() })
+  });
+  return resp.ok;
+}
+
 // ─── 作付け予定（購入確定分） ──────────────────────────────────────────────────
 
 export interface RicePurchaseCommitment {

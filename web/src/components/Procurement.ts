@@ -20,7 +20,8 @@ export function renderProcurement(
   schedule: BrewingScheduleRow[] = [],
   fy: number = 2026,
   riceVarieties: RiceVariety[] = [],
-  commitments: RicePurchaseCommitment[] = []
+  commitments: RicePurchaseCommitment[] = [],
+  decisions: Record<string, number> = {}
 ): string {
   // needByCategoryにある区分 + スケジュールだけ入っている区分（新規ブランド等）を統合
   const catSet = new Set([
@@ -71,11 +72,11 @@ export function renderProcurement(
     const color = CATEGORY_COLORS[cat] ?? "#6366f1";
     const catSchedule = scheduleMap.get(cat) ?? [];
 
-    // 杜氏の醸造予定量（スケジュールにplanned_volume_lがあればそれ、なければ必要醸造量を使用）
+    // 醸造量の決定: decisions（確定入力）> スケジュール > 予測
+    const hasDecision = cat in decisions;
     const tojiTotalL = catSchedule.reduce((s, r) => s + r.plannedVolumeL, 0);
-    // スケジュールが存在すればその値（0含む=醸造しない判断）、なければ予測値
     const hasSchedule = catSchedule.length > 0;
-    const brewingL = hasSchedule ? tojiTotalL : needL;
+    const brewingL = hasDecision ? decisions[cat] : (hasSchedule ? tojiTotalL : needL);
 
     // アル添比率: この分は米由来ではない
     const alcRatio = p.alcoholAdditionRatio ?? 0;
@@ -128,72 +129,34 @@ export function renderProcurement(
       monthlyBrownKg[i] += Math.round(totalBrownKg * ratio);
     }
 
-    // 醸造月バー
-    const monthBar = FY_MONTHS.map((m, i) => {
-      const vol = monthlyL[i];
-      const hasSchedule = catSchedule.some(s => s.brewMonth === m);
-      return `<td style="text-align:center;padding:2px;${vol > 0 ? `background:${color}18;` : ""}">
-        ${hasSchedule ? `<div style="font-size:10px;font-weight:600;color:${color};">${fmtNum(Math.round(vol))}</div>` : vol > 0 ? `<div style="font-size:9px;color:var(--text-secondary);">${fmtNum(Math.round(vol))}</div>` : ""}
-      </td>`;
-    }).join("");
-
-    // スケジュール入力行
-    const scheduleInputs = `
-      <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-top:6px;">
-        <select data-action="proc-add-month-select" data-cat="${cat}" style="font-size:11px;height:24px;border:1px solid var(--border);border-radius:3px;">
-          <option value="">+月追加</option>
-          ${FY_MONTHS.map((m, i) => `<option value="${m}">${MONTH_LABELS[i]}</option>`).join("")}
-        </select>
-        <input data-action="proc-add-month-vol" data-cat="${cat}" type="number" min="0" step="100" placeholder="醸造L"
-          style="width:70px;height:24px;font-size:11px;text-align:right;border:1px solid var(--border);border-radius:3px;padding:0 4px;" />
-        <button data-action="proc-add-schedule" data-cat="${cat}"
-          style="font-size:10px;padding:2px 8px;border:none;border-radius:3px;background:${color};color:#fff;cursor:pointer;">追加</button>
-        ${catSchedule.map(s => `
-          <span style="font-size:10px;padding:2px 6px;border-radius:3px;background:${color}18;color:${color};display:inline-flex;align-items:center;gap:2px;">
-            ${s.brewMonth}月:${fmtNum(Math.round(s.plannedVolumeL))}L
-            <button data-action="proc-remove-schedule" data-cat="${cat}" data-month="${s.brewMonth}"
-              style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:11px;padding:0 1px;">×</button>
-          </span>
-        `).join("")}
-      </div>
-    `;
 
     return `
       <div class="card" style="border-top:3px solid ${color};margin-bottom:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:4px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:4px;">
           <h4 style="margin:0;font-size:14px;color:${color};">${cat}</h4>
           <div style="font-size:12px;">${brewingL > 0 ? `予算 <strong>¥${fmtNum(kojiCost + kakeCost)}</strong>` : `<span style="color:#6b7280;font-weight:600;">醸造しない</span>`}</div>
         </div>
-        <div style="display:flex;gap:10px;margin-bottom:8px;flex-wrap:wrap;align-items:center;font-size:12px;">
+
+        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center;font-size:12px;">
           <label style="display:flex;align-items:center;gap:3px;">
             醸造量
             <input type="number" min="0" step="100" value="${Math.round(brewingL)}"
               data-action="proc-edit-vol" data-cat="${cat}"
-              style="width:72px;height:26px;font-size:12px;text-align:right;border:1px solid var(--border);border-radius:4px;padding:0 4px;font-weight:600;" />L
+              style="width:72px;height:26px;font-size:12px;text-align:right;border:1px solid ${hasDecision ? "#2563eb" : "var(--border)"};border-radius:4px;padding:0 4px;font-weight:600;${hasDecision ? "background:rgba(37,99,235,0.04);" : ""}" />L
           </label>
-          ${alcRatio > 0 ? `
-            <span style="color:var(--text-secondary);">− アル添${Math.round(alcRatio * 100)}%</span>
-            <span style="font-weight:600;">= 米由来 ${fmtNum(Math.round(riceBasedL))}L</span>
-          ` : ""}
-          ${needL > 0 && needL !== brewingL ? `<span style="color:var(--text-secondary);">(予測: ${fmtNum(Math.round(needL))}L)</span>` : ""}
+          ${alcRatio > 0 ? `<span style="color:var(--text-secondary);">−${Math.round(alcRatio*100)}%→${fmtNum(Math.round(riceBasedL))}L</span>` : ""}
+          ${needL > 0 && Math.abs(needL - brewingL) > 10 ? `<span style="color:var(--text-secondary);font-size:11px;">(予測${fmtNum(Math.round(needL))})</span>` : ""}
+          ${catSchedule.length > 0 ? catSchedule.map(s => `<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${color}12;color:${color};">${s.brewMonth}月</span>`).join("") : ""}
         </div>
 
-        <div style="overflow-x:auto;margin-bottom:8px;">
-          <table style="width:100%;font-size:10px;border-collapse:collapse;">
-            <tr>${MONTH_LABELS.map(l => `<th style="text-align:center;padding:2px;font-weight:500;color:var(--text-secondary);">${l}</th>`).join("")}</tr>
-            <tr>${monthBar}</tr>
-          </table>
-        </div>
-        ${scheduleInputs}
-
-        <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;font-size:12px;">
-          <label style="display:flex;align-items:center;gap:3px;">白米/L ${inp("ricePerLiterKg", cat, p.ricePerLiterKg, "52px", "0.01")}</label>
-          <label style="display:flex;align-items:center;gap:3px;">麹比率 ${inp("kojiRatio", cat, p.kojiRatio, "52px", "0.01")}</label>
-          <label style="display:flex;align-items:center;gap:3px;">精米歩合 ${inp("polishingRatio", cat, p.polishingRatio, "52px", "0.01")}</label>
-          <label style="display:flex;align-items:center;gap:3px;">アル添 ${inp("alcoholAdditionRatio", cat, p.alcoholAdditionRatio ?? 0, "48px", "0.01")}</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px;margin-bottom:8px;">
+          <label style="display:flex;align-items:center;gap:3px;">白米/L ${inp("ricePerLiterKg", cat, p.ricePerLiterKg, "48px", "0.01")}</label>
+          <label style="display:flex;align-items:center;gap:3px;">麹 ${inp("kojiRatio", cat, p.kojiRatio, "44px", "0.01")}</label>
+          <label style="display:flex;align-items:center;gap:3px;">歩合 ${inp("polishingRatio", cat, p.polishingRatio, "44px", "0.01")}</label>
+          ${alcRatio > 0 || cat === '本醸造' || cat === '普通酒' ? `<label style="display:flex;align-items:center;gap:3px;">ｱﾙ添 ${inp("alcoholAdditionRatio", cat, p.alcoholAdditionRatio ?? 0, "44px", "0.01")}</label>` : ""}
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           <div style="border:1px solid var(--border);border-radius:6px;padding:10px;">
             <div style="font-size:11px;color:#6366f1;font-weight:600;margin-bottom:4px;">麹米</div>
             <div style="display:flex;gap:6px;margin-bottom:4px;flex-wrap:wrap;font-size:12px;">
@@ -260,10 +223,36 @@ export function renderProcurement(
     </div>
 
     <section class="panel" style="margin-bottom:16px;">
-      <div class="panel-header"><h2>月別 米調達量</h2><p class="panel-caption">醸造スケジュールに基づく月別の玄米必要量</p></div>
-      <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:4px;padding:8px;">
-        ${monthlyChart}
-      </div>
+      <div class="panel-header"><h2>区分別 醸造量・米必要量</h2><p class="panel-caption">横棒で全区分を一覧比較</p></div>
+      ${(() => {
+        // 全区分のデータを集めてバーチャート
+        const barData = allCats.map(cat => {
+          const p = riceParams[cat] ?? defaultP;
+          const catSched = scheduleMap.get(cat) ?? [];
+          const hasDec = cat in decisions;
+          const tojiL = catSched.reduce((s, r) => s + r.plannedVolumeL, 0);
+          const hasSched = catSched.length > 0;
+          const bL = hasDec ? decisions[cat] : (hasSched ? tojiL : (needByCategory[cat] ?? 0));
+          const riceL = bL * (1 - (p.alcoholAdditionRatio ?? 0));
+          const whiteKg = Math.round(riceL * p.ricePerLiterKg);
+          const brownKg = Math.round(whiteKg / p.polishingRatio);
+          return { cat, brewingL: bL, brownKg, color: CATEGORY_COLORS[cat] ?? "#6366f1" };
+        }).filter(d => d.brewingL > 0 || d.brownKg > 0);
+        const maxBrown = Math.max(...barData.map(d => d.brownKg), 1);
+        return barData.map(d => {
+          const pct = Math.min(d.brownKg / maxBrown * 100, 100);
+          return `
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+              <span style="width:90px;font-size:11px;font-weight:500;color:${d.color};text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${d.cat}</span>
+              <div style="flex:1;background:#e5e7eb;border-radius:3px;height:20px;overflow:hidden;position:relative;">
+                <div style="background:${d.color};opacity:0.7;height:100%;width:${pct}%;border-radius:3px;"></div>
+                <span style="position:absolute;top:2px;left:6px;font-size:10px;font-weight:600;color:#374151;">${fmtNum(d.brownKg)}kg (${Math.ceil(d.brownKg/60)}俵)</span>
+              </div>
+              <span style="width:60px;font-size:10px;text-align:right;color:var(--text-secondary);">${fmtNum(Math.round(d.brewingL))}L</span>
+            </div>
+          `;
+        }).join("");
+      })()}
     </section>
 
     ${sections}
