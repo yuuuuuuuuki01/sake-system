@@ -410,10 +410,22 @@ function buildForecastWithNeed(
   alcoholSettings: Record<string, BrewingAlcoholSetting>,
   customCategories: BrewingCustomCategory[],
   seasonalPattern: BrewingSeasonalPattern[],
-  forecastOverrides: Record<string, number> = {}
+  forecastOverrides: Record<string, number> = {},
+  excludedProducts: Set<string> = new Set(),
+  productDetail: BrewingProductDetail[] = []
 ): { html: string; needByCategory: Record<string, number> } {
   const empty = { html: "", needByCategory: {} };
   if (yearlyShipments.length === 0) return empty;
+
+  // 親区分から除外された商品の年間出荷量を集計（予測から減算するため）
+  const excludedMlByParent = new Map<string, number>();
+  for (const p of productDetail) {
+    if (excludedProducts.has(p.productCode)) {
+      // この商品の本来の親区分を特定（オーバーライドされていなければbrewCategory）
+      const parent = p.brewCategory;
+      excludedMlByParent.set(parent, (excludedMlByParent.get(parent) ?? 0) + p.annualMl);
+    }
+  }
 
   const needByCategory: Record<string, number> = {};
   const now = new Date();
@@ -493,8 +505,9 @@ function buildForecastWithNeed(
     const effectiveGrowth = hasOverride ? forecastOverrides[cat] : growthRate;
     const effectiveGrowthPct = Math.round(effectiveGrowth * 100);
 
-    // 翌年度の出荷予測
-    const forecastL = Math.round(baseAnnual * (1 + effectiveGrowth));
+    // 翌年度の出荷予測（除外された商品の分を差し引き）
+    const excludedL = Math.round((excludedMlByParent.get(cat) ?? 0) / 1000);
+    const forecastL = Math.max(0, Math.round(baseAnnual * (1 + effectiveGrowth)) - excludedL);
 
     // 必要醸造量
     const needL = Math.max(0, forecastL - projectedStockOct);
@@ -1105,7 +1118,7 @@ export function renderBrewingPlan(
 
       ${(() => {
         // 予測セ���ション + 調達計画を連続描画（必要醸造量を共有）
-        const forecastResult = buildForecastWithNeed(yearlyShipments, stockEntries, alcoholSettings, customCategories, seasonalPattern, forecastOverrides);
+        const forecastResult = buildForecastWithNeed(yearlyShipments, stockEntries, alcoholSettings, customCategories, seasonalPattern, forecastOverrides, excludedProducts, productDetail);
         return forecastResult.html;
       })()}
 

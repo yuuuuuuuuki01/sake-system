@@ -6167,10 +6167,12 @@ function bindEvents(root: HTMLElement): void {
         return;
       }
 
-      // チェックOFF → 最初の子区分にオーバーライド移動（予測にも即反映）
+      // チェックOFF → 未振分にする（excludedに追加）
       state.brewingExcludedProducts.add(code);
+
+      // 子が1つだけの場合は直接移動
       const children = state.brewingCustomCategories.filter(c => c.parentCategory === parentCat);
-      if (children.length >= 1) {
+      if (children.length === 1) {
         const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
         await setBrewingCategoryOverride(code, children[0].name);
         const fy = state.brewingPlanFY;
