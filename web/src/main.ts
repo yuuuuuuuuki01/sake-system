@@ -6167,23 +6167,24 @@ function bindEvents(root: HTMLElement): void {
         return;
       }
 
-      // チェックOFF → 未振分にする（excludedに追加）
+      // チェックOFF → 最初の子区分にオーバーライド移動（予測にも即反映）
       state.brewingExcludedProducts.add(code);
-
-      // 子が1つだけの場合は直接移動
       const children = state.brewingCustomCategories.filter(c => c.parentCategory === parentCat);
-      if (children.length === 1) {
+      if (children.length >= 1) {
         const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
         await setBrewingCategoryOverride(code, children[0].name);
         const fy = state.brewingPlanFY;
-        const [summary, products, overrides] = await Promise.all([
+        const { fetchBrewingYearlyShipments } = await import("./api");
+        const [summary, products, overrides, yearlyShips] = await Promise.all([
           fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
           fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
-          fetchBrewingCategoryOverrides()
+          fetchBrewingCategoryOverrides(),
+          fetchBrewingYearlyShipments()
         ]);
         state.brewingPlanData = summary;
         state.brewingProductDetail = products;
         state.brewingOverrides = overrides;
+        state.brewingYearlyShipments = yearlyShips;
         state.brewingExcludedProducts.delete(code);
       }
       renderApp();
@@ -6196,17 +6197,19 @@ function bindEvents(root: HTMLElement): void {
       const code = cb.dataset.code ?? "";
       const cat = cb.dataset.cat ?? "";
       if (!code || !cat) return;
-      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
+      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides, fetchBrewingYearlyShipments } = await import("./api");
       await setBrewingCategoryOverride(code, cat);
       const fy = state.brewingPlanFY;
-      const [summary, products, overrides] = await Promise.all([
+      const [summary, products, overrides, yearlyShips] = await Promise.all([
         fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
         fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
-        fetchBrewingCategoryOverrides()
+        fetchBrewingCategoryOverrides(),
+        fetchBrewingYearlyShipments()
       ]);
       state.brewingPlanData = summary;
       state.brewingProductDetail = products;
       state.brewingOverrides = overrides;
+      state.brewingYearlyShipments = yearlyShips;
       renderApp();
     });
   });
@@ -6216,17 +6219,19 @@ function bindEvents(root: HTMLElement): void {
     cb.addEventListener("change", async () => {
       const code = cb.dataset.code ?? "";
       if (!code) return;
-      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides } = await import("./api");
+      const { setBrewingCategoryOverride, fetchBrewingPlanSummary, fetchBrewingProductDetail, fetchBrewingCategoryOverrides, fetchBrewingYearlyShipments } = await import("./api");
       await setBrewingCategoryOverride(code, null);
       const fy = state.brewingPlanFY;
-      const [summary, products, overrides] = await Promise.all([
+      const [summary, products, overrides, yearlyShips] = await Promise.all([
         fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`),
         fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`),
-        fetchBrewingCategoryOverrides()
+        fetchBrewingCategoryOverrides(),
+        fetchBrewingYearlyShipments()
       ]);
       state.brewingPlanData = summary;
       state.brewingProductDetail = products;
       state.brewingOverrides = overrides;
+      state.brewingYearlyShipments = yearlyShips;
       renderApp();
     });
   });
