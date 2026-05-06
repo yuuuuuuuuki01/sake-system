@@ -587,7 +587,7 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
   // daily_sales_fact から直接集計（MVリフレッシュ不要）
   // daily_sales_detail (MV) は旧データのみ、daily_sales_fact は常に最新
   const factRows = await supabaseQueryAll<Record<string, unknown>>("daily_sales_fact", {
-    select: "sales_date,sales_amount,quantity,document_count",
+    select: "sales_date,sales_amount,total_quantity,document_count",
     order: "sales_date.desc"
   });
 
@@ -598,7 +598,7 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
     if (!sd) continue;
     const entry = dailyMap.get(sd) ?? { amount: 0, qty: 0, docs: 0 };
     entry.amount += toNumber(row.sales_amount);
-    entry.qty += toNumber(row.quantity);
+    entry.qty += toNumber(row.total_quantity);
     entry.docs += toNumber(row.document_count);
     dailyMap.set(sd, entry);
   }
@@ -912,7 +912,7 @@ export async function fetchSyncDashboard(): Promise<SyncDashboard> {
 
 export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecord[]> {
   const params: Record<string, string> = {
-    select: "id,document_no,legacy_document_no,sales_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount,line_count",
+    select: "id,document_no,legacy_document_no,sales_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
     order: "sales_date.desc",
     limit: "500"
   };
