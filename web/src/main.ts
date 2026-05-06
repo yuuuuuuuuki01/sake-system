@@ -2298,6 +2298,7 @@ function renderHome(): string {
       cards: [
         card("/churn-alert", "🎯", "営業アクション", "離反リスク・フォロー"),
         card("/visit-planner", "📅", "訪問計画", "訪問スケジュール"),
+        card("/shipment-calendar", "🚚", "配送カレンダー", "伝票日付で配送を確認"),
         card("/map", "🗺️", "取引先マップ", "地図で取引先を確認"),
         card("/prospects", "🌱", "新規営業", "新規開拓の進捗"),
         card("/email", "✉️", "メール配信", "一斉メール配信"),
