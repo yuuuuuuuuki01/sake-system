@@ -251,52 +251,73 @@ export function renderProcurement(
     </div>
 
     <section class="panel" style="margin-bottom:16px;">
-      <div class="panel-header"><h2>年間タイムライン</h2><p class="panel-caption">米入荷と醸造の月別スケジュール</p></div>
-      <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:600px;">
-          <thead>
-            <tr>
-              <th style="width:90px;text-align:left;padding:4px;">区分/品種</th>
-              ${MONTH_LABELS.map(l => `<th style="text-align:center;padding:4px;min-width:40px;">${l}</th>`).join("")}
-            </tr>
-          </thead>
-          <tbody>
-            ${(() => {
-              const rows: string[] = [];
-              // 米入荷行（品種ごと）
-              const deliveryByVariety = new Map<string, number[]>();
-              for (const c of commitments) {
-                if (!c.deliveryMonth) continue;
-                if (!deliveryByVariety.has(c.varietyName)) deliveryByVariety.set(c.varietyName, []);
-                deliveryByVariety.get(c.varietyName)!.push(c.deliveryMonth);
-              }
-              for (const [variety, months] of deliveryByVariety) {
-                const cells = FY_MONTHS.map(m => {
-                  const has = months.includes(m);
-                  const bales = commitments.filter(c => c.varietyName === variety && c.deliveryMonth === m).reduce((s, c) => s + c.committedBales, 0);
-                  return `<td style="text-align:center;padding:3px;${has ? "background:#dcfce7;" : ""}">
-                    ${has ? `<div style="font-size:9px;font-weight:600;color:#16a34a;">🌾${bales}俵</div>` : ""}
-                  </td>`;
-                }).join("");
-                rows.push(`<tr><td style="padding:4px;color:#16a34a;font-weight:500;">📥 ${variety}</td>${cells}</tr>`);
-              }
-              // 醸造行（区分ごと）
-              for (const cat of allCats) {
-                const catSched = scheduleMap.get(cat) ?? [];
-                if (catSched.length === 0) continue;
-                const color = CATEGORY_COLORS[cat] ?? "#6366f1";
-                const cells = FY_MONTHS.map(m => {
-                  const s = catSched.find(sc => sc.brewMonth === m);
-                  return `<td style="text-align:center;padding:3px;${s ? `background:${color}12;` : ""}">
-                    ${s ? `<div style="font-size:9px;font-weight:600;color:${color};">${fmtNum(Math.round(s.plannedVolumeL))}L</div>` : ""}
-                  </td>`;
-                }).join("");
-                rows.push(`<tr><td style="padding:4px;color:${color};font-weight:500;">🍶 ${cat}</td>${cells}</tr>`);
-              }
-              return rows.join("") || `<tr><td colspan="13" style="text-align:center;color:var(--text-secondary);padding:12px;">スケジュール・入荷予定を登録すると表示されます</td></tr>`;
-            })()}
-          </tbody>
-        </table>
+      <div class="panel-header"><h2>年間タイムライン</h2><p class="panel-caption">バーをドラッグで移動・端をドラッグでリサイズ・ダブルクリックで量編集</p></div>
+      <div id="gantt-timeline" style="overflow-x:auto;min-width:600px;user-select:none;">
+        <div style="display:grid;grid-template-columns:90px repeat(12,1fr);font-size:11px;">
+          <div style="padding:4px;font-weight:600;">区分/品種</div>
+          ${MONTH_LABELS.map(l => `<div style="text-align:center;padding:4px;font-weight:600;border-left:1px solid var(--border);">${l}</div>`).join("")}
+        </div>
+        ${(() => {
+          const rows: string[] = [];
+          // 米入荷行
+          const deliveryByVariety = new Map<string, number[]>();
+          for (const c of commitments) {
+            if (!c.deliveryMonth) continue;
+            if (!deliveryByVariety.has(c.varietyName)) deliveryByVariety.set(c.varietyName, []);
+            deliveryByVariety.get(c.varietyName)!.push(c.deliveryMonth);
+          }
+          for (const [variety, months] of deliveryByVariety) {
+            const cells = FY_MONTHS.map(m => {
+              const has = months.includes(m);
+              const bales = commitments.filter(c => c.varietyName === variety && c.deliveryMonth === m).reduce((s, c) => s + c.committedBales, 0);
+              return `<div style="text-align:center;padding:3px;border-left:1px solid var(--border);${has ? "background:#dcfce7;" : ""}">
+                ${has ? `<div style="font-size:9px;font-weight:600;color:#16a34a;">🌾${bales}俵</div>` : ""}
+              </div>`;
+            }).join("");
+            rows.push(`<div style="display:grid;grid-template-columns:90px repeat(12,1fr);border-top:1px solid var(--border);">
+              <div style="padding:4px;color:#16a34a;font-weight:500;font-size:11px;">📥 ${variety}</div>${cells}
+            </div>`);
+          }
+          // 醸造行（インタラクティブバー）
+          for (const cat of allCats) {
+            const catSched = scheduleMap.get(cat) ?? [];
+            const color = CATEGORY_COLORS[cat] ?? "#6366f1";
+            const hasDec = cat in decisions;
+            const tojiL = catSched.reduce((s, r) => s + r.plannedVolumeL, 0);
+            const hasSched = catSched.length > 0;
+            const maxL = hasDec ? decisions[cat] : (hasSched ? tojiL : (needByCategory[cat] ?? 0));
+            // 12セル背景グリッド
+            const gridCells = FY_MONTHS.map(() =>
+              `<div style="border-left:1px solid var(--border);height:36px;"></div>`
+            ).join("");
+            // バー要素（各スケジュールエントリ）
+            const bars = catSched.map(s => {
+              const startIdx = FY_MONTHS.indexOf(s.brewMonth);
+              if (startIdx < 0) return "";
+              const dur = Math.min(s.durationMonths, 12 - startIdx);
+              const leftPct = (startIdx / 12 * 100).toFixed(2);
+              const widthPct = (dur / 12 * 100).toFixed(2);
+              return `<div class="gantt-bar" data-cat="${cat}" data-month="${s.brewMonth}" data-dur="${dur}" data-vol="${Math.round(s.plannedVolumeL)}" data-max="${Math.round(maxL)}"
+                style="position:absolute;left:${leftPct}%;width:${widthPct}%;top:2px;height:32px;
+                  background:${color}30;border:2px solid ${color};border-radius:4px;cursor:grab;
+                  display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:${color};overflow:hidden;box-sizing:border-box;">
+                <div class="gantt-resize-left" style="position:absolute;left:0;top:0;width:6px;height:100%;cursor:ew-resize;"></div>
+                <span class="gantt-bar-label" style="pointer-events:none;white-space:nowrap;">${fmtNum(Math.round(s.plannedVolumeL))}L</span>
+                <div class="gantt-resize-right" style="position:absolute;right:0;top:0;width:6px;height:100%;cursor:ew-resize;"></div>
+              </div>`;
+            }).join("");
+            rows.push(`<div style="display:grid;grid-template-columns:90px 1fr;border-top:1px solid var(--border);">
+              <div style="padding:4px;color:${color};font-weight:500;font-size:11px;display:flex;align-items:center;">🍶 ${cat}</div>
+              <div style="position:relative;display:grid;grid-template-columns:repeat(12,1fr);">
+                ${gridCells}
+                <div class="gantt-bar-container" data-cat="${cat}" data-max="${Math.round(maxL)}" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;">
+                  ${bars}
+                </div>
+              </div>
+            </div>`);
+          }
+          return rows.join("") || `<div style="text-align:center;color:var(--text-secondary);padding:16px;">区分を追加するとタイムラインが表示されます</div>`;
+        })()}
       </div>
     </section>
 
