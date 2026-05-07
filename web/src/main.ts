@@ -48,6 +48,10 @@ import {
   fetchTankList,
   fetchSakeTaxByMonth,
   fetchTaxDeclaration,
+  fetchFeatureStatuses,
+  confirmFeature,
+  unconfirmFeature,
+  type FeatureStatus,
   saveEmailCampaign,
   sendEmailCampaign,
   saveInvoice,
@@ -201,6 +205,7 @@ import { renderShipmentCalendar } from "./components/ShipmentCalendar";
 import { renderVisitPlanner, buildVisitPlan, type VisitPlannerState } from "./components/VisitPlanner";
 import { renderTankList } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
+import { isNewRoute, renderChangelog } from "./components/Changelog";
 import { showToast } from "./components/Toast";
 import { showConfirm } from "./components/ConfirmModal";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase";
@@ -266,7 +271,8 @@ type RoutePath =
   | "/shipment-calendar"
   | "/brewing-plan"
   | "/procurement"
-  | "/brewing-process";
+  | "/brewing-process"
+  | "/changelog";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
 
@@ -341,7 +347,8 @@ const ALL_ROUTES: RoutePath[] = [
   "/shipment-calendar",
   "/brewing-plan",
   "/procurement",
-  "/brewing-process"
+  "/brewing-process",
+  "/changelog"
 ];
 
 let EMAIL_RECIPIENTS: EmailRecipientRecord[] = [];
@@ -411,7 +418,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/shipment-calendar", title: "出荷カレンダー" },
   { path: "/brewing-plan", title: "醸造計画" },
   { path: "/procurement", title: "調達計画" },
-  { path: "/brewing-process", title: "醸造工程" }
+  { path: "/brewing-process", title: "醸造工程" },
+  { path: "/changelog", title: "機能一覧・更新履歴" }
 ];
 
 function getTemplateContent(templateId: string): { subject: string; body: string } {
@@ -496,6 +504,7 @@ interface AppState {
   rawStockList: RawMaterialStock[];
   taxDeclaration: TaxDeclaration | null;
   taxYear: number;
+  featureStatuses: Record<string, FeatureStatus> | null;
   taxMonth: number;
   taxVolume: import("./api").SakeTaxRow[] | null;
   storeSales: StoreSale[];
@@ -788,6 +797,7 @@ const state: AppState = {
   taxYear: defaultTaxYear,
   taxMonth: defaultTaxMonth,
   taxVolume: null,
+  featureStatuses: null,
   storeSales: [],
   storeOrders: [],
   storeTab: "pos",
@@ -1864,8 +1874,16 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
         }
         break;
+      case "/changelog":
+        if (!state.featureStatuses) {
+          state.featureStatuses = await fetchFeatureStatuses();
+        }
+        break;
       case "/":
-        // ホーム画面はナビカードのみ。追加データ取得不要
+        // NEWバッジ表示のためfeatureStatusesをバックグラウンドで取得
+        if (!state.featureStatuses) {
+          state.featureStatuses = await fetchFeatureStatuses();
+        }
         break;
       default:
         break;
@@ -2132,6 +2150,12 @@ function renderView(): string {
     }
     case "/fax":
       return renderFaxOcr(state.faxRecords, state.faxProcessing, state.faxOcrText);
+    case "/changelog": {
+      const userName = state.myProfile?.name ?? state.myProfile?.email ?? "不明";
+      return state.featureStatuses !== null
+        ? renderChangelog(state.featureStatuses, userName)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">読み込み中…</p></div></section>`;
+    }
     case "/users":
       return renderUserManagement(state.userProfiles, state.userEditingId, state.myProfile);
     case "/profile":
@@ -2280,11 +2304,14 @@ function renderAnnouncementBar(): string {
 }
 
 function renderHome(): string {
+  const statuses = state.featureStatuses ?? {};
+
   function card(path: RoutePath, icon: string, label: string, desc: string): string {
     const href = `${import.meta.env.BASE_URL.replace(/\/$/, "") || "/"}${path}`;
+    const isNew = isNewRoute(path, statuses);
     return `<a href="${href}" data-link="${path}" class="home-card">
       <span class="home-card-icon">${icon}</span>
-      <span class="home-card-label">${label}</span>
+      <span class="home-card-label">${label}${isNew ? ' <span class="badge-new">NEW</span>' : ""}</span>
       <span class="home-card-desc">${desc}</span>
     </a>`;
   }
@@ -2360,6 +2387,7 @@ function renderHome(): string {
         card("/setup", "🔗", "連動設定", "酒仙iとの連動"),
         card("/import", "📤", "データ取込", "CSVデータ取込"),
         card("/users", "👤", "ユーザー管理", "アカウント管理"),
+        card("/changelog", "✅", "機能一覧・更新履歴", "動作確認チェック・バージョン管理"),
       ].join(""),
     },
   ];
@@ -2432,6 +2460,7 @@ function renderShell(): string {
     "/brewing-plan": "醸造計画",
     "/procurement": "調達計画",
     "/brewing-process": "醸造工程",
+    "/changelog": "機能一覧・更新履歴",
     "/master": "マスタ管理",
     "/calendar": "カレンダー",
     "/store": "店舗・直売所",
@@ -4303,10 +4332,67 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 得意先台帳：入力サジェスト
+  const ledgerInput = root.querySelector<HTMLInputElement>("#ledger-customer-code");
+  const ledgerSugg = root.querySelector<HTMLElement>("#ledger-cust-suggestions");
+  if (ledgerInput && ledgerSugg) {
+    const customers = state.masterStats?.customers ?? [];
+    ledgerInput.addEventListener("input", () => {
+      const q = ledgerInput.value.trim().toLowerCase();
+      if (!q) { ledgerSugg.style.display = "none"; return; }
+      const hits = customers.filter(c =>
+        c.code.toLowerCase().includes(q) ||
+        c.name.toLowerCase().includes(q) ||
+        (c.kanaName ?? "").toLowerCase().includes(q)
+      ).slice(0, 10);
+      if (!hits.length) { ledgerSugg.style.display = "none"; return; }
+      ledgerSugg.innerHTML = hits.map(c =>
+        `<button class="search-item" type="button" data-ledger-cust="${c.code}">` +
+        `<span class="mono">${c.code}</span>` +
+        `<span>${c.name}</span>` +
+        `</button>`
+      ).join("");
+      ledgerSugg.style.display = "block";
+      ledgerSugg.querySelectorAll<HTMLButtonElement>("[data-ledger-cust]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const code = btn.dataset.ledgerCust ?? "";
+          ledgerInput.value = code;
+          ledgerSugg.style.display = "none";
+          state.ledgerCustomerCode = code;
+          void reloadCustomerLedger(code);
+        });
+      });
+    });
+    ledgerInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        ledgerSugg.style.display = "none";
+        const val = ledgerInput.value.trim();
+        // 名前で1件だけ一致する場合はそのコードで検索
+        const q = val.toLowerCase();
+        const exact = (state.masterStats?.customers ?? []).filter(c =>
+          c.code.toLowerCase() === q || c.name.toLowerCase() === q
+        );
+        const code = exact.length === 1 ? exact[0].code : val.toUpperCase();
+        state.ledgerCustomerCode = code;
+        void reloadCustomerLedger(code);
+      }
+    });
+    // フォーカスアウトでサジェストを閉じる
+    ledgerInput.addEventListener("blur", () => {
+      setTimeout(() => { ledgerSugg.style.display = "none"; }, 200);
+    });
+  }
+
   root.querySelector<HTMLButtonElement>("[data-action='ledger-search']")?.addEventListener("click", () => {
-    const customerCode = root.querySelector<HTMLInputElement>("#ledger-customer-code")?.value ?? "";
-    state.ledgerCustomerCode = customerCode.trim().toUpperCase();
-    void reloadCustomerLedger(state.ledgerCustomerCode);
+    const val = root.querySelector<HTMLInputElement>("#ledger-customer-code")?.value.trim() ?? "";
+    const q = val.toLowerCase();
+    // 名前で1件だけ一致する場合はそのコードを使用
+    const exact = (state.masterStats?.customers ?? []).filter(c =>
+      c.code.toLowerCase() === q || c.name.toLowerCase() === q
+    );
+    const code = exact.length === 1 ? exact[0].code : val.toUpperCase();
+    state.ledgerCustomerCode = code;
+    void reloadCustomerLedger(code);
   });
 
   root.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => {
@@ -6612,8 +6698,57 @@ function bindEvents(root: HTMLElement): void {
       if (dxDays !== 0 && dWDays === 0) { newStart = shift(origStart, dxDays); newEnd = shift(origEnd, dxDays); }
       else if (dWDays !== 0 && dxDays === 0) { newEnd = shift(origEnd, dWDays); }
       else { newStart = shift(origStart, dxDays); newEnd = shift(origEnd, dxDays + dWDays); }
+      const batchId = bar.dataset.batchId ?? "";
+      const stepOrder = parseInt(bar.dataset.stepOrder ?? "0");
       const { updateBrewingProcessStep, fetchBrewingProcessSteps } = await import("./api");
+
+      // このバッチの全工程を取得（ソート済み）
+      const batchSteps = state.brewingProcessSteps
+        .filter(s => s.batchId === batchId)
+        .sort((a, b) => a.stepOrder - b.stepOrder);
+
+      // 動かした工程を更新
       await updateBrewingProcessStep(stepId, { planned_start: newStart, planned_end: newEnd });
+
+      // 後続工程を連鎖シフト: 前工程の翌日から開始、期間は維持
+      let prevEnd = newEnd;
+      for (const s of batchSteps) {
+        if (s.stepOrder <= stepOrder) continue;
+        const dur = Math.max(Math.round((new Date(s.plannedEnd).getTime() - new Date(s.plannedStart).getTime()) / 86400000), 0);
+        const nextStart = shift(prevEnd, 1);
+        const nextEnd = shift(nextStart, dur);
+        await updateBrewingProcessStep(s.id, { planned_start: nextStart, planned_end: nextEnd });
+        prevEnd = nextEnd;
+      }
+
+      // 前段工程を連鎖シフト: 後工程の前日を終了日に、期間は維持
+      let nextStart = newStart;
+      for (let i = batchSteps.length - 1; i >= 0; i--) {
+        const s = batchSteps[i];
+        if (s.stepOrder >= stepOrder) continue;
+        const dur = Math.max(Math.round((new Date(s.plannedEnd).getTime() - new Date(s.plannedStart).getTime()) / 86400000), 0);
+        const prevEndDate = shift(nextStart, -1);
+        const prevStartDate = shift(prevEndDate, -dur);
+        await updateBrewingProcessStep(s.id, { planned_start: prevStartDate, planned_end: prevEndDate });
+        nextStart = prevStartDate;
+      }
+
+      // バッチの開始日・終了日も更新
+      const allUpdated = batchSteps.map(s => {
+        if (s.stepOrder < stepOrder) {
+          const dur = Math.round((new Date(s.plannedEnd).getTime() - new Date(s.plannedStart).getTime()) / 86400000);
+          // 前段は既に上で計算済み
+        }
+        return s;
+      });
+      const { updateBrewingBatch } = await import("./api");
+      await updateBrewingBatch(batchId, {
+        start_date: batchSteps[0].stepOrder < stepOrder
+          ? shift(newStart, -(batchSteps.filter(s => s.stepOrder < stepOrder).reduce((sum, s) => sum + Math.round((new Date(s.plannedEnd).getTime() - new Date(s.plannedStart).getTime()) / 86400000) + 1, 0)))
+          : (stepOrder === 1 ? newStart : undefined),
+        target_end_date: prevEnd
+      });
+
       state.brewingProcessSteps = await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id));
       renderApp();
     }
@@ -7831,6 +7966,22 @@ function bindEvents(root: HTMLElement): void {
         renderApp();
         showToast("APIキー未設定のため下書き保存しました", "warning");
       });
+  });
+
+  // ── 機能確認チェックボックス ──────────────────────────────────────
+  root.querySelectorAll<HTMLInputElement>(".feature-checkbox").forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      const featureId = cb.dataset.featureId;
+      if (!featureId) return;
+      const userName = state.myProfile?.name ?? state.myProfile?.email ?? "不明";
+      if (cb.checked) {
+        await confirmFeature(featureId, userName);
+      } else {
+        await unconfirmFeature(featureId);
+      }
+      state.featureStatuses = await fetchFeatureStatuses();
+      renderApp();
+    });
   });
 }
 
