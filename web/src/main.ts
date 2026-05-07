@@ -46,6 +46,7 @@ import {
   fetchStoreOrders,
   fetchStoreSales,
   fetchTankList,
+  fetchSakeTaxByMonth,
   fetchTaxDeclaration,
   saveEmailCampaign,
   sendEmailCampaign,
@@ -496,6 +497,7 @@ interface AppState {
   taxDeclaration: TaxDeclaration | null;
   taxYear: number;
   taxMonth: number;
+  taxVolume: import("./api").SakeTaxRow[] | null;
   storeSales: StoreSale[];
   storeOrders: StoreOrder[];
   storeTab: "pos" | "orders";
@@ -785,6 +787,7 @@ const state: AppState = {
   taxDeclaration: null,
   taxYear: defaultTaxYear,
   taxMonth: defaultTaxMonth,
+  taxVolume: null,
   storeSales: [],
   storeOrders: [],
   storeTab: "pos",
@@ -991,7 +994,7 @@ const state: AppState = {
   brewingProcessSteps: [] as import("./api").BrewingProcessStepRow[],
   bpExpandedBatchId: "",
   bpShowNewForm: false,
-  bpWorkerSettings: { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6 } as import("./api").WorkerSettings,
+  bpWorkerSettings: { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6, deadlineDate: "", allowSunday: false } as import("./api").WorkerSettings,
   bpStepLabor: [] as import("./api").StepLabor[],
   globalSearchOpen: false,
   globalQuery: "",
@@ -1720,8 +1723,11 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         }
         break;
       case "/tax":
-        if (!state.taxDeclaration) {
-          state.taxDeclaration = await fetchTaxDeclaration(state.taxYear, state.taxMonth);
+        if (!state.taxDeclaration || !state.taxVolume) {
+          [state.taxDeclaration, state.taxVolume] = await Promise.all([
+            fetchTaxDeclaration(state.taxYear, state.taxMonth),
+            fetchSakeTaxByMonth(state.taxYear, state.taxMonth)
+          ]);
         }
         break;
       case "/store":
@@ -2063,7 +2069,7 @@ function renderView(): string {
       return renderRawMaterial(state.billList, state.rawStockList);
     case "/tax":
       return state.taxDeclaration
-        ? renderTaxDeclaration(state.taxDeclaration, state.taxYear, state.taxMonth)
+        ? renderTaxDeclaration(state.taxDeclaration, state.taxYear, state.taxMonth, state.taxVolume ?? [])
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/store":
       return renderStorePOS(
@@ -4790,10 +4796,15 @@ function bindEvents(root: HTMLElement): void {
     state.taxYear = year;
     state.taxMonth = month;
     state.taxDeclaration = null;
+    state.taxVolume = null;
     state.actionLoading = true;
     renderApp();
-    void fetchTaxDeclaration(year, month).then((decl) => {
+    void Promise.all([
+      fetchTaxDeclaration(year, month),
+      fetchSakeTaxByMonth(year, month)
+    ]).then(([decl, vol]) => {
       state.taxDeclaration = decl;
+      state.taxVolume = vol;
       state.actionLoading = false;
       renderApp();
     });
@@ -6617,6 +6628,18 @@ function bindEvents(root: HTMLElement): void {
       renderApp();
     });
   }
+  root.querySelector<HTMLInputElement>("[data-action='bp-worker-deadline']")?.addEventListener("change", async (e) => {
+    state.bpWorkerSettings.deadlineDate = (e.target as HTMLInputElement).value;
+    const { saveWorkerSettings } = await import("./api");
+    await saveWorkerSettings(state.bpWorkerSettings);
+    renderApp();
+  });
+  root.querySelector<HTMLInputElement>("[data-action='bp-worker-sunday']")?.addEventListener("change", async (e) => {
+    state.bpWorkerSettings.allowSunday = (e.target as HTMLInputElement).checked;
+    const { saveWorkerSettings } = await import("./api");
+    await saveWorkerSettings(state.bpWorkerSettings);
+    renderApp();
+  });
 
   // 醸造工程: 調達計画から一括取込
   root.querySelector<HTMLButtonElement>("[data-action='bp-import-schedule']")?.addEventListener("click", async () => {

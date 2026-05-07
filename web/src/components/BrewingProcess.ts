@@ -374,6 +374,8 @@ function renderWorkerChart(steps: BrewingProcessStep[], workerSettings: WorkerSe
         <label>人数 <input type="number" min="1" max="10" value="${workerSettings.workerCount}" data-action="bp-worker-count" style="width:40px;height:22px;font-size:11px;text-align:center;border:1px solid #d1d5db;border-radius:3px;"></label>
         <label>上限h <input type="number" min="20" max="60" value="${workerSettings.weeklyHoursLimit}" data-action="bp-worker-hours" style="width:44px;height:22px;font-size:11px;text-align:center;border:1px solid #d1d5db;border-radius:3px;"></label>
         <label>開始 <input type="number" min="4" max="10" step="0.5" value="${workerSettings.dayStartHour}" data-action="bp-worker-start" style="width:40px;height:22px;font-size:11px;text-align:center;border:1px solid #d1d5db;border-radius:3px;">時</label>
+        <label>仕込締切 <input type="date" value="${workerSettings.deadlineDate || ""}" data-action="bp-worker-deadline" style="height:22px;font-size:11px;border:1px solid #d1d5db;border-radius:3px;padding:0 3px;"></label>
+        <label style="display:flex;align-items:center;gap:2px;"><input type="checkbox" data-action="bp-worker-sunday" ${workerSettings.allowSunday ? "checked" : ""}>日曜可</label>
       </div>
     </div>
     <div style="display:flex;gap:2px;overflow-x:auto;padding:4px 0;">

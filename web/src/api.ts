@@ -1941,6 +1941,10 @@ export async function autoScheduleAllBatches(
 
   if (targets.length === 0) return;
 
+  // 締切判定: 締切日が設定されていて、日曜稼働が許可されている場合
+  const deadline = workerSettings.deadlineDate || "";
+  const canUseSunday = workerSettings.allowSunday && !!deadline;
+
   // 確定済みスケジュール（バッチID→工程日程のリスト）
   type PlacedStep = { stepName: string; start: string; end: string };
   const placed = new Map<string, PlacedStep[]>();
@@ -1950,6 +1954,24 @@ export async function autoScheduleAllBatches(
     const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt.toISOString().slice(0, 10);
   };
   const overlap = (s1: string, e1: string, s2: string, e2: string) => s1 <= e2 && e1 >= s2;
+
+  // 日曜スキップ判定（締切に間に合わない場合は日曜もOK）
+  const isSundayOff = (useSunday: boolean) => (d: Date) => !useSunday && d.getDay() === 0;
+  const skipDay = (useSunday: boolean) => (d: Date): Date => {
+    if (!useSunday && d.getDay() === 0) d.setDate(d.getDate() + 1);
+    return d;
+  };
+  const workSpan = (start: Date, days: number, useSunday: boolean): Date => {
+    const d = new Date(start); let rem = days - 1;
+    while (rem > 0) { d.setDate(d.getDate() + 1); if (useSunday || d.getDay() !== 0) rem--; }
+    if (!useSunday && d.getDay() === 0) d.setDate(d.getDate() + 1);
+    return d;
+  };
+  const nextWork = (d: Date, useSunday: boolean): Date => {
+    const n = new Date(d); n.setDate(n.getDate() + 1);
+    if (!useSunday && n.getDay() === 0) n.setDate(n.getDate() + 1);
+    return n;
+  };
 
   // 週別労働時間を計算する関数（日曜除外）
   const calcWeekLoad = (): Map<string, number> => {
@@ -1985,19 +2007,23 @@ export async function autoScheduleAllBatches(
   for (const batch of targets) {
     let candidate = batch.startDate;
 
+    // 1st pass: 日曜休みで試行。締切オーバーなら2nd passで日曜稼働
+    for (let useSunday of [false, ...(canUseSunday ? [true] : [])]) {
+    candidate = batch.startDate;
     for (let attempt = 0; attempt < 90; attempt++) {
-      // 候補日が日曜ならスキップ
-      if (new Date(candidate).getDay() === 0) { candidate = addD(candidate, 1); continue; }
-      // この候補日で工程を生成（日曜スキップ）
+      // 候補日が休日ならスキップ
+      const cand = skipDay(useSunday)(new Date(candidate));
+      candidate = cand.toISOString().slice(0, 10);
+      // この候補日で工程を生成
       const candidateSteps: PlacedStep[] = [];
       let curD = new Date(candidate);
       for (const step of BREW_STEPS) {
-        curD = skipSunday(curD);
+        curD = skipDay(useSunday)(curD);
         const start = curD.toISOString().slice(0, 10);
-        const endDt = workdaySpan(curD, step.days);
+        const endDt = workSpan(curD, step.days, useSunday);
         const end = endDt.toISOString().slice(0, 10);
         candidateSteps.push({ stepName: step.name, start, end });
-        curD = addWorkdays(endDt, 1);
+        curD = nextWork(endDt, useSunday);
       }
 
       // 制約1: 麹室（製麹の重複チェック）
@@ -2036,7 +2062,18 @@ export async function autoScheduleAllBatches(
 
       // OK: この日程で確定
       break;
+    } // end attempt loop
+
+    // 締切チェック: 仕込み(step5)が締切内に収まっているか
+    const placedSteps = placed.get(batch.id);
+    if (deadline && placedSteps) {
+      const moromi = placedSteps.find(s => s.stepName === "仕込み(添/仲/留)");
+      if (moromi && moromi.end <= deadline) break; // 日曜休みで締切OK
+      if (!useSunday) { placed.delete(batch.id); continue; } // 日曜稼働モードで再試行
+    } else {
+      break; // 締切なし→最初のパスでOK
     }
+    } // end useSunday loop
 
     // DB更新: バッチの開始日と全工程の日程
     const finalSteps = placed.get(batch.id);
@@ -2073,6 +2110,8 @@ export interface WorkerSettings {
   workerCount: number;
   weeklyHoursLimit: number;
   dayStartHour: number;
+  deadlineDate: string; // 例: "2026-03-31" 空なら制約なし
+  allowSunday: boolean; // 締切に間に合わない場合の日曜稼働
 }
 
 export interface StepLabor {
@@ -2084,11 +2123,13 @@ export interface StepLabor {
 export async function fetchWorkerSettings(): Promise<WorkerSettings> {
   const rows = await supabaseQuery<LooseRow>("brewing_worker_settings", { limit: "1" });
   const r = (rows ?? [])[0];
-  if (!r) return { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6 };
+  if (!r) return { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6, deadlineDate: "", allowSunday: false };
   return {
     workerCount: getNumber(r, ["worker_count"], 2),
     weeklyHoursLimit: getNumber(r, ["weekly_hours_limit"], 40),
-    dayStartHour: getNumber(r, ["day_start_hour"], 6)
+    dayStartHour: getNumber(r, ["day_start_hour"], 6),
+    deadlineDate: getString(r, ["deadline_date"], ""),
+    allowSunday: r["allow_sunday"] === true
   };
 }
 
@@ -2099,11 +2140,13 @@ export async function saveWorkerSettings(s: WorkerSettings): Promise<boolean> {
     const id = getString(rows[0], ["id"], "");
     return supabaseUpdate("brewing_worker_settings", id, {
       worker_count: s.workerCount, weekly_hours_limit: s.weeklyHoursLimit,
-      day_start_hour: s.dayStartHour, updated_at: new Date().toISOString()
+      day_start_hour: s.dayStartHour, deadline_date: s.deadlineDate || null,
+      allow_sunday: s.allowSunday, updated_at: new Date().toISOString()
     });
   }
   return (await supabaseInsert("brewing_worker_settings", {
-    worker_count: s.workerCount, weekly_hours_limit: s.weeklyHoursLimit, day_start_hour: s.dayStartHour
+    worker_count: s.workerCount, weekly_hours_limit: s.weeklyHoursLimit,
+    day_start_hour: s.dayStartHour, deadline_date: s.deadlineDate || null, allow_sunday: s.allowSunday
   })) !== null;
 }
 
