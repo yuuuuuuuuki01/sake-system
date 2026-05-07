@@ -405,7 +405,10 @@ export function renderBrewingProcess(
   return `
     <section class="page-head">
       <div><p class="eyebrow">蔵内管理</p><h1>醸造工程管理</h1></div>
-      <div class="meta-stack"><button class="button" data-action="bp-show-new-form">＋ 新規バッチ</button></div>
+      <div class="meta-stack" style="display:flex;gap:8px;">
+        <button class="button primary" data-action="bp-auto-schedule" style="font-size:12px;">自動スケジュール</button>
+        <button class="button" data-action="bp-show-new-form">＋ 新規バッチ</button>
+      </div>
     </section>
     <section class="kpi-grid compact">
       <article class="panel kpi-card"><p class="panel-title">進行中</p><p class="kpi-value">${activeCount}</p><p class="kpi-sub">アクティブ</p></article>

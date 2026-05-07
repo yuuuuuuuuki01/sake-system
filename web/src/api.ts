@@ -1891,6 +1891,138 @@ export async function updateBrewingBatch(batchId: string, fields: Record<string,
   return supabaseUpdate("brewing_process_batches", batchId, { ...fields, updated_at: new Date().toISOString() });
 }
 
+// ─── 自動スケジューリング ────────────────────────────────────────────────────
+
+export async function autoScheduleAllBatches(
+  batches: BrewingBatchRow[],
+  workerSettings: WorkerSettings,
+  stepLabor: StepLabor[]
+): Promise<void> {
+  const KOJI_CAPACITY_KG = 180;
+  const laborMap = new Map(stepLabor.map(l => [l.stepName, l]));
+
+  // planned/activeバッチのみ対象、希望開始日順にソート
+  const targets = batches
+    .filter(b => b.status !== "completed" && b.startDate)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  if (targets.length === 0) return;
+
+  // 確定済みスケジュール（バッチID→工程日程のリスト）
+  type PlacedStep = { stepName: string; start: string; end: string };
+  const placed = new Map<string, PlacedStep[]>();
+
+  // 日付ヘルパー
+  const addD = (d: string, n: number) => {
+    const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt.toISOString().slice(0, 10);
+  };
+  const overlap = (s1: string, e1: string, s2: string, e2: string) => s1 <= e2 && e1 >= s2;
+
+  // 週別労働時間を計算する関数
+  const calcWeekLoad = (): Map<string, number> => {
+    const wh = new Map<string, number>();
+    for (const steps of placed.values()) {
+      for (const s of steps) {
+        const lb = laborMap.get(s.stepName);
+        if (!lb) continue;
+        const days = Math.max(Math.round((new Date(s.end).getTime() - new Date(s.start).getTime()) / 86400000) + 1, 1);
+        const hpd = lb.laborHours / days;
+        for (let i = 0; i < days; i++) {
+          const dt = new Date(s.start);
+          dt.setDate(dt.getDate() + i);
+          const tmp = new Date(dt); tmp.setDate(tmp.getDate() + 3 - (tmp.getDay() + 6) % 7);
+          const w1 = new Date(tmp.getFullYear(), 0, 4);
+          const wn = 1 + Math.round(((tmp.getTime() - w1.getTime()) / 86400000 - 3 + (w1.getDay() + 6) % 7) / 7);
+          const key = `${tmp.getFullYear()}-W${String(wn).padStart(2, "0")}`;
+          wh.set(key, (wh.get(key) ?? 0) + hpd);
+        }
+      }
+    }
+    return wh;
+  };
+
+  // 各バッチに最適な開始日を割り当て
+  for (const batch of targets) {
+    let candidate = batch.startDate;
+
+    for (let attempt = 0; attempt < 90; attempt++) {
+      // この候補日で工程を生成
+      const candidateSteps: PlacedStep[] = [];
+      let d = candidate;
+      for (const step of BREW_STEPS) {
+        const start = d;
+        const end = addD(d, step.days - 1);
+        candidateSteps.push({ stepName: step.name, start, end });
+        d = addD(d, step.days);
+      }
+
+      // 制約1: 麹室（製麹の重複チェック）
+      const myKoji = candidateSteps.find(s => s.stepName === "製麹");
+      let kojiConflict = false;
+      if (myKoji) {
+        for (const [pid, pSteps] of placed) {
+          const otherKoji = pSteps.find(s => s.stepName === "製麹");
+          if (otherKoji && overlap(myKoji.start, myKoji.end, otherKoji.start, otherKoji.end)) {
+            kojiConflict = true;
+            break;
+          }
+        }
+      }
+
+      if (kojiConflict) {
+        candidate = addD(candidate, 1);
+        continue;
+      }
+
+      // 制約2: 週別労働時間
+      // 仮配置して週時間をチェック
+      placed.set(batch.id, candidateSteps);
+      const weekLoad = calcWeekLoad();
+      const maxWeekH = workerSettings.workerCount * workerSettings.weeklyHoursLimit;
+      let laborOver = false;
+      for (const h of weekLoad.values()) {
+        if (h > maxWeekH * 1.1) { laborOver = true; break; } // 10%マージン
+      }
+
+      if (laborOver) {
+        placed.delete(batch.id);
+        candidate = addD(candidate, 1);
+        continue;
+      }
+
+      // OK: この日程で確定
+      break;
+    }
+
+    // DB更新: バッチの開始日と全工程の日程
+    const finalSteps = placed.get(batch.id);
+    if (!finalSteps) continue;
+
+    await supabaseUpdate("brewing_process_batches", batch.id, {
+      start_date: candidate,
+      target_end_date: addD(finalSteps[finalSteps.length - 1].end, 0),
+      updated_at: new Date().toISOString()
+    });
+
+    // 既存工程を更新
+    const existingSteps = await supabaseQuery<LooseRow>("brewing_process_steps", {
+      batch_id: `eq.${batch.id}`, order: "step_order.asc"
+    });
+    if (existingSteps) {
+      for (const es of existingSteps) {
+        const order = getNumber(es as Record<string, unknown>, ["step_order"], 0);
+        const fs = finalSteps[order - 1];
+        if (fs) {
+          const id = getString(es as Record<string, unknown>, ["id"], "");
+          await supabaseUpdate("brewing_process_steps", id, {
+            planned_start: fs.start, planned_end: fs.end
+          });
+        }
+      }
+    }
+  }
+}
+
 // ─── 作業者設定 ──────────────────────────────────────────────────────────────
 
 export interface WorkerSettings {

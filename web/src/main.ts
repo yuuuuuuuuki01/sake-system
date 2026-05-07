@@ -6592,6 +6592,19 @@ function bindEvents(root: HTMLElement): void {
     document.addEventListener("touchend", endDrag);
   })();
 
+  // 醸造工程: 自動スケジュール
+  root.querySelector<HTMLButtonElement>("[data-action='bp-auto-schedule']")?.addEventListener("click", async () => {
+    if (state.brewingBatches.length === 0) return;
+    const btn = root.querySelector<HTMLButtonElement>("[data-action='bp-auto-schedule']");
+    if (btn) { btn.textContent = "計算中..."; btn.disabled = true; }
+    const { autoScheduleAllBatches, fetchBrewingBatches, fetchBrewingProcessSteps } = await import("./api");
+    await autoScheduleAllBatches(state.brewingBatches, state.bpWorkerSettings, state.bpStepLabor);
+    state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
+    state.brewingProcessSteps = state.brewingBatches.length > 0
+      ? await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id)) : [];
+    renderApp();
+  });
+
   // 醸造工程: 作業者設定変更
   for (const action of ["bp-worker-count", "bp-worker-hours", "bp-worker-start"] as const) {
     root.querySelector<HTMLInputElement>(`[data-action='${action}']`)?.addEventListener("change", async (e) => {
