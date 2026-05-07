@@ -1759,6 +1759,9 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
         }
         break;
+      case "/ledger":
+        state.customerLedger = await fetchCustomerLedger(state.ledgerCustomerCode);
+        break;
       case "/setup":
         state.syncDashboard = await fetchSyncDashboard();
         break;
@@ -1841,22 +1844,13 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       case "/":
         {
-          // ダッシュボード追加データ取得（並列）
-          const {
-            fetchProspects,
-            fetchCalendarEvents,
-            fetchWorkflowOrdersFromDb,
-            fetchTourInquiriesFromDb,
-            fetchOrderHeaders
-          } = await import("./api");
+          // ダッシュボード追加データ取得（存在するテーブルのみ、並列）
+          const { fetchProspects, fetchOrderHeaders } = await import("./api");
           await Promise.allSettled([
             state.prospects.length === 0 ? fetchProspects().then(v => { state.prospects = v; }) : Promise.resolve(),
-            state.calendarEvents.length === 0 ? fetchCalendarEvents(state.calendarYearMonth).then(v => { state.calendarEvents = v; }) : Promise.resolve(),
-            state.materialList.length === 0 ? fetchMaterialList().then(v => { state.materialList = v; }) : Promise.resolve(),
-            state.workflowOrders.length === 0 ? fetchWorkflowOrdersFromDb().then(v => { state.workflowOrders = v; }) : Promise.resolve(),
-            state.tourInquiries.length === 0 ? fetchTourInquiriesFromDb().then(v => { state.tourInquiries = v; }) : Promise.resolve(),
             state.orderHeaders.length === 0 ? fetchOrderHeaders().then(v => { state.orderHeaders = v; }) : Promise.resolve(),
           ]);
+          // calendar_events / workflow_orders / tour_inquiries はテーブル未作成のためスキップ
         }
         break;
       default:
@@ -7749,7 +7743,6 @@ async function loadData(): Promise<void> {
       masterStats,
       pipelineMeta,
       invoiceRecords,
-      customerLedger,
       salesAnalytics,
       dbCompanySettings,
     ] = await Promise.all([
@@ -7758,7 +7751,6 @@ async function loadData(): Promise<void> {
       fetchMasterStats(),
       fetchPipelineMeta(),
       fetchInvoices(state.invoiceFilter),
-      fetchCustomerLedger(state.ledgerCustomerCode),
       fetchSalesAnalytics(),
       fetchSystemSetting<QuoteCompanySettings>("quote_company"),
     ]);
@@ -7768,9 +7760,9 @@ async function loadData(): Promise<void> {
     state.masterStats = masterStats;
     state.pipelineMeta = pipelineMeta;
     state.invoiceRecords = invoiceRecords;
-    state.customerLedger = customerLedger;
     state.salesAnalytics = salesAnalytics;
-    // syncDashboard は /setup 遷移時のみ取得（get_sync_summary RPC が存在しない環境では不要）
+    // customerLedger は /ledger 遷移時のみ取得
+    // syncDashboard は /setup 遷移時のみ取得
 
     // DB設定をローカル設定にマージ（DB優先）
     if (dbCompanySettings) {
@@ -7779,11 +7771,11 @@ async function loadData(): Promise<void> {
       saveQuoteSettings(merged); // localStorageにも書き戻す（オフライン用）
     }
 
-    // お知らせ取得
+    // お知らせはバックグラウンドで（テーブル未作成でも画面をブロックしない）
     fetchAnnouncements().then((list) => {
       state.announcements = list;
-      renderApp();
-    });
+      if (list.length > 0) renderApp();
+    }).catch(() => {/* サイレント */});
 
     // メール配信先をバックグラウンドで取得
     if (EMAIL_RECIPIENTS.length === 0) {
