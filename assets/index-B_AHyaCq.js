@@ -1668,7 +1668,7 @@ body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11
         </div>
       </div>
     </section>
-  `}async function Gl(e,t){const n=t.accentColor||"#0968e5",o=document.createElement("div");o.style.cssText="position:fixed;left:-9999px;top:0;width:794px;background:#fff;z-index:-1;padding:76px 68px 60px;box-sizing:border-box;",o.innerHTML=`<style>${Ql(n)}</style>${Fs(e,t)}`,document.body.appendChild(o);try{const[{default:r},{jsPDF:l}]=await Promise.all([q(()=>import("./html2canvas.esm-DXEQVQnt.js"),[]),q(()=>import("./jspdf.es.min-D9GvOdLn.js").then(A=>A.j),[])]),d=await r(o,{scale:2,useCORS:!0,backgroundColor:"#ffffff",logging:!1,windowWidth:794}),p=210,u=297,y=d.width/p,v=u*y,g=new l({orientation:"portrait",unit:"mm",format:"a4"});let x=0,C=0;for(;x<d.height;){C>0&&g.addPage();const A=Math.min(v,d.height-x),T=document.createElement("canvas");T.width=d.width,T.height=Math.ceil(A);const P=T.getContext("2d");P.fillStyle="#ffffff",P.fillRect(0,0,T.width,T.height),P.drawImage(d,0,x,d.width,A,0,0,d.width,A);const s=T.toDataURL("image/jpeg",.95),i=A/y;g.addImage(s,"JPEG",0,0,p,i),x+=v,C++}g.save(`見積書_${e.quoteNo||"作成中"}.pdf`)}finally{document.body.removeChild(o)}}function It(e){const t=n=>document.getElementById(n)?.value??"";e.quoteNo=t("q-no"),e.quoteDate=t("q-date"),e.validUntil=t("q-valid"),e.subject=t("q-subject"),e.paymentTerms=t("q-payment-terms"),e.deliveryDate=t("q-delivery-date"),e.deliveryPlace=t("q-delivery-place"),e.remarks=document.getElementById("q-remarks")?.value??""}function Us(e){return new Intl.NumberFormat("ja-JP",{style:"currency",currency:"JPY",maximumFractionDigits:0}).format(e)}function Ys(e){return`<span style="display:inline-block;width:24px;height:24px;border-radius:50%;background:${{A:"#2f855a",B:"#2b6cb0",C:"#b7791f"}[e]||"#9aa5b1"};color:white;text-align:center;line-height:24px;font-weight:700;font-size:12px;">${e}</span>`}function Js(e){return e==null?'<span style="color:#9aa5b1;">―</span>':`<span style="color:${e>=0?"#2f855a":"#c53d3d"};font-weight:700;">${e>=0?"+":""}${e.toFixed(1)}%</span>`}function Xl(e,t){return!t||e===t?"":e<t?`<span style="color:#2f855a;font-size:11px;">&#x2191;${t}&#x2192;${e}</span>`:`<span style="color:#c53d3d;font-size:11px;">&#x2193;${t}&#x2192;${e}</span>`}function Zl(e,t,n,o,r){const l=new Map,d=new Map;for(const v of e){if(v.date>=t&&v.date<=n){const g=l.get(v.productCode);g?(g.amt+=v.amount,g.qty+=v.qty):l.set(v.productCode,{name:v.productName,vol:v.volumeMl,amt:v.amount,qty:v.qty})}v.date>=o&&v.date<=r&&d.set(v.productCode,(d.get(v.productCode)??0)+v.amount)}const p=[...l.entries()].map(([v,g])=>({code:v,...g})).sort((v,g)=>g.amt-v.amt),u=p.reduce((v,g)=>v+g.amt,0);let y=0;return p.map(v=>{y+=v.amt;const g=u>0?Math.round(v.amt*1e4/u)/100:0,x=y<=u*.7?"A":y<=u*.9?"B":"C",C=d.get(v.code)??0,A=C>0?Math.round((v.amt-C)/C*1e3)/10:null;return{code:v.code,name:v.name,volumeMl:v.vol,amount:v.amt,qty:v.qty,sharePct:g,rank:x,prevAmount:C,growthRate:A}})}function ec(e,t,n){const o=new Date,r=o.toISOString().slice(0,10);let l=r,d=r,p="";switch(e){case"week":{const v=new Date(o);v.setDate(v.getDate()-7),l=v.toISOString().slice(0,10),d=r,p="直近7日間";break}case"month":{l=r.slice(0,7)+"-01",d=r,p="当月";break}case"90days":{const v=new Date(o);v.setDate(v.getDate()-90),l=v.toISOString().slice(0,10),d=r,p="直近90日間";break}case"year":{const v=new Date(o);v.setFullYear(v.getFullYear()-1),l=v.toISOString().slice(0,10),d=r,p="直近1年間";break}case"custom":{l=t||r,d=n||r,p=`${l} 〜 ${d}`;break}}const u=new Date(l);u.setFullYear(u.getFullYear()-1);const y=new Date(d);return y.setFullYear(y.getFullYear()-1),{start:l,end:d,prevStart:u.toISOString().slice(0,10),prevEnd:y.toISOString().slice(0,10),label:p}}function tc(e,t="all",n=[],o="year",r,l,d=[]){const p=ec(o,r,l),u=n.length>0?Zl(n,p.start,p.end,p.prevStart,p.prevEnd):e.map(i=>({code:i.code,name:i.name,volumeMl:i.volumeMl,amount:i.yearAmount,qty:i.yearQty,sharePct:i.sharePct,rank:i.rank,prevAmount:i.prevAmount,growthRate:i.growthRate})),y=u.filter(i=>i.rank==="A").length,v=u.filter(i=>i.rank==="B").length,g=u.filter(i=>i.rank==="C").length,x=u.filter(i=>i.growthRate!=null&&i.growthRate>10),C=u.filter(i=>i.growthRate!=null&&i.growthRate<-10);let A=u,T="全商品";switch(t){case"A":A=u.filter(i=>i.rank==="A"),T="Aランク";break;case"B":A=u.filter(i=>i.rank==="B"),T="Bランク";break;case"C":A=u.filter(i=>i.rank==="C"),T="Cランク";break;case"growing":A=x,T="成長商品(+10%以上)";break;case"declining":A=C,T="衰退商品(-10%以下)";break}const P=(i,c,m)=>`<button class="button ${t===i?"primary":"secondary"} small" data-product-filter="${i}">${c} (${m})</button>`,s=(i,c)=>`<button class="button ${o===i?"primary":"secondary"} small" data-product-period="${i}">${c}</button>`;return`
+  `}async function Gl(e,t){const n=t.accentColor||"#0968e5",o=document.createElement("div");o.style.cssText="position:fixed;left:-9999px;top:0;width:794px;background:#fff;z-index:-1;padding:76px 68px 60px;box-sizing:border-box;",o.innerHTML=`<style>${Ql(n)}</style>${Fs(e,t)}`,document.body.appendChild(o);try{const[{default:r},{jsPDF:l}]=await Promise.all([q(()=>import("./html2canvas.esm-DXEQVQnt.js"),[]),q(()=>import("./jspdf.es.min-CFj8FJ7e.js").then(A=>A.j),[])]),d=await r(o,{scale:2,useCORS:!0,backgroundColor:"#ffffff",logging:!1,windowWidth:794}),p=210,u=297,y=d.width/p,v=u*y,g=new l({orientation:"portrait",unit:"mm",format:"a4"});let x=0,C=0;for(;x<d.height;){C>0&&g.addPage();const A=Math.min(v,d.height-x),T=document.createElement("canvas");T.width=d.width,T.height=Math.ceil(A);const P=T.getContext("2d");P.fillStyle="#ffffff",P.fillRect(0,0,T.width,T.height),P.drawImage(d,0,x,d.width,A,0,0,d.width,A);const s=T.toDataURL("image/jpeg",.95),i=A/y;g.addImage(s,"JPEG",0,0,p,i),x+=v,C++}g.save(`見積書_${e.quoteNo||"作成中"}.pdf`)}finally{document.body.removeChild(o)}}function It(e){const t=n=>document.getElementById(n)?.value??"";e.quoteNo=t("q-no"),e.quoteDate=t("q-date"),e.validUntil=t("q-valid"),e.subject=t("q-subject"),e.paymentTerms=t("q-payment-terms"),e.deliveryDate=t("q-delivery-date"),e.deliveryPlace=t("q-delivery-place"),e.remarks=document.getElementById("q-remarks")?.value??""}function Us(e){return new Intl.NumberFormat("ja-JP",{style:"currency",currency:"JPY",maximumFractionDigits:0}).format(e)}function Ys(e){return`<span style="display:inline-block;width:24px;height:24px;border-radius:50%;background:${{A:"#2f855a",B:"#2b6cb0",C:"#b7791f"}[e]||"#9aa5b1"};color:white;text-align:center;line-height:24px;font-weight:700;font-size:12px;">${e}</span>`}function Js(e){return e==null?'<span style="color:#9aa5b1;">―</span>':`<span style="color:${e>=0?"#2f855a":"#c53d3d"};font-weight:700;">${e>=0?"+":""}${e.toFixed(1)}%</span>`}function Xl(e,t){return!t||e===t?"":e<t?`<span style="color:#2f855a;font-size:11px;">&#x2191;${t}&#x2192;${e}</span>`:`<span style="color:#c53d3d;font-size:11px;">&#x2193;${t}&#x2192;${e}</span>`}function Zl(e,t,n,o,r){const l=new Map,d=new Map;for(const v of e){if(v.date>=t&&v.date<=n){const g=l.get(v.productCode);g?(g.amt+=v.amount,g.qty+=v.qty):l.set(v.productCode,{name:v.productName,vol:v.volumeMl,amt:v.amount,qty:v.qty})}v.date>=o&&v.date<=r&&d.set(v.productCode,(d.get(v.productCode)??0)+v.amount)}const p=[...l.entries()].map(([v,g])=>({code:v,...g})).sort((v,g)=>g.amt-v.amt),u=p.reduce((v,g)=>v+g.amt,0);let y=0;return p.map(v=>{y+=v.amt;const g=u>0?Math.round(v.amt*1e4/u)/100:0,x=y<=u*.7?"A":y<=u*.9?"B":"C",C=d.get(v.code)??0,A=C>0?Math.round((v.amt-C)/C*1e3)/10:null;return{code:v.code,name:v.name,volumeMl:v.vol,amount:v.amt,qty:v.qty,sharePct:g,rank:x,prevAmount:C,growthRate:A}})}function ec(e,t,n){const o=new Date,r=o.toISOString().slice(0,10);let l=r,d=r,p="";switch(e){case"week":{const v=new Date(o);v.setDate(v.getDate()-7),l=v.toISOString().slice(0,10),d=r,p="直近7日間";break}case"month":{l=r.slice(0,7)+"-01",d=r,p="当月";break}case"90days":{const v=new Date(o);v.setDate(v.getDate()-90),l=v.toISOString().slice(0,10),d=r,p="直近90日間";break}case"year":{const v=new Date(o);v.setFullYear(v.getFullYear()-1),l=v.toISOString().slice(0,10),d=r,p="直近1年間";break}case"custom":{l=t||r,d=n||r,p=`${l} 〜 ${d}`;break}}const u=new Date(l);u.setFullYear(u.getFullYear()-1);const y=new Date(d);return y.setFullYear(y.getFullYear()-1),{start:l,end:d,prevStart:u.toISOString().slice(0,10),prevEnd:y.toISOString().slice(0,10),label:p}}function tc(e,t="all",n=[],o="year",r,l,d=[]){const p=ec(o,r,l),u=n.length>0?Zl(n,p.start,p.end,p.prevStart,p.prevEnd):e.map(i=>({code:i.code,name:i.name,volumeMl:i.volumeMl,amount:i.yearAmount,qty:i.yearQty,sharePct:i.sharePct,rank:i.rank,prevAmount:i.prevAmount,growthRate:i.growthRate})),y=u.filter(i=>i.rank==="A").length,v=u.filter(i=>i.rank==="B").length,g=u.filter(i=>i.rank==="C").length,x=u.filter(i=>i.growthRate!=null&&i.growthRate>10),C=u.filter(i=>i.growthRate!=null&&i.growthRate<-10);let A=u,T="全商品";switch(t){case"A":A=u.filter(i=>i.rank==="A"),T="Aランク";break;case"B":A=u.filter(i=>i.rank==="B"),T="Bランク";break;case"C":A=u.filter(i=>i.rank==="C"),T="Cランク";break;case"growing":A=x,T="成長商品(+10%以上)";break;case"declining":A=C,T="衰退商品(-10%以下)";break}const P=(i,c,m)=>`<button class="button ${t===i?"primary":"secondary"} small" data-product-filter="${i}">${c} (${m})</button>`,s=(i,c)=>`<button class="button ${o===i?"primary":"secondary"} small" data-product-period="${i}">${c}</button>`;return`
     <section class="page-head">
       <div>
         <p class="eyebrow">分析</p>
@@ -7602,7 +7602,7 @@ ${T?.stack??""}</div></section>`}return`
       </div>
       <div style="position:relative;width:${y}px;height:${T}px;background:repeating-linear-gradient(90deg,transparent 0 ${Be*7-1}px,#f3f4f6 ${Be*7-1}px ${Be*7}px);">${h}</div>
     </div>`}).join("");return`<section class="panel" style="margin-bottom:16px;">
-    <div class="panel-header"><h2>醸造ガントチャート</h2><p class="panel-caption">バッチをクリックで詳細表示 ／ バーをドラッグで日程調整</p></div>
+    <div class="panel-header"><h2>醸造ガントチャート</h2><p class="panel-caption">仕込をクリックで詳細表示 ／ バーをドラッグで日程調整</p></div>
     <div id="bp-gantt" style="overflow-x:auto;touch-action:none;user-select:none;">
       <div style="min-width:${y+120}px;">
         <div style="display:flex;align-items:flex-end;">
@@ -7620,7 +7620,7 @@ ${T?.stack??""}</div></section>`}return`
     <section class="panel">
       <div class="panel-header">
         <h2 style="display:flex;align-items:center;gap:6px;">
-          <span style="color:${Et(e.brewCategory)};">●</span> ${e.batchCode} 工程フロー
+          <span style="color:${Et(e.brewCategory)};">●</span> ${e.batchCode} 醸造工程フロー
         </h2>
         <p class="panel-caption">クリティカルパス（全工程直列）</p>
       </div>
@@ -7631,7 +7631,7 @@ ${T?.stack??""}</div></section>`}return`
         </svg>
       </div>
     </section>
-  </div>`}function hp(e,t,n){if(e.length===0)return'<div class="panel" style="padding:20px;text-align:center;color:#9ca3af">バッチ未登録。調達計画から取込むか、新規バッチを追加してください。</div>';const o=e.map(r=>{const l=t[r.id]??[],d=l.length,p=l.filter(g=>g.status==="完了").length,u=d>0?Math.round(p/d*100):0,y=Et(r.brewCategory);return`<tr style="border-bottom:1px solid #f3f4f6;background:${n===r.id?"#eff6ff":"transparent"};cursor:pointer;" data-action="bp-toggle-detail" data-batch-id="${r.id}">
+  </div>`}function hp(e,t,n){if(e.length===0)return'<div class="panel" style="padding:20px;text-align:center;color:#9ca3af">仕込が未登録です。調達計画から取込むか、新規登録してください。</div>';const o=e.map(r=>{const l=t[r.id]??[],d=l.length,p=l.filter(g=>g.status==="完了").length,u=d>0?Math.round(p/d*100):0,y=Et(r.brewCategory);return`<tr style="border-bottom:1px solid #f3f4f6;background:${n===r.id?"#eff6ff":"transparent"};cursor:pointer;" data-action="bp-toggle-detail" data-batch-id="${r.id}">
       <td style="padding:6px;font-size:12px;font-weight:600;color:${y};">${r.batchCode}</td>
       <td style="padding:6px;font-size:11px;"><span style="background:${y};color:#fff;padding:1px 6px;border-radius:9999px;font-size:10px;">${r.brewCategory}</span></td>
       <td style="padding:6px;font-size:11px;text-align:right;">
@@ -7657,7 +7657,7 @@ ${T?.stack??""}</div></section>`}return`
         <button data-action="bp-show-delete-modal" data-batch-id="${r.id}" data-batch-code="${r.batchCode}" style="font-size:10px;padding:2px 8px;border:1px solid #fca5a5;color:#ef4444;background:white;border-radius:3px;cursor:pointer;" onclick="event.stopPropagation()">削除</button>
       </td>
     </tr>`}).join("");return`<section class="panel" style="margin-bottom:16px;">
-    <div class="panel-header"><h2>バッチ一覧</h2><p class="panel-caption">${e.length}件 ／ 行クリックでフロー図表示</p></div>
+    <div class="panel-header"><h2>仕込一覧</h2><p class="panel-caption">${e.length}件 ／ 行クリックで醸造工程フロー表示</p></div>
     <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;min-width:600px;">
         <thead><tr style="border-bottom:2px solid #e5e7eb;font-size:10px;color:#6b7280;text-align:left;">
@@ -7670,8 +7670,8 @@ ${T?.stack??""}</div></section>`}return`
     </div>
   </section>`}function gp(e,t){if(e.length===0)return"";const n=new Set(t.map(l=>`${l.brewCategory}:${l.startDate?.slice(0,7)}`)),o=e.filter(l=>{const d=l.brewMonth>=10?l.fy:l.fy+1,p=`${l.brewCategory}:${d}-${String(l.brewMonth).padStart(2,"0")}`;return!n.has(p)&&l.plannedVolumeL>0});return o.length===0?"":`<section class="panel" style="margin-bottom:16px">
     <div class="panel-header">
-      <div><h2>調達計画から取込</h2><p class="panel-caption">未登録のスケジュールを一括でバッチ作成</p></div>
-      <button class="button primary" data-action="bp-import-schedule" style="font-size:12px;">一括登録</button>
+      <div><h2>調達計画から取込</h2><p class="panel-caption">未登録のスケジュールを一括で仕込登録</p></div>
+      <button class="button primary" data-action="bp-import-schedule" style="font-size:12px;">一括仕込登録</button>
     </div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
       <thead><tr style="border-bottom:2px solid #e5e7eb;color:#6b7280;text-align:left;font-size:10px">
@@ -7684,12 +7684,12 @@ ${T?.stack??""}</div></section>`}return`
       <td style="padding:5px 3px;text-align:center;"><input type="checkbox" data-action="bp-import-check" data-cat="${l.brewCategory}" data-month="${l.brewMonth}" data-vol="${Math.round(l.plannedVolumeL)}" data-date="${p}" data-code="${u}" checked></td>
     </tr>`}).join("")}</tbody></table></div>
   </section>`}function fp(e){return`<div class="panel" style="margin-bottom:16px">
-    <div class="panel-header">新規バッチ登録</div>
+    <div class="panel-header">新規仕込登録</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:10px 0;font-size:12px;">
       <label>区分<br><select id="bp-new-cat" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
         ${e.map(t=>`<option value="${t}">${t}</option>`).join("")}
       </select></label>
-      <label>バッチコード<br><input id="bp-new-code" type="text" placeholder="JG-2026-01" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;width:120px;"></label>
+      <label>仕込番号<br><input id="bp-new-code" type="text" placeholder="JG-2026-01" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;width:120px;"></label>
       <label>醸造量(L)<br><input id="bp-new-vol" type="number" placeholder="1800" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;width:80px;"></label>
       <label>開始日<br><input id="bp-new-date" type="date" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></label>
       <button class="button primary" data-action="bp-create-batch" style="font-size:12px;padding:6px 16px;">登録</button>
@@ -7743,15 +7743,15 @@ ${T?.stack??""}</div></section>`}return`
     </div>
   </section>`}function wp(e,t,n,o={}){const{expandedBatchId:r,showNewForm:l,schedule:d=[],fy:p=2026,workerSettings:u={workerCount:2,weeklyHoursLimit:40,dayStartHour:6},stepLabor:y=[]}=o,v={};for(const s of t)(v[s.batchId]??=[]).push(s);const g=e.filter(s=>s.status==="active").length,x=e.filter(s=>s.status==="planned").length,C=e.filter(s=>s.status==="completed").length,A=r?e.find(s=>s.id===r):null,T=A?yp(A,v[A.id]??[]):"",P=A?vp(A,v[A.id]??[]):"";return`
     <section class="page-head">
-      <div><p class="eyebrow">蔵内管理</p><h1>醸造工程管理</h1></div>
+      <div><p class="eyebrow">製造管理</p><h1>醸造工程管理</h1></div>
       <div class="meta-stack" style="display:flex;gap:8px;">
         <button class="button primary" data-action="bp-auto-schedule" style="font-size:12px;">自動スケジュール</button>
-        <button class="button" data-action="bp-show-new-form">＋ 新規バッチ</button>
+        <button class="button" data-action="bp-show-new-form">＋ 新規仕込</button>
       </div>
     </section>
     <section class="kpi-grid compact">
-      <article class="panel kpi-card"><p class="panel-title">進行中</p><p class="kpi-value">${g}</p><p class="kpi-sub">アクティブ</p></article>
-      <article class="panel kpi-card"><p class="panel-title">計画中</p><p class="kpi-value">${x}</p><p class="kpi-sub">未着手</p></article>
+      <article class="panel kpi-card"><p class="panel-title">醸造中</p><p class="kpi-value">${g}</p><p class="kpi-sub">仕込</p></article>
+      <article class="panel kpi-card"><p class="panel-title">計画中</p><p class="kpi-value">${x}</p><p class="kpi-sub">仕込</p></article>
       <article class="panel kpi-card"><p class="panel-title">完了</p><p class="kpi-value">${C}</p><p class="kpi-sub">今期</p></article>
     </section>
 
@@ -7765,8 +7765,8 @@ ${T?.stack??""}</div></section>`}return`
 
     <div id="bp-delete-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
       <div style="background:white;border-radius:12px;padding:24px;max-width:360px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-        <h3 style="margin:0 0 12px;font-size:15px;">バッチを削除</h3>
-        <p style="font-size:13px;color:#6b7280;margin-bottom:20px;"><strong id="bp-delete-batch-name"></strong> を削除します。<br>関連する全工程データも削除されます。</p>
+        <h3 style="margin:0 0 12px;font-size:15px;">仕込を削除</h3>
+        <p style="font-size:13px;color:#6b7280;margin-bottom:20px;"><strong id="bp-delete-batch-name"></strong> の仕込を削除します。<br>関連する全工程データも削除されます。この操作は取り消せません。</p>
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button data-action="bp-delete-cancel" style="padding:8px 16px;font-size:13px;border:1px solid #d1d5db;background:white;border-radius:6px;cursor:pointer;">キャンセル</button>
           <button data-action="bp-delete-confirm" style="padding:8px 16px;font-size:13px;border:none;background:#ef4444;color:white;border-radius:6px;cursor:pointer;font-weight:600;">削除する</button>
