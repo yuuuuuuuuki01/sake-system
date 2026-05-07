@@ -1759,6 +1759,9 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
         }
         break;
+      case "/setup":
+        state.syncDashboard = await fetchSyncDashboard();
+        break;
       case "/raw-browser":
         if (state.rawTableList.length === 0) {
           state.rawTableList = await fetchRawTableList();
@@ -7748,7 +7751,6 @@ async function loadData(): Promise<void> {
       invoiceRecords,
       customerLedger,
       salesAnalytics,
-      syncDashboard,
       dbCompanySettings,
     ] = await Promise.all([
       fetchSalesSummary(),
@@ -7758,7 +7760,6 @@ async function loadData(): Promise<void> {
       fetchInvoices(state.invoiceFilter),
       fetchCustomerLedger(state.ledgerCustomerCode),
       fetchSalesAnalytics(),
-      fetchSyncDashboard(),
       fetchSystemSetting<QuoteCompanySettings>("quote_company"),
     ]);
 
@@ -7769,7 +7770,7 @@ async function loadData(): Promise<void> {
     state.invoiceRecords = invoiceRecords;
     state.customerLedger = customerLedger;
     state.salesAnalytics = salesAnalytics;
-    state.syncDashboard = syncDashboard;
+    // syncDashboard は /setup 遷移時のみ取得（get_sync_summary RPC が存在しない環境では不要）
 
     // DB設定をローカル設定にマージ（DB優先）
     if (dbCompanySettings) {
