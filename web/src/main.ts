@@ -6586,20 +6586,38 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // 醸造工程: バッチ削除
-  root.querySelectorAll<HTMLButtonElement>("[data-action='bp-batch-delete']").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const batchId = btn.dataset.batchId ?? "";
-      if (!batchId || !confirm("このバッチを削除しますか？")) return;
-      const { supabaseDelete } = await import("./supabase");
-      await supabaseDelete("brewing_process_batches", batchId);
-      const { fetchBrewingBatches, fetchBrewingProcessSteps } = await import("./api");
-      state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
-      state.brewingProcessSteps = state.brewingBatches.length > 0
-        ? await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id)) : [];
-      state.bpExpandedBatchId = "";
-      renderApp();
+  // 醸造工程: バッチ削除（モーダル）
+  let pendingDeleteBatchId = "";
+  root.querySelectorAll<HTMLButtonElement>("[data-action='bp-show-delete-modal']").forEach(btn => {
+    btn.addEventListener("click", () => {
+      pendingDeleteBatchId = btn.dataset.batchId ?? "";
+      const modal = root.querySelector<HTMLElement>("#bp-delete-modal");
+      const nameEl = root.querySelector<HTMLElement>("#bp-delete-batch-name");
+      if (modal) modal.style.display = "flex";
+      if (nameEl) nameEl.textContent = btn.dataset.batchCode ?? "";
     });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='bp-delete-cancel']")?.addEventListener("click", () => {
+    const modal = root.querySelector<HTMLElement>("#bp-delete-modal");
+    if (modal) modal.style.display = "none";
+    pendingDeleteBatchId = "";
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='bp-delete-confirm']")?.addEventListener("click", async () => {
+    if (!pendingDeleteBatchId) return;
+    const modal = root.querySelector<HTMLElement>("#bp-delete-modal");
+    if (modal) modal.style.display = "none";
+    const { supabaseDelete } = await import("./supabase");
+    await supabaseDelete("brewing_process_batches", pendingDeleteBatchId);
+    const { fetchBrewingBatches, fetchBrewingProcessSteps } = await import("./api");
+    state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
+    state.brewingProcessSteps = state.brewingBatches.length > 0
+      ? await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id)) : [];
+    state.bpExpandedBatchId = "";
+    pendingDeleteBatchId = "";
+    renderApp();
+  });
+  root.querySelector<HTMLElement>("#bp-delete-modal")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) { (e.currentTarget as HTMLElement).style.display = "none"; pendingDeleteBatchId = ""; }
   });
 
   // 醸造工程: バッチ醸造量変更
