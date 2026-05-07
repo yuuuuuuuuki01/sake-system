@@ -586,9 +586,15 @@ export async function upsertSystemSetting<T>(key: string, value: T): Promise<voi
 export async function fetchSalesSummary(): Promise<SalesSummary> {
   // daily_sales_fact から直接集計（MVリフレッシュ不要）
   // daily_sales_detail (MV) は旧データのみ、daily_sales_fact は常に最新
-  const factRows = await supabaseQueryAll<Record<string, unknown>>("daily_sales_fact", {
+  // 直近365日分のみ取得（全件取得だとページネートが多発するため）
+  const since = new Date();
+  since.setFullYear(since.getFullYear() - 1);
+  const sinceStr = since.toISOString().slice(0, 10);
+  const factRows = await supabaseQuery<Record<string, unknown>>("daily_sales_fact", {
     select: "sales_date,sales_amount,total_quantity,document_count",
-    order: "sales_date.desc"
+    order: "sales_date.desc",
+    sales_date: `gte.${sinceStr}`,
+    limit: "400"
   });
 
   // 日別に集計
@@ -682,8 +688,9 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
 }
 
 export async function fetchPaymentStatus(): Promise<PaymentStatusSummary> {
-  const rows = await supabaseQueryAll<CustomerPaymentStatusRow>("customer_payment_status", {
-    select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
+  const rows = await supabaseQuery<CustomerPaymentStatusRow>("customer_payment_status", {
+    select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status",
+    limit: "1000"
   });
 
   if (rows.length > 0) {
@@ -710,8 +717,8 @@ export async function fetchPaymentStatus(): Promise<PaymentStatusSummary> {
 
 export async function fetchMasterStats(): Promise<MasterStatsSummary> {
   const [customerRows, productRows] = await Promise.all([
-    supabaseQueryAll<LooseRow>("customers"),
-    supabaseQueryAll<LooseRow>("products")
+    supabaseQuery<LooseRow>("customers", { limit: "1000" }),
+    supabaseQuery<LooseRow>("products", { limit: "1000" })
   ]);
 
   if (customerRows.length > 0 || productRows.length > 0) {
