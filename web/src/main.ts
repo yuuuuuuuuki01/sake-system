@@ -2193,7 +2193,9 @@ function renderView(): string {
       return renderSalesTable(
         filterSalesRecords(state.salesSummary),
         state.salesFilter.startDate,
-        state.salesFilter.endDate
+        state.salesFilter.endDate,
+        state.invoiceSelectedDocNo,
+        state.invoiceSelectedLines
       );
     case "/payment":
       return renderPaymentStatus(
@@ -4259,11 +4261,27 @@ function bindEvents(root: HTMLElement): void {
     void reloadInvoices(nextFilter);
   });
 
-  // 伝票行クリック → 明細表示
+  // 伝票行クリック → 明細表示（売上一覧・伝票照会・ダッシュボード共通）
   root.addEventListener("click", (e) => {
     const row = (e.target as HTMLElement).closest<HTMLElement>("tr[data-doc-no]");
     if (!row) return;
     const docNo = row.dataset.docNo ?? "";
+
+    // ダッシュボード上のクリック → /sales に遷移して展開
+    if (state.route === "/") {
+      state.invoiceSelectedDocNo = docNo;
+      state.invoiceSelectedLines = null;
+      navigateTo("/sales" as RoutePath);
+      fetchInvoiceLines(docNo).then((lines) => {
+        if (state.invoiceSelectedDocNo === docNo) {
+          state.invoiceSelectedLines = lines;
+          renderApp();
+        }
+      });
+      return;
+    }
+
+    // 同じ行を再タップ → 閉じる
     if (state.invoiceSelectedDocNo === docNo) {
       state.invoiceSelectedDocNo = null;
       state.invoiceSelectedLines = null;

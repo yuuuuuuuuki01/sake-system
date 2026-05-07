@@ -273,7 +273,7 @@ export function renderDashboard(
     .slice(0, 10)
     .map(
       (record) => `
-            <tr>
+            <tr class="clickable-row" data-doc-no="${record.documentNo}" style="cursor:pointer">
               <td class="mono">${record.documentNo}</td>
               <td>${formatDateTime(record.date)}</td>
               <td>${record.customerName}</td>
@@ -449,7 +449,7 @@ export function renderDashboard(
       <div class="panel-header">
         <div>
           <h2>直近の取引</h2>
-          <p class="panel-caption">最新10件の売上伝票</p>
+          <p class="panel-caption">最新10件　※タップで明細表示</p>
         </div>
       </div>
       <div class="table-wrap">
