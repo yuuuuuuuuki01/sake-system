@@ -93,7 +93,7 @@ function renderGantt(batches: BrewingBatch[], stepsByBatch: Record<string, Brewi
   }).join("");
 
   return `<section class="panel" style="margin-bottom:16px;">
-    <div class="panel-header"><h2>醸造ガントチャート</h2><p class="panel-caption">バッチをクリックで詳細表示 ／ バーをドラッグで日程調整</p></div>
+    <div class="panel-header"><h2>醸造ガントチャート</h2><p class="panel-caption">仕込をクリックで詳細表示 ／ バーをドラッグで日程調整</p></div>
     <div id="bp-gantt" style="overflow-x:auto;touch-action:none;user-select:none;">
       <div style="min-width:${gridW + 120}px;">
         <div style="display:flex;align-items:flex-end;">
@@ -157,7 +157,7 @@ function renderNetwork(batch: BrewingBatch, steps: BrewingProcessStep[]): string
     <section class="panel">
       <div class="panel-header">
         <h2 style="display:flex;align-items:center;gap:6px;">
-          <span style="color:${color};">●</span> ${batch.batchCode} 工程フロー
+          <span style="color:${color};">●</span> ${batch.batchCode} 醸造工程フロー
         </h2>
         <p class="panel-caption">クリティカルパス（全工程直列）</p>
       </div>
@@ -174,7 +174,7 @@ function renderNetwork(batch: BrewingBatch, steps: BrewingProcessStep[]): string
 // ─── 3. Batch List ───────────────────────────────────────────────────────────
 
 function renderBatchList(batches: BrewingBatch[], stepsByBatch: Record<string, BrewingProcessStep[]>, selectedId?: string): string {
-  if (batches.length === 0) return `<div class="panel" style="padding:20px;text-align:center;color:#9ca3af">バッチ未登録。調達計画から取込むか、新規バッチを追加してください。</div>`;
+  if (batches.length === 0) return `<div class="panel" style="padding:20px;text-align:center;color:#9ca3af">仕込が未登録です。調達計画から取込むか、新規登録してください。</div>`;
 
   const rows = batches.map(b => {
     const steps = stepsByBatch[b.id] ?? [];
@@ -213,7 +213,7 @@ function renderBatchList(batches: BrewingBatch[], stepsByBatch: Record<string, B
   }).join("");
 
   return `<section class="panel" style="margin-bottom:16px;">
-    <div class="panel-header"><h2>バッチ一覧</h2><p class="panel-caption">${batches.length}件 ／ 行クリックでフロー図表示</p></div>
+    <div class="panel-header"><h2>仕込一覧</h2><p class="panel-caption">${batches.length}件 ／ 行クリックで醸造工程フロー表示</p></div>
     <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;min-width:600px;">
         <thead><tr style="border-bottom:2px solid #e5e7eb;font-size:10px;color:#6b7280;text-align:left;">
@@ -255,8 +255,8 @@ function renderImportSection(schedule: ScheduleEntry[], batches: BrewingBatch[])
 
   return `<section class="panel" style="margin-bottom:16px">
     <div class="panel-header">
-      <div><h2>調達計画から取込</h2><p class="panel-caption">未登録のスケジュールを一括でバッチ作成</p></div>
-      <button class="button primary" data-action="bp-import-schedule" style="font-size:12px;">一括登録</button>
+      <div><h2>調達計画から取込</h2><p class="panel-caption">未登録のスケジュールを一括で仕込登録</p></div>
+      <button class="button primary" data-action="bp-import-schedule" style="font-size:12px;">一括仕込登録</button>
     </div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
       <thead><tr style="border-bottom:2px solid #e5e7eb;color:#6b7280;text-align:left;font-size:10px">
@@ -269,12 +269,12 @@ function renderImportSection(schedule: ScheduleEntry[], batches: BrewingBatch[])
 
 function renderNewBatchForm(categories: string[]): string {
   return `<div class="panel" style="margin-bottom:16px">
-    <div class="panel-header">新規バッチ登録</div>
+    <div class="panel-header">新規仕込登録</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;padding:10px 0;font-size:12px;">
       <label>区分<br><select id="bp-new-cat" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;">
         ${categories.map(c => `<option value="${c}">${c}</option>`).join("")}
       </select></label>
-      <label>バッチコード<br><input id="bp-new-code" type="text" placeholder="JG-2026-01" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;width:120px;"></label>
+      <label>仕込番号<br><input id="bp-new-code" type="text" placeholder="JG-2026-01" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;width:120px;"></label>
       <label>醸造量(L)<br><input id="bp-new-vol" type="number" placeholder="1800" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;width:80px;"></label>
       <label>開始日<br><input id="bp-new-date" type="date" style="padding:5px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;"></label>
       <button class="button primary" data-action="bp-create-batch" style="font-size:12px;padding:6px 16px;">登録</button>
@@ -411,15 +411,15 @@ export function renderBrewingProcess(
 
   return `
     <section class="page-head">
-      <div><p class="eyebrow">蔵内管理</p><h1>醸造工程管理</h1></div>
+      <div><p class="eyebrow">製造管理</p><h1>醸造工程管理</h1></div>
       <div class="meta-stack" style="display:flex;gap:8px;">
         <button class="button primary" data-action="bp-auto-schedule" style="font-size:12px;">自動スケジュール</button>
-        <button class="button" data-action="bp-show-new-form">＋ 新規バッチ</button>
+        <button class="button" data-action="bp-show-new-form">＋ 新規仕込</button>
       </div>
     </section>
     <section class="kpi-grid compact">
-      <article class="panel kpi-card"><p class="panel-title">進行中</p><p class="kpi-value">${activeCount}</p><p class="kpi-sub">アクティブ</p></article>
-      <article class="panel kpi-card"><p class="panel-title">計画中</p><p class="kpi-value">${plannedCount}</p><p class="kpi-sub">未着手</p></article>
+      <article class="panel kpi-card"><p class="panel-title">醸造中</p><p class="kpi-value">${activeCount}</p><p class="kpi-sub">仕込</p></article>
+      <article class="panel kpi-card"><p class="panel-title">計画中</p><p class="kpi-value">${plannedCount}</p><p class="kpi-sub">仕込</p></article>
       <article class="panel kpi-card"><p class="panel-title">完了</p><p class="kpi-value">${completedCount}</p><p class="kpi-sub">今期</p></article>
     </section>
 
@@ -433,8 +433,8 @@ export function renderBrewingProcess(
 
     <div id="bp-delete-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
       <div style="background:white;border-radius:12px;padding:24px;max-width:360px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-        <h3 style="margin:0 0 12px;font-size:15px;">バッチを削除</h3>
-        <p style="font-size:13px;color:#6b7280;margin-bottom:20px;"><strong id="bp-delete-batch-name"></strong> を削除します。<br>関連する全工程データも削除されます。</p>
+        <h3 style="margin:0 0 12px;font-size:15px;">仕込を削除</h3>
+        <p style="font-size:13px;color:#6b7280;margin-bottom:20px;"><strong id="bp-delete-batch-name"></strong> の仕込を削除します。<br>関連する全工程データも削除されます。この操作は取り消せません。</p>
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button data-action="bp-delete-cancel" style="padding:8px 16px;font-size:13px;border:1px solid #d1d5db;background:white;border-radius:6px;cursor:pointer;">キャンセル</button>
           <button data-action="bp-delete-confirm" style="padding:8px 16px;font-size:13px;border:none;background:#ef4444;color:white;border-radius:6px;cursor:pointer;font-weight:600;">削除する</button>
