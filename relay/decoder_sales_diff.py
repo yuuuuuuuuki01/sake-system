@@ -1,16 +1,18 @@
-"""SHTOR.DAT 差分検出デコーダ — バイナリdiff方式。
+"""SHTOR.DAT ページ構造対応デコーダ — Btrieve ページ対応版。
 
-前回スナップショットとの差分から変更/新規スロットを検出し、
-そこからのみ売上データを抽出する。B-Tree構造に依存しない。
+Btrieve ページ構造を正しく読み、SHDEN.DAT から計上日を取得して
+sales_document_lines に UPSERT する。
 
-フロー:
-1. .shtor_snapshot にチャンク(1000 slots)ごとのmd5を保存
-2. 再実行時: 変更チャンク → 変更スロット → データ抽出
-3. 変更スロットは必ず「今書き込まれた」レコードなので偽陽性なし
+SHTOR.DAT: page_size=16384, phys_rec=229
+  @4=inv_id, @8=line_no, @10=product, @64=qty, @80=amt, @127=cust, @158=入力日
+
+SHDEN.DAT: page_size=2048, phys_rec=497, data_page=byte4==0x44
+  構造C: header=23, @15=inv_id, @420=計上日  ← 最優先（精度98.4%）
+  構造A: header=209, @326=inv_id, @330=cust, @234=計上日
+  構造B: header=460, @75=inv_id, @79=cust(親コード先頭3桁), @480=計上日
 """
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import logging
@@ -25,8 +27,21 @@ from typing import Any
 import requests
 
 SAKE_UUID_NS = uuid.UUID("b7e3f1a0-4c2d-4e8f-9a1b-0c3d5e7f9a2b")
-HEADER_SIZE = 0x200
-CHUNK_SIZE = 1000  # slots per chunk
+
+# Btrieve page constants
+SHTOR_PAGE_SIZE = 16384
+SHTOR_PHYS_REC = 229
+SHTOR_KNOWN_HEADERS = [15, 41, 218, 192]
+
+SHDEN_PAGE_SIZE = 2048
+SHDEN_PHYS_REC = 497
+SHDEN_DATA_PAGE_MARKER = 0x44  # byte @4 == 'D' for data pages
+# 構造C: header=23, inv@15, date@420  — 最優先（精度98.4%）
+SHDEN_HEADER_C = 23
+# 構造A: header=209, inv@326, cust@330, date@234
+SHDEN_HEADER_A = 209
+# 構造B: header=460, inv@75, cust@79, date@480
+SHDEN_HEADER_B = 460
 
 BASE_DIR = Path(__file__).resolve().parent
 LOCAL_CONFIG_PATH = BASE_DIR / "relay_config.local.json"
@@ -34,17 +49,8 @@ CONFIG_PATH = BASE_DIR / "relay_config.json"
 LOG_PATH = BASE_DIR / "relay_log.txt"
 SNAPSHOT_PATH = BASE_DIR / ".shtor_snapshot"
 
+PROD8_RE = re.compile(rb"[5-9][0-9]{7}")
 DATE_RE = re.compile(rb"20[12]\d(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])")
-CUST_RE = re.compile(rb"\d{6} ")
-# dl-31 ヘッダ得意先コード (6バイト: スペース+5桁 or 6桁)
-CUST_HDR_RE = re.compile(rb"[\s\d]\d{4,5}")
-# dl+68 クロス検証 (ENTRY_PATTERN 得意先コード)
-CUST_EP_RE = re.compile(rb"\s?\d{5,6}")
-AMT_DELTAS = [83, -47, 182, -146, 166, -142, 87, -43, 186, -57]
-# changed_slots がこれを超えた場合はスナップショット更新のみ (recover_dates.py を使うこと)
-MAX_SLOTS_TO_PROCESS = 50_000
-# B-tree 構造解析で確認された偽陽性得意先コード（CSV照合で実在しないと確認済み）
-KNOWN_FALSE_POSITIVE_CUSTS: frozenset[str] = frozenset({"150946", "110095", "151901"})
 
 
 def setup_logging() -> logging.Logger:
@@ -66,200 +72,239 @@ def load_config() -> dict[str, Any]:
         return json.load(fp)
 
 
-def load_known_customers(config: dict[str, Any]) -> set[str]:
-    known: set[str] = set()
-    try:
-        url = config["supabase_url"].rstrip("/")
-        resp = requests.get(
-            f"{url}/rest/v1/customers?select=id",
-            headers={"apikey": config["supabase_anon_key"], "Authorization": f"Bearer {config['supabase_anon_key']}"},
-            timeout=30,
-        )
-        if resp.ok:
-            for row in resp.json():
-                cid = str(row.get("id", "")).strip()
-                if cid:
-                    known.add(cid.zfill(6))
-    except Exception:
-        pass
-    csv_path = Path(config.get("z_drive_path", "Z:\\")) / "売掛金元帳.csv"
-    if csv_path.exists():
-        try:
-            with csv_path.open("r", encoding="cp932", errors="replace") as f:
-                next(f)
-                reader = csv.reader(f)
-                next(reader, None)
-                for row in reader:
-                    if row and row[0].strip():
-                        known.add(row[0].strip().zfill(6))
-        except Exception:
-            pass
-    return known
-
-
-def compute_snapshot(data: bytes, record_size: int) -> dict[int, bytes]:
-    """チャンクごとのmd5ハッシュを計算。"""
-    total_slots = (len(data) - HEADER_SIZE) // record_size
-    snapshot: dict[int, bytes] = {}
-    for chunk_idx in range((total_slots + CHUNK_SIZE - 1) // CHUNK_SIZE):
-        start = HEADER_SIZE + chunk_idx * CHUNK_SIZE * record_size
-        end = min(start + CHUNK_SIZE * record_size, len(data))
-        snapshot[chunk_idx] = hashlib.md5(data[start:end]).digest()
-    return snapshot
-
-
-def find_changed_slots(data: bytes, record_size: int, old_snapshot: dict[int, bytes], new_snapshot: dict[int, bytes]) -> list[int]:
-    """変更されたチャンク内のスロットを個別比較して、変更スロットを返す。"""
-    total_slots = (len(data) - HEADER_SIZE) // record_size
-    changed: list[int] = []
-
-    for chunk_idx, new_hash in new_snapshot.items():
-        old_hash = old_snapshot.get(chunk_idx)
-        if old_hash == new_hash:
-            continue
-
-        # チャンク内のスロットを個別確認
-        for i in range(CHUNK_SIZE):
-            slot = chunk_idx * CHUNK_SIZE + i
-            if slot >= total_slots:
-                break
-            offset = HEADER_SIZE + slot * record_size
-            rec = data[offset : offset + record_size]
-            if rec[0] in (0x00, 0x01):
-                continue
-            # 新規/変更されたスロットを追加
-            changed.append(slot)
-
-    return changed
-
-
-def decode_cp932_clean(raw: bytes) -> str:
+def decode_cp932(raw: bytes) -> str:
     return raw.decode("cp932", errors="replace").replace("\x00", "").replace("\ufffd", "").strip()
 
 
-def extract_from_slots(data: bytes, record_size: int, slots: list[int], known_custs: set[str], filepath_name: str) -> list[dict[str, Any]]:
-    """指定スロットからデータを抽出。変更スロットは確実にデータなので偽陽性の心配なし。"""
-    total_slots = (len(data) - HEADER_SIZE) // record_size
-    lines: list[dict[str, Any]] = []
+# ---------------------------------------------------------------------------
+# SHDEN 計上日マップ
+# ---------------------------------------------------------------------------
 
-    for slot in slots:
-        rec = data[HEADER_SIZE + slot * record_size : HEADER_SIZE + (slot + 1) * record_size]
-        if rec[0] in (0x00, 0x01):
+def load_shden_posting_date_map(config: dict[str, Any],
+                                logger: logging.Logger) -> dict[int, str]:
+    """SHDEN.DAT から {inv_id: 計上日(YYYY-MM-DD)} マップを構築する。
+
+    データページ (byte@4==0x44) のみスキャンし、構造 C → A → B の優先順で
+    first-match を採用。4月CSV検証で 98.4% 精度。
+
+    構造C: header=23, inv@15(LE4) + date@420(8桁ASCII)
+    構造A: header=209, inv@326(LE4) + cust@330(6桁ASCII) + date@234(8桁ASCII)
+    構造B: header=460, inv@75(LE4) + cust@79(先頭3桁) + date@480(8桁ASCII)
+    """
+    filepath = Path(config["z_drive_path"]) / "sh" / "dat" / "SHDEN.DAT"
+    if not filepath.exists():
+        logger.warning("SHDEN.DAT not found")
+        return {}
+
+    data = filepath.read_bytes()
+    num_pages = len(data) // SHDEN_PAGE_SIZE
+    date_map: dict[int, str] = {}
+    struct_c_count = 0
+    struct_a_count = 0
+    struct_b_count = 0
+
+    for pn in range(num_pages):
+        ps = pn * SHDEN_PAGE_SIZE
+        if data[ps + 4] != SHDEN_DATA_PAGE_MARKER:
             continue
 
-        # 方法1: 日付ベース
-        for m in DATE_RE.finditer(rec):
-            dl = m.start()
-            ao = dl - 78
-            qo = dl - 94
-            co = dl - 31
-            if ao < 0 or qo < 0 or co < 0 or ao + 4 > record_size or co + 6 > record_size:
-                continue
-
-            # ── クロス検証 (B-tree 内部ノード偽陽性排除) ──
-            # 1) dl-31 に 6バイト得意先コード
-            cust_hdr = rec[co: co + 6]
-            if not CUST_HDR_RE.fullmatch(cust_hdr):
-                continue
-            # 2) dl+68 に得意先コード + 直後が 0x20
-            ep = dl + 68
-            if ep + 7 > record_size:
-                continue
-            if not CUST_EP_RE.match(rec[ep: ep + 6]):
-                continue
-            if rec[ep + 6] != 0x20:
-                continue
-            # ──────────────────────────────────────────────
-
-            a = struct.unpack_from("<i", rec, ao)[0]
-            q = struct.unpack_from("<i", rec, qo)[0]
-            if abs(a) > 10_000_000 or abs(q) > 99_999:
-                continue
-            if a == 0 and q == 0:
-                continue
-            c = rec[co : co + 6].decode("ascii", errors="replace").strip()
-            if not re.match(r"^\d{3,6}$", c):
-                continue
-
-            date_str = m.group().decode("ascii")
-            sales_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
-            cust_code = c.lstrip("0") or c
-
-            if cust_code in KNOWN_FALSE_POSITIVE_CUSTS:
-                continue
-
-            # 商品コード
-            prod_code = ""
-            prod_name = ""
-            po = ao - 69
-            if po >= 0 and po + 7 <= record_size:
-                cand = rec[po : po + 7].decode("ascii", errors="replace").strip()
-                if re.match(r"^\d{3,7}$", cand):
-                    prod_code = cand.lstrip("0") or cand
-                    ns = po + 9
-                    prod_name = decode_cp932_clean(rec[ns : min(ns + 40, record_size)])
-
-            unit_price = a // q if q and q != 0 else 0
-
-            lines.append({
-                "id": str(uuid.uuid5(SAKE_UUID_NS, f"diff:{filepath_name}:{slot}:{ao}")),
-                "legacy_document_no": f"D{slot}",
-                "document_no": f"D{slot}",
-                "line_no": 1,
-                "legacy_product_code": prod_code or None,
-                "product_name": prod_name or None,
-                "quantity": q,
-                "unit_price": unit_price,
-                "line_amount": a,
-                "amount": a,
-                "note": f"date:{sales_date} cust:{cust_code} src:diff",
-            })
-            break
-
-        # 方法2: 得意先コードベース（日付がない場合）
-        if not any(ln["legacy_document_no"] == f"D{slot}" for ln in lines):
-            for cm in CUST_RE.finditer(rec):
-                c = cm.group()[:6].decode("ascii")
-                if c not in known_custs:
-                    continue
-                if (c.lstrip("0") or c) in KNOWN_FALSE_POSITIVE_CUSTS:
-                    continue
-                cp = cm.start()
-                for delta in AMT_DELTAS:
-                    ao = cp + delta
-                    qo = ao - 16
-                    if ao < 0 or ao + 4 > record_size or qo < 0 or qo + 4 > record_size:
-                        continue
-                    a = struct.unpack_from("<i", rec, ao)[0]
-                    q = struct.unpack_from("<i", rec, qo)[0]
-                    if a == 0 and q == 0:
-                        continue
-                    if abs(a) > 5_000_000 or abs(q) > 10_000:
-                        continue
-                    cust_code = c.lstrip("0") or c
-                    lines.append({
-                        "id": str(uuid.uuid5(SAKE_UUID_NS, f"diff:{filepath_name}:{slot}:{ao}")),
-                        "legacy_document_no": f"D{slot}",
-                        "document_no": f"D{slot}",
-                        "line_no": 1,
-                        "legacy_product_code": None,
-                        "product_name": None,
-                        "quantity": q,
-                        "unit_price": a // q if q else 0,
-                        "line_amount": a,
-                        "amount": a,
-                        "note": f"date:unknown cust:{cust_code} src:diff",
-                    })
-                    break
+        # --- 構造C (最優先): header=23, inv@15, date@420 ---
+        recs_c = (SHDEN_PAGE_SIZE - SHDEN_HEADER_C) // SHDEN_PHYS_REC
+        for k in range(recs_c):
+            off = ps + SHDEN_HEADER_C + k * SHDEN_PHYS_REC
+            if off + SHDEN_PHYS_REC > len(data):
                 break
+            inv_id = struct.unpack_from("<I", data, off + 15)[0]
+            if not (1 <= inv_id <= 200_000) or inv_id in date_map:
+                continue
+            d420 = data[off + 420 : off + 428]
+            if not DATE_RE.fullmatch(d420):
+                continue
+            d = d420.decode()
+            date_map[inv_id] = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+            struct_c_count += 1
 
-    return lines
+        # --- 構造A: header=209, inv@326, cust@330, date@234 ---
+        recs_a = (SHDEN_PAGE_SIZE - SHDEN_HEADER_A) // SHDEN_PHYS_REC
+        for k in range(recs_a):
+            off = ps + SHDEN_HEADER_A + k * SHDEN_PHYS_REC
+            if off + SHDEN_PHYS_REC > len(data):
+                break
+            inv_id = struct.unpack_from("<I", data, off + 326)[0]
+            if not (1 <= inv_id <= 200_000) or inv_id in date_map:
+                continue
+            if not re.fullmatch(rb"\d{6}", data[off + 330 : off + 336]):
+                continue
+            d234 = data[off + 234 : off + 242]
+            if not DATE_RE.fullmatch(d234):
+                continue
+            d = d234.decode()
+            date_map[inv_id] = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+            struct_a_count += 1
+
+        # --- 構造B: header=460, inv@75, cust@79, date@480 ---
+        recs_b = (SHDEN_PAGE_SIZE - SHDEN_HEADER_B) // SHDEN_PHYS_REC
+        for k in range(recs_b):
+            off = ps + SHDEN_HEADER_B + k * SHDEN_PHYS_REC
+            if off + SHDEN_PHYS_REC > len(data):
+                break
+            inv_id = struct.unpack_from("<I", data, off + 75)[0]
+            if not (1 <= inv_id <= 200_000) or inv_id in date_map:
+                continue
+            if not re.fullmatch(rb"\d{3}", data[off + 79 : off + 82]):
+                continue
+            d480 = data[off + 480 : off + 488]
+            if not DATE_RE.fullmatch(d480):
+                continue
+            d = d480.decode()
+            date_map[inv_id] = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+            struct_b_count += 1
+
+    logger.info("SHDEN posting date map: %d entries (C=%d, A=%d, B=%d)",
+                len(date_map), struct_c_count, struct_a_count, struct_b_count)
+    return date_map
 
 
-def upsert(config: dict[str, Any], records: list[dict[str, Any]], logger: logging.Logger, dry_run: bool = False) -> int:
+# ---------------------------------------------------------------------------
+# SHTOR ページ構造対応レコード抽出
+# ---------------------------------------------------------------------------
+
+def _count_valid_records(page_data: bytes, header: int) -> int:
+    """ページ内で指定ヘッダオフセットから有効レコード数をカウント。"""
+    count = 0
+    k = 0
+    while header + k * SHTOR_PHYS_REC + SHTOR_PHYS_REC <= len(page_data):
+        off = header + k * SHTOR_PHYS_REC
+        inv_id = struct.unpack_from("<I", page_data, off + 4)[0]
+        if (1 <= inv_id <= 200_000
+                and PROD8_RE.fullmatch(page_data[off + 10 : off + 18])
+                and re.fullmatch(rb"\d{6}", page_data[off + 127 : off + 133])):
+            count += 1
+        k += 1
+    return count
+
+
+SHTOR_DATA_PAGE_HEADER = 41  # byte4=0x44 データページの固定ヘッダ
+
+
+def extract_page_records(page_data: bytes,
+                         date_map: dict[int, str]) -> list[dict[str, Any]]:
+    """1ページ (16384B) からレコードを抽出する。
+
+    データページ (byte@4==0x44) は header=41 固定。
+    それ以外のページは既知ヘッダから best-of-4 で選択。
+    4月CSV検証で 99.7% 精度。
+    """
+    is_data_page = page_data[4] == 0x44
+
+    if is_data_page:
+        best_h = SHTOR_DATA_PAGE_HEADER
+        best_count = _count_valid_records(page_data, best_h)
+    else:
+        best_h = -1
+        best_count = 0
+        for h in SHTOR_KNOWN_HEADERS:
+            c = _count_valid_records(page_data, h)
+            if c > best_count:
+                best_count = c
+                best_h = h
+
+    if best_count == 0:
+        return []
+
+    results: list[dict[str, Any]] = []
+    k = 0
+    while best_h + k * SHTOR_PHYS_REC + SHTOR_PHYS_REC <= len(page_data):
+        off = best_h + k * SHTOR_PHYS_REC
+        rec = page_data[off : off + SHTOR_PHYS_REC]
+        k += 1
+
+        inv_id = struct.unpack_from("<I", rec, 4)[0]
+        if not (1 <= inv_id <= 200_000):
+            continue
+        if not PROD8_RE.fullmatch(rec[10:18]):
+            continue
+        cust_raw = rec[127:133]
+        if not re.fullmatch(rb"\d{6}", cust_raw):
+            continue
+
+        line_no = struct.unpack_from("<H", rec, 8)[0]
+        if not (1 <= line_no <= 99):
+            continue
+
+        qty = struct.unpack_from("<I", rec, 64)[0]
+        if qty > 9_999:
+            continue
+        # qty=0 を許可（貸与品・P箱・送料等）
+
+        amt = struct.unpack_from("<I", rec, 80)[0]
+        if amt > 10_000_000:
+            continue
+
+        # 日付: SHDEN 計上日マップ優先、なければ @158 入力日フォールバック
+        date_str = date_map.get(inv_id)
+        date_src = "shden"
+        if not date_str:
+            dr = rec[158:166]
+            if DATE_RE.fullmatch(dr):
+                d = dr.decode()
+                date_str = f"{d[:4]}-{d[4:6]}-{d[6:8]}"
+                date_src = "shtor"
+            else:
+                date_str = "unknown"
+                date_src = "none"
+
+        prod_str = rec[10:18].decode("ascii")
+        prod_code = prod_str[2:].lstrip("0") or prod_str[2:]
+        prod_name = decode_cp932(rec[18:58])
+        cust = cust_raw.decode("ascii")
+
+        results.append({
+            "id": str(uuid.uuid5(SAKE_UUID_NS, f"shtor:{inv_id}:{line_no}")),
+            "legacy_document_no": str(inv_id),
+            "document_no": str(inv_id),
+            "line_no": line_no,
+            "legacy_product_code": prod_code or None,
+            "product_name": prod_name or None,
+            "quantity": qty,
+            "unit_price": amt // qty if qty else 0,
+            "line_amount": amt,
+            "amount": amt,
+            "note": f"date:{date_str} inv:{inv_id} cust:{cust} src:diff dsrc:{date_src}",
+        })
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# スナップショット（ページ単位）
+# ---------------------------------------------------------------------------
+
+def compute_page_snapshot(data: bytes) -> dict[int, bytes]:
+    """ページ (16384B) ごとの md5 ハッシュを計算。"""
+    num_pages = len(data) // SHTOR_PAGE_SIZE
+    return {
+        pn: hashlib.md5(data[pn * SHTOR_PAGE_SIZE : (pn + 1) * SHTOR_PAGE_SIZE]).digest()
+        for pn in range(num_pages)
+    }
+
+
+def find_changed_pages(old_snap: dict[int, bytes],
+                       new_snap: dict[int, bytes]) -> list[int]:
+    """変更されたページ番号を返す。"""
+    return [pn for pn, h in new_snap.items() if old_snap.get(pn) != h]
+
+
+# ---------------------------------------------------------------------------
+# upsert
+# ---------------------------------------------------------------------------
+
+def upsert_lines(config: dict[str, Any], records: list[dict[str, Any]],
+                 logger: logging.Logger, dry_run: bool = False) -> int:
+    """sales_document_lines に UPSERT。"""
     if not records:
         return 0
-    url = config["supabase_url"].rstrip("/")
+    url = config["supabase_url"].rstrip("/") + "/rest/v1/sales_document_lines"
     session = requests.Session()
     session.headers.update({
         "apikey": config["supabase_anon_key"],
@@ -273,20 +318,25 @@ def upsert(config: dict[str, Any], records: list[dict[str, Any]], logger: loggin
         if dry_run:
             logger.info("[DRY-RUN] would upsert %d lines", len(batch))
         else:
-            resp = session.post(f"{url}/rest/v1/sales_document_lines?on_conflict=id", json=batch, timeout=120)
+            resp = session.post(f"{url}?on_conflict=id", json=batch, timeout=120)
             if not resp.ok:
                 logger.error("UPSERT error: %s %s", resp.status_code, resp.text[:200])
         total += len(batch)
     return total
 
 
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
 def main() -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="SHTOR.DAT 差分検出デコーダ")
+    parser = argparse.ArgumentParser(description="SHTOR.DAT ページ構造対応デコーダ")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--init", action="store_true", help="初回スナップショット作成のみ")
-    parser.add_argument("--force", action="store_true", help="差分なしでも全スロット処理")
+    parser.add_argument("--full-scan", action="store_true",
+                        help="差分比較をスキップして全ページを処理")
     args = parser.parse_args()
 
     logger = setup_logging()
@@ -299,70 +349,123 @@ def main() -> int:
 
     logger.info("Reading: %s", filepath)
     data = filepath.read_bytes()
-    record_size = struct.unpack_from("<H", data, 0x18)[0]
-    total_slots = (len(data) - HEADER_SIZE) // record_size
-    logger.info("record_size=%d, slots=%d", record_size, total_slots)
+    num_pages = len(data) // SHTOR_PAGE_SIZE
+    logger.info("page_size=%d, pages=%d, file_size=%d",
+                SHTOR_PAGE_SIZE, num_pages, len(data))
 
-    new_snapshot = compute_snapshot(data, record_size)
-    logger.info("Snapshot computed: %d chunks", len(new_snapshot))
+    # SHDEN.DAT から計上日マップを構築
+    date_map = load_shden_posting_date_map(config, logger)
 
-    if args.init or not SNAPSHOT_PATH.exists():
+    # スナップショット（ページ単位）
+    new_snapshot = compute_page_snapshot(data)
+    logger.info("Snapshot computed: %d pages", len(new_snapshot))
+
+    if args.init:
         with SNAPSHOT_PATH.open("wb") as f:
             pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
-        logger.info("Initial snapshot saved to %s", SNAPSHOT_PATH)
-        if args.init:
+        logger.info("Initial snapshot saved")
+        return 0
+
+    # 処理対象ページの決定
+    if args.full_scan:
+        logger.info("Full-scan mode: processing all pages")
+        target_pages = list(range(num_pages))
+    elif not SNAPSHOT_PATH.exists():
+        with SNAPSHOT_PATH.open("wb") as f:
+            pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
+        logger.info("Initial snapshot created. Next run will detect changes.")
+        return 0
+    else:
+        with SNAPSHOT_PATH.open("rb") as f:
+            old_data = pickle.load(f)
+        old_snapshot = old_data["snapshot"]
+        target_pages = find_changed_pages(old_snapshot, new_snapshot)
+        logger.info("Changed pages: %d / %d", len(target_pages), num_pages)
+        if not target_pages:
+            logger.info("No changes detected")
+            with SNAPSHOT_PATH.open("wb") as f:
+                pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
             return 0
 
-    # 前回スナップショットと比較
-    with SNAPSHOT_PATH.open("rb") as f:
-        old_data = pickle.load(f)
-    old_snapshot = old_data["snapshot"]
+    # --- Pass1: データページ (byte4=0x44) からレコード抽出（正規データ） ---
+    # 同一UUID（inv+line）が複数ページに異なる金額で存在する場合は多数決で採用。
+    # Btrieve は修正時に旧データが残るため、修正後の値を持つページが複数ある。
+    from collections import Counter as _Counter
+    batch: dict[str, dict[str, Any]] = {}
+    _vote: dict[str, _Counter] = {}  # uid -> Counter({amt: count})
+    data_page_count = 0
+    index_page_count = 0
+    for pn in target_pages:
+        page_data = data[pn * SHTOR_PAGE_SIZE : (pn + 1) * SHTOR_PAGE_SIZE]
+        if page_data[4] == 0x44:
+            rows = extract_page_records(page_data, date_map)
+            if rows:
+                data_page_count += 1
+            for row in rows:
+                uid = row["id"]
+                amt = row.get("amount") or row.get("line_amount") or 0
+                if uid not in _vote:
+                    _vote[uid] = _Counter()
+                _vote[uid][amt] += 1
+                batch[uid] = row  # 後勝ち（暫定）
 
-    changed_chunks = sum(1 for k in new_snapshot if new_snapshot[k] != old_snapshot.get(k))
-    logger.info("Changed chunks: %d / %d", changed_chunks, len(new_snapshot))
+    # 多数決: 最も多く出現した金額のレコードを採用
+    winning_amt: dict[str, int] = {}
+    for uid, counter in _vote.items():
+        if len(counter) > 1:
+            winning_amt[uid] = counter.most_common(1)[0][0]
 
-    if changed_chunks == 0 and not args.force:
-        logger.info("No changes detected")
-        # スナップショット更新
-        with SNAPSHOT_PATH.open("wb") as f:
-            pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
-        return 0
+    if winning_amt:
+        for pn in target_pages:
+            page_data = data[pn * SHTOR_PAGE_SIZE : (pn + 1) * SHTOR_PAGE_SIZE]
+            if page_data[4] != 0x44:
+                continue
+            rows = extract_page_records(page_data, date_map)
+            for row in rows:
+                uid = row["id"]
+                if uid in winning_amt:
+                    amt = row.get("amount") or row.get("line_amount") or 0
+                    if amt == winning_amt[uid]:
+                        batch[uid] = row
 
-    changed_slots = list(range(total_slots)) if args.force else \
-        find_changed_slots(data, record_size, old_snapshot, new_snapshot)
-    logger.info("Changed slots: %d", len(changed_slots))
+    data_only_count = len(batch)
 
-    # スナップショットが古すぎて changed_slots が上限を超えた場合は抽出をスキップ。
-    # recover_dates.py で対象日付を手動回収すること。
-    if len(changed_slots) > MAX_SLOTS_TO_PROCESS and not args.force:
-        logger.warning(
-            "Changed slots (%d) exceeds MAX_SLOTS_TO_PROCESS (%d). "
-            "Skipping extraction — run recover_dates.py <YYYYMMDD> for missing dates. "
-            "Snapshot will be updated to prevent repeat.",
-            len(changed_slots), MAX_SLOTS_TO_PROCESS,
-        )
-        with SNAPSHOT_PATH.open("wb") as f:
-            pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
-        logger.info("Snapshot updated (no extraction)")
-        return 0
+    # --- Pass2: 非データページから不足分を補完 ---
+    # date_map に存在するinv_idのみ受け入れ（偽陽性排除）
+    for pn in target_pages:
+        page_data = data[pn * SHTOR_PAGE_SIZE : (pn + 1) * SHTOR_PAGE_SIZE]
+        if page_data[4] == 0x44:
+            continue  # データページは Pass1 で処理済み
+        rows = extract_page_records(page_data, date_map)
+        if rows:
+            index_page_count += 1
+        for row in rows:
+            inv_int = int(row["legacy_document_no"]) if row["legacy_document_no"].isdigit() else 0
+            if row["id"] not in batch and inv_int in date_map:
+                batch[row["id"]] = row
 
-    known_custs = load_known_customers(config)
-    logger.info("Known customers: %d", len(known_custs))
+    records = list(batch.values())
+    dated = sum(1 for r in records if "date:unknown" not in r["note"])
+    shden_dates = sum(1 for r in records if "dsrc:shden" in r["note"])
+    supplemented = len(records) - data_only_count
+    logger.info("Extracted: %d records (data_pages=%d, supplemented=%d, dated=%d, shden=%d, unknown=%d)",
+                len(records), data_only_count, supplemented, dated, shden_dates, len(records) - dated)
 
-    lines = extract_from_slots(data, record_size, changed_slots, known_custs, filepath.name)
-    logger.info("Extracted: %d lines from %d changed slots", len(lines), len(changed_slots))
-
-    if lines:
-        total = upsert(config, lines, logger, dry_run=args.dry_run)
+    if records:
+        total = upsert_lines(config, records, logger, dry_run=args.dry_run)
         logger.info("Upserted: %d lines", total)
+        # refresh_facts.py にリフレッシュが必要と通知
+        if not args.dry_run:
+            (BASE_DIR / ".needs_refresh").write_text("1")
 
     # スナップショット更新
-    with SNAPSHOT_PATH.open("wb") as f:
-        pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
-    logger.info("Snapshot updated")
+    if not args.dry_run:
+        with SNAPSHOT_PATH.open("wb") as f:
+            pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
+        logger.info("Snapshot updated")
 
     # 明細 → ヘッダー FK 自動補完
-    if not args.dry_run:
+    if not args.dry_run and records:
         for rpc in ("link_lines_to_headers", "backfill_header_amounts"):
             try:
                 url_rpc = config["supabase_url"].rstrip("/") + f"/rest/v1/rpc/{rpc}"
