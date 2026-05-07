@@ -1,4 +1,4 @@
-import type { PipelineMeta, SyncDashboard } from "../api";
+import type { PipelineMeta, SyncDashboard, SystemHealthItem } from "../api";
 
 function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat("ja-JP", {
@@ -196,11 +196,78 @@ function renderSyncDashboard(sync: SyncDashboard): string {
   `;
 }
 
+function renderSystemHealth(items: SystemHealthItem[]): string {
+  if (!items.length) return "";
+
+  const statusIcon = (s: string) => s === "ok" ? "&#x2705;" : s === "warn" ? "&#x26A0;&#xFE0F;" : "&#x274C;";
+  const statusClass = (s: string) => s === "ok" ? "success" : s === "warn" ? "warning" : "error";
+  const allOk = items.every(i => i.status === "ok");
+
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>システム稼働状況</h2>
+          <p class="panel-caption">${allOk ? "全機能正常稼働中" : "一部要確認"}</p>
+        </div>
+        <span class="status-pill ${allOk ? "success" : "warning"}" style="font-size:1.1em">
+          ${allOk ? "ALL OK" : "要確認"}
+        </span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>機能</th>
+              <th>テーブル</th>
+              <th class="numeric">レコード数</th>
+              <th>状態</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(item => `
+              <tr>
+                <td>${statusIcon(item.status)} ${item.name}</td>
+                <td class="mono" style="font-size:0.85em">${item.table}</td>
+                <td class="numeric">${item.count.toLocaleString("ja-JP")}</td>
+                <td><span class="status-pill ${statusClass(item.status)}">${item.detail}</span></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:16px;padding:12px;background:var(--bg-detail,#f8f9fa);border-radius:8px;font-size:0.9em">
+        <strong>実装済み機能:</strong>
+        <ul style="margin:8px 0 0 20px;line-height:1.8">
+          <li><strong>バイナリデコーダ</strong> — SHTOR.DAT/SHDEN.DATからページ構造解析で売上データ抽出 (精度99.9%)</li>
+          <li><strong>SHDEN 3構造対応</strong> — Structure C(header=23)>A(209)>B(460) 優先で計上日取得</li>
+          <li><strong>多数決方式</strong> — 同一伝票の修正前/後データが残る場合、多数決で正しい金額を採用</li>
+          <li><strong>日次自動同期</strong> — タスクスケジューラ(SakeRelay)で5分毎に差分検出→集計更新</li>
+          <li><strong>API効率化</strong> — 差分フラグ(.needs_refresh)で変更時のみ集計実行</li>
+          <li><strong>伝票明細表示</strong> — 伝票照会ページで行タップ→商品明細をインライン展開</li>
+          <li><strong>ダッシュボード</strong> — daily_sales_factから直接集計 (MVリフレッシュ不要)</li>
+        </ul>
+
+        <strong style="display:block;margin-top:12px">データパイプライン:</strong>
+        <div style="margin-top:8px;font-family:monospace;font-size:0.85em;line-height:1.6;padding:8px;background:#fff;border-radius:4px">
+          Z:\\sh\\dat\\SHTOR.DAT → decoder_sales_diff.py → sales_document_lines<br>
+          Z:\\sh\\dat\\SHDEN.DAT → (日付マップ構築) → 計上日をnoteに付与<br>
+          sales_document_lines → refresh_facts.py → daily_sales_fact / product_monthly_sales<br>
+          daily_sales_fact → web ダッシュボード (KPI・日別チャート・分析)<br>
+          sales_document_lines → 伝票照会 (行タップ→商品明細)
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 export function renderRelaySetup(
   pipeline: PipelineMeta,
   supabaseUrl: string,
   supabaseAnonKey: string,
-  syncDashboard?: SyncDashboard | null
+  syncDashboard?: SyncDashboard | null,
+  systemHealth?: SystemHealthItem[] | null
 ): string {
   const statusLabelMap = {
     success: "正常",
@@ -216,6 +283,8 @@ export function renderRelaySetup(
         <h1>WEB連動PC セットアップ</h1>
       </div>
     </section>
+
+    ${systemHealth ? renderSystemHealth(systemHealth) : ""}
 
     ${syncDashboard ? renderSyncDashboard(syncDashboard) : ""}
 

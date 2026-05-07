@@ -1,4 +1,4 @@
-import { supabaseCount, supabaseInsert, supabaseQuery, supabaseQueryAll, supabaseRpc, supabaseUpdate, supabaseUpsert } from "./supabase";
+import { supabaseCount, supabaseInsert, supabaseQuery, supabaseQueryAll, supabaseRpc, supabaseUpdate, supabaseUpsert, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabase";
 import type { TourInquiry } from "./components/BreweryTour";
 export type { TourInquiry };
 
@@ -915,6 +915,54 @@ export async function fetchSyncDashboard(): Promise<SyncDashboard> {
     totalNormalizedRecords: 0,
     lastOverallSync: null
   };
+}
+
+export interface SystemHealthItem {
+  name: string;
+  table: string;
+  count: number;
+  status: "ok" | "warn" | "error";
+  detail: string;
+}
+
+export async function fetchSystemHealth(): Promise<SystemHealthItem[]> {
+  const checks: { name: string; table: string; countFilter?: string; expectMin: number }[] = [
+    { name: "売上明細 (SHTOR)", table: "sales_document_lines", countFilter: "note=like.*src:diff*", expectMin: 200000 },
+    { name: "伝票ヘッダ (SHDEN)", table: "sales_document_headers", expectMin: 50000 },
+    { name: "日次売上集計", table: "daily_sales_fact", expectMin: 100000 },
+    { name: "商品月別売上", table: "product_monthly_sales", expectMin: 10000 },
+    { name: "得意先マスタ", table: "customers", expectMin: 500 },
+    { name: "商品マスタ", table: "products", expectMin: 1000 },
+    { name: "安全在庫", table: "product_safety_stock_params", expectMin: 0 },
+  ];
+
+  const results: SystemHealthItem[] = [];
+  for (const check of checks) {
+    try {
+      const filter = check.countFilter ? `&${check.countFilter}` : "";
+      const url = `${SUPABASE_URL}/rest/v1/${check.table}?select=id&limit=0${filter}`;
+      const resp = await fetch(url, {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          Prefer: "count=exact"
+        }
+      });
+      const range = resp.headers.get("content-range") ?? "*/0";
+      const count = parseInt(range.split("/").pop() ?? "0", 10) || 0;
+      const status = count >= check.expectMin ? "ok" : count > 0 ? "warn" : "error";
+      results.push({
+        name: check.name,
+        table: check.table,
+        count,
+        status,
+        detail: count >= check.expectMin ? "正常稼働" : count > 0 ? "データ少" : "データなし"
+      });
+    } catch {
+      results.push({ name: check.name, table: check.table, count: 0, status: "error", detail: "接続エラー" });
+    }
+  }
+  return results;
 }
 
 export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecord[]> {

@@ -124,7 +124,7 @@ import { supabaseDelete } from "./supabase";
 import { toggleSort, type SortState } from "./utils/tableSort";
 import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter, type ProductPeriod } from "./components/BusinessIntelligence";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
-import { fetchInvoiceLines, type InvoiceLineDetail } from "./api";
+import { fetchInvoiceLines, fetchSystemHealth, type InvoiceLineDetail, type SystemHealthItem } from "./api";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
 import { renderKentei } from "./components/Kentei";
@@ -457,6 +457,7 @@ interface AppState {
   masterStats: MasterStatsSummary | null;
   pipelineMeta: PipelineMeta | null;
   syncDashboard: SyncDashboard | null;
+  systemHealth: SystemHealthItem[] | null;
   rawTableList: RawTableInfo[];
   rawRecords: RawRecord[];
   rawSelectedTable: string | null;
@@ -748,6 +749,7 @@ const state: AppState = {
   masterStats: null,
   pipelineMeta: null,
   syncDashboard: null,
+  systemHealth: null,
   rawTableList: [],
   rawRecords: [],
   rawSelectedTable: null,
@@ -1763,7 +1765,10 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.customerLedger = await fetchCustomerLedger(state.ledgerCustomerCode);
         break;
       case "/setup":
-        state.syncDashboard = await fetchSyncDashboard();
+        [state.syncDashboard, state.systemHealth] = await Promise.all([
+          fetchSyncDashboard(),
+          fetchSystemHealth()
+        ]);
         break;
       case "/raw-browser":
         if (state.rawTableList.length === 0) {
@@ -2059,7 +2064,7 @@ function renderView(): string {
       );
     case "/setup":
       return state.pipelineMeta
-        ? renderRelaySetup(state.pipelineMeta, SUPABASE_URL, SUPABASE_ANON_KEY, state.syncDashboard)
+        ? renderRelaySetup(state.pipelineMeta, SUPABASE_URL, SUPABASE_ANON_KEY, state.syncDashboard, state.systemHealth)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/raw-browser":
       return renderRawBrowser(
