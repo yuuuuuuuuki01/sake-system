@@ -623,6 +623,10 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
     .sort((a, b) => b.sales_date.localeCompare(a.sales_date));
 
   if (salesRows.length > 0) {
+    // 当月の明細を一括プリロード（タップ時に即表示するため）
+    const thisMonth = new Date().toISOString().slice(0, 7);
+    preloadInvoiceLines(thisMonth).catch(() => {});
+
     const [paymentRows, headerRows] = await Promise.all([
       supabaseQuery<CustomerPaymentStatusRow>("customer_payment_status", {
         select: "legacy_customer_code,billed_amount,paid_amount,balance_amount,payment_status"
@@ -1009,35 +1013,46 @@ export interface InvoiceLineDetail {
   amount: number;
 }
 
-// UUIDv5 を JS で計算して id 検索（インデックスが効くので高速）
-const SAKE_UUID_NS = "b7e3f1a0-4c2d-4e8f-9a1b-0c3d5e7f9a2b";
+// 明細キャッシュ: fetchSalesSummary 時に一括取得してキャッシュ
+const _lineCache: Map<string, InvoiceLineDetail[]> = new Map();
 
-async function uuidv5(name: string): Promise<string> {
-  const nsBytes = SAKE_UUID_NS.replace(/-/g, "").match(/.{2}/g)!.map(h => parseInt(h, 16));
-  const data = new Uint8Array([...nsBytes, ...new TextEncoder().encode(name)]);
-  const hash = await crypto.subtle.digest("SHA-1", data);
-  const b = new Uint8Array(hash);
-  b[6] = (b[6] & 0x0f) | 0x50;
-  b[8] = (b[8] & 0x3f) | 0x80;
-  const hex = Array.from(b.slice(0, 16), x => x.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`;
+export async function preloadInvoiceLines(yearMonth: string): Promise<void> {
+  _lineCache.clear();
+  // 直近月の明細を一括取得（noteのdate:YYYY-MMでフィルタ）
+  const rows = await supabaseQueryAll<LooseRow>("sales_document_lines", {
+    select: "document_no,line_no,legacy_product_code,product_name,quantity,unit_price,amount",
+    note: `like.*date:${yearMonth}*`,
+    order: "document_no,line_no"
+  });
+  for (const row of rows) {
+    const docNo = getString(row, ["document_no"], "");
+    if (!docNo) continue;
+    const list = _lineCache.get(docNo) ?? [];
+    list.push({
+      lineNo: getNumber(row, ["line_no"], 0),
+      productCode: getString(row, ["legacy_product_code"], ""),
+      productName: getString(row, ["product_name"], ""),
+      quantity: getNumber(row, ["quantity"], 0),
+      unitPrice: getNumber(row, ["unit_price"], 0),
+      amount: getNumber(row, ["amount"], 0)
+    });
+    _lineCache.set(docNo, list);
+  }
 }
 
 export async function fetchInvoiceLines(documentNo: string): Promise<InvoiceLineDetail[]> {
-  // id(UUID)はインデックスが効くので、想定されるline_no 1-30 + 99のUUIDを生成して一括検索
-  const ids: string[] = [];
-  for (let ln = 1; ln <= 30; ln++) {
-    ids.push(await uuidv5(`shtor:${documentNo}:${ln}`));
-  }
-  ids.push(await uuidv5(`shtor:${documentNo}:99`)); // 消費税行
+  // キャッシュにあればそのまま返す（preloadInvoiceLines で取得済み）
+  const cached = _lineCache.get(documentNo);
+  if (cached) return cached;
 
+  // キャッシュミス: 個別取得（noteフィルタ）
   const rows = await supabaseQuery<LooseRow>("sales_document_lines", {
     select: "line_no,legacy_product_code,product_name,quantity,unit_price,amount",
-    id: `in.(${ids.join(",")})`,
+    note: `like.*inv:${documentNo} *`,
     order: "line_no",
-    limit: "31"
+    limit: "100"
   });
-  return rows.map((row) => ({
+  const result = rows.map((row) => ({
     lineNo: getNumber(row, ["line_no"], 0),
     productCode: getString(row, ["legacy_product_code"], ""),
     productName: getString(row, ["product_name"], ""),
@@ -1045,6 +1060,8 @@ export async function fetchInvoiceLines(documentNo: string): Promise<InvoiceLine
     unitPrice: getNumber(row, ["unit_price"], 0),
     amount: getNumber(row, ["amount"], 0)
   }));
+  _lineCache.set(documentNo, result);
+  return result;
 }
 
 export async function fetchCustomerLedger(code: string): Promise<CustomerLedger> {
