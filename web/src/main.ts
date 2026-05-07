@@ -549,6 +549,7 @@ interface AppState {
   materialEditingIsNew: boolean;
   deliveryLocations: DeliveryLocation[];
   mapCustomers: MapCustomer[];
+  mapLoaded: boolean;
   callLogs: CallLog[];
   mapFilters: MapFilters;
   leadLists: LeadList[];
@@ -848,6 +849,7 @@ const state: AppState = {
   materialEditingIsNew: false,
   deliveryLocations: [],
   mapCustomers: [],
+  mapLoaded: false,
   callLogs: [],
   mapFilters: {
     filterStatus: "all",
@@ -1604,15 +1606,15 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         const { fetchDemandAnalysis, fetchSafetyStockParams, fetchProductionPlan, fetchLabelExclusions } = await import("./api");
         if (!state.demandAnalysis) {
           const [analysis, ssParams] = await Promise.all([
-            fetchDemandAnalysis(state.demandYearsBack * 12),
-            fetchSafetyStockParams()
+            fetchDemandAnalysis(state.demandYearsBack * 12).catch(e => { console.error("fetchDemandAnalysis failed:", e); return null; }),
+            fetchSafetyStockParams().catch(e => { console.error("fetchSafetyStockParams failed:", e); return []; })
           ]);
-          state.demandAnalysis = analysis;
+          if (analysis) state.demandAnalysis = analysis;
           state.safetyStockParams = ssParams;
         }
         // 生産計画: DBにあれば使い、なければ分析データから自動生成
         if (state.productionPlan.length === 0) {
-          const dbPlan = await fetchProductionPlan(state.demandPlanYearMonth);
+          const dbPlan = await fetchProductionPlan(state.demandPlanYearMonth).catch(() => []);
           if (dbPlan.length > 0) {
             state.productionPlan = dbPlan;
           } else if (state.demandAnalysis && state.safetyStockParams.length > 0) {
@@ -1620,7 +1622,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           }
         }
         // ラベル除外設定をDBからロード
-        const savedExcl = await fetchLabelExclusions(state.demandPlanYearMonth);
+        const savedExcl = await fetchLabelExclusions(state.demandPlanYearMonth).catch(() => []);
         state.calendarLabelExcluded = new Set(savedExcl);
         // 除外設定を反映して最適化
         if (state.productionPlan.length > 0) {
@@ -1838,6 +1840,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           ]);
           state.mapCustomers = mapCustomers;
           state.deliveryLocations = deliveries;
+          state.mapLoaded = true;
         }
         break;
       case "/calls":
@@ -2119,8 +2122,18 @@ function renderView(): string {
     case "/form-designer":
       return renderFormDesigner(state.printData, state.printCompany, state.printOptions, state.fdSavedPositions, state.fdDesignMode);
     case "/map":
-      if (state.mapCustomers.length === 0) {
+      if (!state.mapLoaded) {
         return `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">マップデータを読み込み中…</p></div></section>`;
+      }
+      if (state.mapCustomers.length === 0) {
+        return `<section class="page-head"><div><p class="eyebrow">取引先マップ</p><h1>取引先マップ</h1></div></section>
+          <section class="panel">
+            <div style="padding:32px;text-align:center;color:var(--text-secondary)">
+              <p style="font-size:1.5rem;margin-bottom:8px">📍</p>
+              <p style="font-weight:600;margin-bottom:4px">緯度・経度データがありません</p>
+              <p style="font-size:0.875rem">得意先マスタにジオコーディングが必要です。<br>relay フォルダの <code>geocode_customers.py</code> を実行してください。</p>
+            </div>
+          </section>`;
       }
       return renderCustomerMap(state.mapCustomers, state.deliveryLocations, state.mapFilters);
     case "/workflow":

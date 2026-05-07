@@ -81,7 +81,7 @@ export interface InvoiceFilter {
   documentNo: string;
   startDate: string;
   endDate: string;
-  customerCode: string;
+  customerCode: string;   // コードまたは名前（後方互換のためフィールド名は維持）
 }
 
 export interface InvoiceRecord {
@@ -479,7 +479,7 @@ function applyInvoiceFilter(records: InvoiceRecord[], filter: InvoiceFilter): In
       if (documentNo && !record.documentNo.toLowerCase().includes(documentNo)) {
         return false;
       }
-      if (customerCode && !record.customerCode.toLowerCase().includes(customerCode)) {
+      if (customerCode && !record.customerCode.toLowerCase().includes(customerCode) && !record.customerName.toLowerCase().includes(customerCode)) {
         return false;
       }
       return true;
@@ -983,7 +983,14 @@ export async function fetchInvoices(filter: InvoiceFilter): Promise<InvoiceRecor
     params["sales_date"] = `lte.${filter.endDate}`;
   }
   const orClauses: string[] = [];
-  if (filter.customerCode.trim()) orClauses.push(`customer_code.ilike.*${filter.customerCode.trim()}*`, `legacy_customer_code.ilike.*${filter.customerCode.trim()}*`);
+  if (filter.customerCode.trim()) {
+    const q = filter.customerCode.trim();
+    orClauses.push(
+      `customer_code.ilike.*${q}*`,
+      `legacy_customer_code.ilike.*${q}*`,
+      `customer_name.ilike.*${q}*`
+    );
+  }
   if (filter.documentNo.trim()) orClauses.push(`document_no.ilike.*${filter.documentNo.trim()}*`, `legacy_document_no.ilike.*${filter.documentNo.trim()}*`);
   if (orClauses.length > 0) params["or"] = `(${orClauses.join(",")})`;
 
@@ -1074,7 +1081,7 @@ export async function fetchCustomerLedger(code: string): Promise<CustomerLedger>
     supabaseQuery<SalesDocumentHeaderRow>("sales_document_headers", {
       select:
         "id,document_no,legacy_document_no,sales_date,document_date,customer_code,legacy_customer_code,customer_name,total_amount,billed_amount",
-      or: `customer_code.eq.${normalizedCode},legacy_customer_code.eq.${normalizedCode}`,
+      or: `customer_code.eq.${normalizedCode},legacy_customer_code.eq.${normalizedCode},customer_name.ilike.*${normalizedCode}*`,
       order: "sales_date.desc",
       limit: "50"
     }),
@@ -5990,11 +5997,16 @@ export async function fetchDemandAnalysis(monthsBack = 36): Promise<DemandAnalys
     d.setMonth(d.getMonth() - monthsBack);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   })();
-  const rows = await supabaseQueryAll<LooseRow>("product_monthly_sales", {
-    select: "year_month,product_code,product_name,quantity",
-    year_month: `gte.${cutoff}`,
-    order: "year_month.asc"
-  });
+  let rows: LooseRow[] = [];
+  try {
+    rows = await supabaseQueryAll<LooseRow>("product_monthly_sales", {
+      select: "year_month,product_code,product_name,quantity",
+      year_month: `gte.${cutoff}`,
+      order: "year_month.asc"
+    });
+  } catch (e) {
+    console.warn("fetchDemandAnalysis: query failed, using empty", e);
+  }
   if (rows.length === 0) return _buildMockDemandAnalysis();
 
   const monthSet = new Set<string>();
@@ -6030,9 +6042,13 @@ export async function fetchDemandAnalysis(monthsBack = 36): Promise<DemandAnalys
 }
 
 export async function fetchSafetyStockParams(): Promise<SafetyStockParams[]> {
-  const rows = await supabaseQuery<LooseRow>("product_safety_stock_params", {
-    order: "product_code.asc"
-  });
+  let rows: LooseRow[] = [];
+  try {
+    rows = await supabaseQuery<LooseRow>("product_safety_stock_params", { order: "product_code.asc" });
+  } catch (e) {
+    console.warn("fetchSafetyStockParams failed:", e);
+    return [];
+  }
   return rows.map((r) => ({
     productCode: getString(r, ["product_code"], ""),
     productName: getString(r, ["product_name"], ""),
@@ -6396,4 +6412,51 @@ export async function fetchOrderHeaders(): Promise<OrderHeader[]> {
     sales_date: `gte.${startOfMonth}`,
     order: "sales_date.asc"
   });
+}
+
+// ─── 機能確認ステータス ────────────────────────────────────────────────────────
+
+export interface FeatureStatus {
+  featureId: string;
+  confirmedAt: string | null;
+  confirmedBy: string | null;
+  notes: string | null;
+}
+
+export async function fetchFeatureStatuses(): Promise<Record<string, FeatureStatus>> {
+  const rows = await supabaseQuery<{
+    feature_id: string;
+    confirmed_at: string | null;
+    confirmed_by: string | null;
+    notes: string | null;
+  }>("app_feature_status", { select: "*" });
+
+  const map: Record<string, FeatureStatus> = {};
+  for (const r of rows) {
+    map[r.feature_id] = {
+      featureId: r.feature_id,
+      confirmedAt: r.confirmed_at,
+      confirmedBy: r.confirmed_by,
+      notes: r.notes,
+    };
+  }
+  return map;
+}
+
+export async function confirmFeature(featureId: string, confirmedBy: string): Promise<void> {
+  await supabaseUpsert("app_feature_status", "feature_id", [{
+    feature_id: featureId,
+    confirmed_at: new Date().toISOString(),
+    confirmed_by: confirmedBy,
+    updated_at: new Date().toISOString(),
+  }]);
+}
+
+export async function unconfirmFeature(featureId: string): Promise<void> {
+  await supabaseUpsert("app_feature_status", "feature_id", [{
+    feature_id: featureId,
+    confirmed_at: null,
+    confirmed_by: null,
+    updated_at: new Date().toISOString(),
+  }]);
 }
