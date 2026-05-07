@@ -66,8 +66,8 @@ export function renderInvoiceSearch(
           <input id="invoice-end" type="date" value="${filter.endDate}" />
         </label>
         <label class="field">
-          <span>得意先コード</span>
-          <input id="invoice-customer-code" type="text" value="${filter.customerCode}" placeholder="160982" />
+          <span>得意先（コードまたは名前）</span>
+          <input id="invoice-customer-code" type="text" value="${filter.customerCode}" placeholder="コード or 得意先名" />
         </label>
         <div class="filter-actions">
           <button class="button secondary" data-action="invoice-filter">絞り込む</button>

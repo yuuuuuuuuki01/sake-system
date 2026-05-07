@@ -1,4 +1,4 @@
-import type { TaxDeclaration, TaxDeductionRow } from "../api";
+import type { TaxDeclaration, TaxDeductionRow, SakeTaxRow } from "../api";
 import { TAX_DEDUCTION_LABELS, TAX_RATE_CATEGORIES } from "../api";
 
 function formatCurrency(amount: number): string {
@@ -9,10 +9,91 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+function renderSakeTaxVolume(rows: SakeTaxRow[]): string {
+  if (rows.length === 0) {
+    return `<section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>移出量集計（販売実績ベース）</h2>
+          <p class="panel-caption">当月の販売伝票から自動集計した移出量と概算税額</p>
+        </div>
+      </div>
+      <p class="empty-message">データなし — 商品マスタに volume_ml が設定されていることを確認してください。</p>
+    </section>`;
+  }
+
+  const totalSale   = rows.reduce((s, r) => s + r.volumeSaleL,   0);
+  const totalReturn = rows.reduce((s, r) => s + r.volumeReturnL, 0);
+  const totalNet    = rows.reduce((s, r) => s + r.volumeNetL,    0);
+  const totalTax    = rows.reduce((s, r) => s + r.taxAmount,     0);
+
+  const bodyRows = rows.map((r) => {
+    const degreeLabel = r.alcDegree !== null ? `${r.alcDegree}度` : `<span class="text-warning">未設定</span>`;
+    const rateLabel   = r.taxRatePerKl !== null
+      ? `${r.taxRatePerKl.toLocaleString("ja-JP")} 円/KL`
+      : `<span class="text-warning">度数未設定</span>`;
+    const taxLabel    = r.taxRatePerKl !== null
+      ? `<strong>${r.taxAmount.toLocaleString("ja-JP")} 円</strong>`
+      : `<span class="text-warning">—</span>`;
+
+    return `<tr>
+      <td>${r.sakeType}</td>
+      <td class="numeric">${degreeLabel}</td>
+      <td class="numeric">${r.volumeSaleL.toLocaleString("ja-JP", { maximumFractionDigits: 3 })}</td>
+      <td class="numeric text-warning">${r.volumeReturnL > 0 ? r.volumeReturnL.toLocaleString("ja-JP", { maximumFractionDigits: 3 }) : "—"}</td>
+      <td class="numeric">—</td>
+      <td class="numeric">${r.volumeNetL.toLocaleString("ja-JP", { maximumFractionDigits: 3 })}</td>
+      <td class="numeric">${rateLabel}</td>
+      <td class="numeric">${taxLabel}</td>
+    </tr>`;
+  }).join("");
+
+  return `<section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>移出量集計（販売実績ベース）</h2>
+        <p class="panel-caption">当月の販売伝票から自動集計した移出量と概算税額（輸出は別途入力、軽減税率は申告書側で調整）</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="entry-table">
+        <thead>
+          <tr>
+            <th>酒類区分</th>
+            <th class="numeric">度数</th>
+            <th class="numeric">移出量(L)</th>
+            <th class="numeric">戻り(L)</th>
+            <th class="numeric">輸出(L)</th>
+            <th class="numeric">純移出量(L)</th>
+            <th class="numeric">税率</th>
+            <th class="numeric">概算税額</th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+        <tfoot>
+          <tr>
+            <th colspan="2">合計</th>
+            <th class="numeric">${totalSale.toLocaleString("ja-JP", { maximumFractionDigits: 3 })}</th>
+            <th class="numeric">${totalReturn > 0 ? totalReturn.toLocaleString("ja-JP", { maximumFractionDigits: 3 }) : "—"}</th>
+            <th class="numeric">—</th>
+            <th class="numeric">${totalNet.toLocaleString("ja-JP", { maximumFractionDigits: 3 })}</th>
+            <th></th>
+            <th class="numeric"><strong>${totalTax.toLocaleString("ja-JP")} 円</strong></th>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <p class="form-hint" style="margin-top: 8px;">
+      度数が「未設定」のリキュールは税額を計算できません。商品マスタの <code>alcohol_degree</code> を更新してください。
+    </p>
+  </section>`;
+}
+
 export function renderTaxDeclaration(
   decl: TaxDeclaration,
   targetYear: number,
-  targetMonth: number
+  targetMonth: number,
+  taxVolume: SakeTaxRow[] = []
 ): string {
   const categoryRows = decl.rows
     .map(
@@ -245,6 +326,8 @@ export function renderTaxDeclaration(
         <div><dt>修正申告</dt><dd>発見次第、修正申告書を提出（延滞税・加算税の対象）</dd></div>
       </div>
     </section>
+
+    ${renderSakeTaxVolume(taxVolume)}
 
     <section class="panel">
       <div class="panel-header">

@@ -64,8 +64,12 @@ export function renderCustomerLedger(ledger: CustomerLedger, customerCode: strin
     <section class="panel filter-panel">
       <div class="filter-grid ledger-filter-grid">
         <label class="field">
-          <span>得意先コード</span>
-          <input id="ledger-customer-code" type="text" value="${customerCode}" placeholder="C0011" />
+          <span>得意先（コードまたは名前）</span>
+          <div class="search-input-wrap" style="position:relative">
+            <input id="ledger-customer-code" type="text" value="${customerCode}"
+              placeholder="コード or 得意先名" autocomplete="off" />
+            <div id="ledger-cust-suggestions" class="search-results" style="display:none"></div>
+          </div>
         </label>
         <div class="filter-actions">
           <button class="button secondary" data-action="ledger-search">検索</button>

@@ -30,12 +30,6 @@ export function renderCustomerMap(
 
   const deliveriesWithGeo = deliveries.filter((d) => d.lat && d.lng);
 
-  // シリアライズして script に渡す（XSS対策: JSON.stringify でエスケープ済み）
-  const customersJson = JSON.stringify(customers);
-  const deliveriesJson = JSON.stringify(deliveriesWithGeo.map((d) => ({
-    name: d.name, address: d.address, lat: d.lat, lng: d.lng, phone: d.phone
-  })));
-
   return `
     <section class="page-head">
       <div>
@@ -83,6 +77,11 @@ export function renderCustomerMap(
     <section class="panel" style="padding:0;overflow:hidden;">
       <div id="customer-map" style="height:560px;width:100%;"></div>
     </section>
+    <div id="map-data" style="display:none"
+      data-customers="${encodeURIComponent(JSON.stringify(customers))}"
+      data-deliveries="${encodeURIComponent(JSON.stringify(deliveriesWithGeo.map((d) => ({
+        name: d.name, address: d.address, lat: d.lat, lng: d.lng, phone: d.phone
+      }))))}"></div>
 
     <section class="panel">
       <div class="panel-header"><h2>凡例</h2></div>
@@ -95,127 +94,5 @@ export function renderCustomerMap(
       </div>
     </section>
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <script type="module">
-    (function () {
-      // ── データ ──
-      const ALL_CUSTOMERS = ${customersJson};
-      const DELIVERIES    = ${deliveriesJson};
-
-      // ── マップ初期化 ──
-      const map = L.map("customer-map").setView([35.37, 139.27], 11);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 19
-      }).addTo(map);
-
-      // ── マーカー色設定 ──
-      function markerColor(c) {
-        if (c.isAtRisk)  return "#e53e3e";
-        if (c.isDormant) return "#dd6b20";
-        if (c.amount12m > 0) return "#2196F3";
-        return "#aaa";
-      }
-
-      function circleOptions(c) {
-        return {
-          radius: c.isAtRisk ? 9 : c.isDormant ? 8 : 7,
-          fillColor: markerColor(c),
-          color: "#fff",
-          weight: 1.5,
-          opacity: 1,
-          fillOpacity: c.amount12m > 0 || c.isAtRisk || c.isDormant ? 0.85 : 0.45
-        };
-      }
-
-      function formatAmt(n) {
-        if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
-        if (n >= 10000)   return Math.round(n / 10000) + "万";
-        return n.toLocaleString("ja-JP") + "円";
-      }
-
-      function popupHtml(c) {
-        const statusLabel = c.isAtRisk ? '<span style="color:#e53e3e;font-weight:700;">🔴 離反リスク</span>'
-          : c.isDormant ? '<span style="color:#dd6b20;font-weight:700;">🟠 休眠</span>'
-          : c.amount12m > 0 ? '<span style="color:#2196F3;">🔵 取引中</span>'
-          : '<span style="color:#aaa;">⚪ 売上なし</span>';
-        const phone = c.phone ? \`<a href="tel:\${c.phone}" style="color:#2196F3;">\${c.phone}</a>\` : "—";
-        const days  = c.daysSinceOrder != null ? c.daysSinceOrder + "日前" : "—";
-        return \`
-          <div style="min-width:200px;font-size:13px;line-height:1.6;">
-            <strong style="font-size:14px;">\${c.name}</strong><br>
-            \${statusLabel}<br>
-            エリア: \${c.areaCode || "—"} | 業種: \${c.businessTypeName || c.businessType || "—"}<br>
-            最終注文: \${days}<br>
-            12M売上: <strong>\${formatAmt(c.amount12m)}</strong><br>
-            📞 \${phone}<br>
-            \${c.address1 ? '<span style="font-size:11px;color:#666;">' + c.address1 + '</span>' : ""}
-          </div>\`;
-      }
-
-      // ── レイヤー管理 ──
-      let customerLayer = L.layerGroup().addTo(map);
-      let deliveryLayer = L.layerGroup().addTo(map);
-
-      let activeStatus = "${filters.filterStatus}";
-      let activeArea   = "${filters.filterArea}";
-      let activeBiz    = "${filters.filterBiz}";
-
-      function renderMarkers() {
-        customerLayer.clearLayers();
-
-        const filtered = ALL_CUSTOMERS.filter((c) => {
-          if (activeStatus === "at-risk"  && !c.isAtRisk) return false;
-          if (activeStatus === "dormant"  && (c.isAtRisk || !c.isDormant)) return false;
-          if (activeStatus === "active"   && (c.isAtRisk || c.isDormant || c.amount12m === 0)) return false;
-          if (activeStatus === "inactive" && (c.isAtRisk || c.isDormant || c.amount12m !== 0)) return false;
-          if (activeArea && c.areaCode !== activeArea) return false;
-          if (activeBiz) {
-            const biz = c.businessTypeName || c.businessType;
-            if (biz !== activeBiz) return false;
-          }
-          return true;
-        });
-
-        filtered.forEach((c) => {
-          L.circleMarker([c.lat, c.lng], circleOptions(c))
-            .bindPopup(popupHtml(c), { maxWidth: 280 })
-            .addTo(customerLayer);
-        });
-      }
-
-      // 納品先マーカー
-      DELIVERIES.forEach((d) => {
-        L.circleMarker([d.lat, d.lng], {
-          radius: 6, fillColor: "#FF9800", color: "#fff", weight: 1.5, opacity: 1, fillOpacity: 0.8
-        })
-        .bindPopup(\`<strong>🟠 \${d.name}</strong><br>\${d.address || ""}<br>\${d.phone ? "📞 " + d.phone : ""}\`)
-        .addTo(deliveryLayer);
-      });
-
-      renderMarkers();
-
-      // ── フィルタ操作 ──
-      document.querySelectorAll("[data-map-status]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          activeStatus = btn.getAttribute("data-map-status") || "all";
-          document.querySelectorAll("[data-map-status]").forEach((b) => {
-            b.classList.toggle("primary",   b.getAttribute("data-map-status") === activeStatus);
-            b.classList.toggle("secondary", b.getAttribute("data-map-status") !== activeStatus);
-          });
-          renderMarkers();
-        });
-      });
-
-      document.getElementById("map-filter-area")?.addEventListener("change", (e) => {
-        activeArea = e.target.value;
-        renderMarkers();
-      });
-      document.getElementById("map-filter-biz")?.addEventListener("change", (e) => {
-        activeBiz = e.target.value;
-        renderMarkers();
-      });
-    })();
-    </script>`;
+  `;
 }

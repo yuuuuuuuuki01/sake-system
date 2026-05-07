@@ -5667,20 +5667,18 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
-  // ── マップフィルタ ──────────────────────────────
-  root.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-map-filter]").forEach((input) => {
-    input.addEventListener("change", () => {
-      const field = input.dataset.mapFilter as keyof MapFilters;
-      let value: unknown;
-      if (input.type === "checkbox") {
-        value = (input as HTMLInputElement).checked;
+  // ── 取引先マップ (Leaflet) ──────────────────────────────
+  if (root.querySelector("#customer-map")) {
+    // Leaflet は index.html で defer 読み込みなので、確実にロードされてから初期化
+    const tryInit = () => {
+      if ((window as unknown as Record<string, unknown>)["L"]) {
+        initCustomerMap(root);
       } else {
-        value = input.value;
+        setTimeout(tryInit, 100);
       }
-      state.mapFilters = { ...state.mapFilters, [field]: value } as MapFilters;
-      renderApp();
-    });
-  });
+    };
+    tryInit();
+  }
 
   // ── 離反理由 選択 → 保存 ────────────────────────────
   root.querySelectorAll<HTMLSelectElement>(".churn-reason-select").forEach((sel) => {
@@ -8336,9 +8334,131 @@ try {
   });
 })();
 
-// Map is now rendered via Leaflet inline script in CustomerMap.ts
-function initCustomerMap(_container: HTMLElement) {
-  // no-op: kept for TypeScript reference
+// ── Leaflet マップ初期化 ──────────────────────────────────────────────
+let _leafletMap: unknown = null; // L.Map instance
+
+function initCustomerMap(container: HTMLElement): void {
+  type LeafletLib = {
+    map: (id: string, opts?: object) => unknown;
+    tileLayer: (url: string, opts?: object) => { addTo: (m: unknown) => unknown };
+    circle: (latlng: [number, number], opts?: object) => { addTo: (m: unknown) => unknown; bindPopup: (html: string) => unknown; remove: () => void };
+    latLngBounds: (arr: [number, number][]) => unknown;
+  };
+  const rawL = (window as unknown as Record<string, unknown>)["L"];
+  if (!rawL) {
+    console.warn("Leaflet not loaded yet");
+    return;
+  }
+  const L = rawL as LeafletLib;
+
+  const mapEl = container.querySelector<HTMLElement>("#customer-map");
+  const dataEl = container.querySelector<HTMLElement>("#map-data");
+  if (!mapEl || !dataEl) return;
+
+  // 既存マップを破棄
+  if (_leafletMap) {
+    (_leafletMap as { remove: () => void }).remove();
+    _leafletMap = null;
+  }
+
+  const customers: import("./api").MapCustomer[] = JSON.parse(decodeURIComponent(dataEl.dataset.customers ?? "[]"));
+  const deliveries: { name: string; address: string; lat: number; lng: number; phone: string }[] =
+    JSON.parse(decodeURIComponent(dataEl.dataset.deliveries ?? "[]"));
+
+  const map = L.map("customer-map", { zoomControl: true }) as { setView: (latlng: [number, number], z: number) => unknown; fitBounds: (b: unknown) => unknown };
+  _leafletMap = map;
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 18,
+  }).addTo(map);
+
+  type Marker = { addTo: (m: unknown) => unknown; bindPopup: (html: string) => unknown; remove: () => void };
+  const markers: Marker[] = [];
+
+  function customerColor(c: import("./api").MapCustomer): string {
+    if (c.isAtRisk) return "#e53e3e";
+    if (c.isDormant) return "#dd6b20";
+    if (c.amount12m > 0) return "#2196F3";
+    return "#aaa";
+  }
+
+  function buildMarkers(filterStatus: string, filterArea: string, filterBiz: string): void {
+    markers.forEach((m) => m.remove());
+    markers.length = 0;
+
+    const filtered = customers.filter((c) => {
+      if (filterStatus === "at-risk"  && !c.isAtRisk) return false;
+      if (filterStatus === "dormant"  && (c.isAtRisk || !c.isDormant)) return false;
+      if (filterStatus === "active"   && (c.isAtRisk || c.isDormant || c.amount12m === 0)) return false;
+      if (filterStatus === "inactive" && (c.isAtRisk || c.isDormant || c.amount12m > 0)) return false;
+      if (filterArea && c.areaCode !== filterArea) return false;
+      if (filterBiz  && (c.businessTypeName || c.businessType) !== filterBiz) return false;
+      return true;
+    });
+
+    const bounds: [number, number][] = [];
+
+    filtered.forEach((c) => {
+      if (!c.lat || !c.lng) return;
+      const color = customerColor(c);
+      const latlng: [number, number] = [c.lat, c.lng];
+      bounds.push(latlng);
+      const popup = `<strong>${c.name}</strong><br>${c.address1 ?? ""}<br>
+        エリア: ${c.areaCode ?? "―"} / ${c.businessTypeName ?? c.businessType ?? "―"}<br>
+        12ヶ月売上: ${c.amount12m?.toLocaleString() ?? 0}円`;
+      const m = L.circle(latlng, { color, fillColor: color, fillOpacity: 0.8, radius: 80, weight: 1 });
+      m.bindPopup(popup);
+      m.addTo(map);
+      markers.push(m);
+    });
+
+    deliveries.forEach((d) => {
+      if (!d.lat || !d.lng) return;
+      const latlng: [number, number] = [d.lat, d.lng];
+      bounds.push(latlng);
+      const popup = `<strong>📦 ${d.name}</strong><br>${d.address ?? ""}${d.phone ? `<br>${d.phone}` : ""}`;
+      const m = L.circle(latlng, { color: "#FF9800", fillColor: "#FF9800", fillOpacity: 0.9, radius: 60, weight: 1 });
+      m.bindPopup(popup);
+      m.addTo(map);
+      markers.push(m);
+    });
+
+    if (bounds.length > 0) {
+      (map as unknown as { fitBounds: (b: unknown, opts?: object) => void }).fitBounds(
+        L.latLngBounds(bounds),
+        { padding: [40, 40], maxZoom: 14 }
+      );
+    } else {
+      (map as unknown as { setView: (latlng: [number, number], z: number) => void }).setView([35.6812, 139.7671], 10);
+    }
+  }
+
+  // 初期描画
+  buildMarkers(state.mapFilters.filterStatus, state.mapFilters.filterArea, state.mapFilters.filterBiz);
+
+  // フィルタボタン
+  container.querySelectorAll<HTMLButtonElement>("[data-map-status]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const status = btn.dataset.mapStatus as typeof state.mapFilters.filterStatus;
+      state.mapFilters = { ...state.mapFilters, filterStatus: status };
+      // ボタンのスタイルだけ更新（re-render不要）
+      container.querySelectorAll<HTMLButtonElement>("[data-map-status]").forEach((b) => {
+        b.className = b.className.replace(/\b(primary|secondary)\b/g, b === btn ? "primary" : "secondary");
+      });
+      buildMarkers(state.mapFilters.filterStatus, state.mapFilters.filterArea, state.mapFilters.filterBiz);
+    });
+  });
+
+  container.querySelector<HTMLSelectElement>("#map-filter-area")?.addEventListener("change", (e) => {
+    state.mapFilters = { ...state.mapFilters, filterArea: (e.target as HTMLSelectElement).value };
+    buildMarkers(state.mapFilters.filterStatus, state.mapFilters.filterArea, state.mapFilters.filterBiz);
+  });
+
+  container.querySelector<HTMLSelectElement>("#map-filter-biz")?.addEventListener("change", (e) => {
+    state.mapFilters = { ...state.mapFilters, filterBiz: (e.target as HTMLSelectElement).value };
+    buildMarkers(state.mapFilters.filterStatus, state.mapFilters.filterArea, state.mapFilters.filterBiz);
+  });
 }
 
 void loadData();

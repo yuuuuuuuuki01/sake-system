@@ -1069,6 +1069,112 @@ tbody tr:hover {
   color: var(--text-secondary);
 }
 
+.status-pill.muted {
+  background: #f3f4f6;
+  color: #9ca3af;
+}
+
+/* ── NEW バッジ ─────────────────────────────────────── */
+.badge-new {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: #ef4444;
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 5px;
+  vertical-align: middle;
+  margin-left: 4px;
+  line-height: 1.4;
+}
+
+.badge-new-small {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  background: #ef4444;
+  color: #fff;
+  border-radius: 3px;
+  padding: 1px 4px;
+  vertical-align: middle;
+  margin-left: 4px;
+  line-height: 1.4;
+}
+
+/* ── バージョンバッジ ───────────────────────────────── */
+.version-badge {
+  display: inline-block;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: var(--surface-2, #f3f4f6);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+}
+
+/* ── 連動ページ ─────────────────────────────────────── */
+.changelog-section .panel-header {
+  align-items: center;
+}
+
+.changelog-progress {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.changelog-table .feature-row.confirmed {
+  background: #f0fdf4;
+}
+
+.changelog-table .feature-row.confirmed .feature-label {
+  color: var(--text-primary);
+}
+
+.changelog-table .feature-label {
+  font-weight: 500;
+}
+
+.changelog-table .feature-link {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.changelog-table .feature-link:hover {
+  text-decoration: underline;
+}
+
+.changelog-table .feature-desc {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.changelog-table .feature-version {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.changelog-table .feature-check input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.changelog-hint {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  color: #1e40af;
+  margin-bottom: 16px;
+}
+
 .tabs-header {
   align-items: flex-end;
 }
