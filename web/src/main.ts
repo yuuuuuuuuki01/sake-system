@@ -1843,15 +1843,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         }
         break;
       case "/":
-        {
-          // ダッシュボード追加データ取得（存在するテーブルのみ、並列）
-          const { fetchProspects, fetchOrderHeaders } = await import("./api");
-          await Promise.allSettled([
-            state.prospects.length === 0 ? fetchProspects().then(v => { state.prospects = v; }) : Promise.resolve(),
-            state.orderHeaders.length === 0 ? fetchOrderHeaders().then(v => { state.orderHeaders = v; }) : Promise.resolve(),
-          ]);
-          // calendar_events / workflow_orders / tour_inquiries はテーブル未作成のためスキップ
-        }
+        // ホーム画面はナビカードのみ。追加データ取得不要
         break;
       default:
         break;
