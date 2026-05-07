@@ -1945,15 +1945,57 @@ export async function updateBrewingBatch(batchId: string, fields: Record<string,
   return supabaseUpdate("brewing_process_batches", batchId, { ...fields, updated_at: new Date().toISOString() });
 }
 
+// ─── タンク管理 ──────────────────────────────────────────────────────────────
+
+export interface TankInfo {
+  id: string; tankNo: string; displayName: string; capacityL: number;
+  tankType: string; preferredCategories: string[]; cleanupDays: number; status: string;
+}
+
+export async function fetchTanks(): Promise<TankInfo[]> {
+  const rows = await supabaseQuery<LooseRow>("tanks", { order: "tank_no" });
+  return (rows ?? []).map(r => ({
+    id: getString(r, ["id"], ""), tankNo: getString(r, ["tank_no"], ""),
+    displayName: getString(r, ["display_name"], ""), capacityL: getNumber(r, ["capacity_l"], 0),
+    tankType: getString(r, ["tank_type"], ""), status: getString(r, ["status"], "empty"),
+    preferredCategories: Array.isArray(r["preferred_categories"]) ? r["preferred_categories"] as string[] : [],
+    cleanupDays: getNumber(r, ["cleanup_days"], 1)
+  }));
+}
+
+export async function addTank(tankNo: string, capacityL: number, tankType: string, preferredCats: string[]): Promise<boolean> {
+  return (await supabaseInsert("tanks", {
+    tank_no: tankNo, display_name: tankNo, capacity_l: capacityL,
+    tank_type: tankType, preferred_categories: preferredCats, status: "empty"
+  })) !== null;
+}
+
+export async function deleteTank(id: string): Promise<boolean> {
+  const { supabaseDelete } = await import("./supabase");
+  return supabaseDelete("tanks", id);
+}
+
+// タンク占有期間: 仕込み(step5)〜上槽(step7)+洗浄日数
+export function getTankOccupancy(steps: BrewingProcessStepRow[], cleanupDays: number): { start: string; end: string } | null {
+  const moromi = steps.find(s => s.stepName === "仕込み(添/仲/留)");
+  const joso = steps.find(s => s.stepName === "上槽");
+  if (!moromi?.plannedStart || !joso?.plannedEnd) return null;
+  const end = new Date(joso.plannedEnd);
+  end.setDate(end.getDate() + cleanupDays);
+  return { start: moromi.plannedStart, end: end.toISOString().slice(0, 10) };
+}
+
 // ─── 自動スケジューリング ────────────────────────────────────────────────────
 
 export async function autoScheduleAllBatches(
   batches: BrewingBatchRow[],
   workerSettings: WorkerSettings,
-  stepLabor: StepLabor[]
+  stepLabor: StepLabor[],
+  tanks?: TankInfo[]
 ): Promise<void> {
   const KOJI_CAPACITY_KG = 180;
   const laborMap = new Map(stepLabor.map(l => [l.stepName, l]));
+  const availTanks = tanks ?? [];
 
   // planned/activeバッチのみ対象、希望開始日順にソート
   const targets = batches
@@ -2081,6 +2123,46 @@ export async function autoScheduleAllBatches(
         continue;
       }
 
+      // 制約3: タンク空き
+      let assignedTank = "";
+      if (availTanks.length > 0) {
+        const myMoromi = candidateSteps.find(s => s.stepName === "仕込み(添/仲/留)");
+        const myJoso = candidateSteps.find(s => s.stepName === "上槽");
+        if (myMoromi && myJoso) {
+          // この仕込のタンク占有期間
+          const tankStart = myMoromi.start;
+          const tankEndDt = new Date(myJoso.end); tankEndDt.setDate(tankEndDt.getDate() + 1); // 洗浄1日
+          const tankEnd = tankEndDt.toISOString().slice(0, 10);
+          // 容量が足りて対応区分が合うタンクを探す
+          const candidates = availTanks.filter(t =>
+            t.capacityL >= batch.plannedVolumeL &&
+            (t.preferredCategories.length === 0 || t.preferredCategories.includes(batch.brewCategory))
+          );
+          // 既に他の仕込に割当済みのタンク占有期間をチェック
+          let found = false;
+          for (const tank of candidates) {
+            let tankBusy = false;
+            for (const [pid, pSteps] of placed) {
+              if (pid === batch.id) continue;
+              const pb = batches.find(b => b.id === pid);
+              if (pb?.tankNo !== tank.tankNo) continue;
+              const pM = pSteps.find(s => s.stepName === "仕込み(添/仲/留)");
+              const pJ = pSteps.find(s => s.stepName === "上槽");
+              if (pM && pJ) {
+                const pEnd = addD(pJ.end, tank.cleanupDays);
+                if (overlap(tankStart, tankEnd, pM.start, pEnd)) { tankBusy = true; break; }
+              }
+            }
+            if (!tankBusy) { assignedTank = tank.tankNo; found = true; break; }
+          }
+          if (!found) {
+            placed.delete(batch.id);
+            candidate = addD(candidate, 1);
+            continue;
+          }
+        }
+      }
+
       // OK: この日程で確定
       break;
     } // end attempt loop
@@ -2089,19 +2171,44 @@ export async function autoScheduleAllBatches(
     const placedSteps = placed.get(batch.id);
     if (deadline && placedSteps) {
       const moromi = placedSteps.find(s => s.stepName === "仕込み(添/仲/留)");
-      if (moromi && moromi.end <= deadline) break; // 日曜休みで締切OK
-      if (!useSunday) { placed.delete(batch.id); continue; } // 日曜稼働モードで再試行
+      if (moromi && moromi.end <= deadline) break;
+      if (!useSunday) { placed.delete(batch.id); continue; }
     } else {
-      break; // 締切なし→最初のパスでOK
+      break;
     }
     } // end useSunday loop
 
-    // DB更新: バッチの開始日と全工程の日程
+    // DB更新: バッチの開始日・タンク・全工程の日程
     const finalSteps = placed.get(batch.id);
     if (!finalSteps) continue;
 
+    const assignedTankNo = (() => {
+      // 最後に確定したタンク割当を取得
+      if (availTanks.length === 0) return batch.tankNo;
+      const myM = finalSteps.find(s => s.stepName === "仕込み(添/仲/留)");
+      const myJ = finalSteps.find(s => s.stepName === "上槽");
+      if (!myM || !myJ) return batch.tankNo;
+      const tStart = myM.start;
+      const tEnd = addD(myJ.end, 1);
+      for (const tank of availTanks) {
+        if (tank.capacityL < batch.plannedVolumeL) continue;
+        if (tank.preferredCategories.length > 0 && !tank.preferredCategories.includes(batch.brewCategory)) continue;
+        let busy = false;
+        for (const [pid, pSteps] of placed) {
+          if (pid === batch.id) continue;
+          const pb = batches.find(b => b.id === pid);
+          if (pb?.tankNo !== tank.tankNo) continue;
+          const pM = pSteps.find(s => s.stepName === "仕込み(添/仲/留)");
+          const pJ = pSteps.find(s => s.stepName === "上槽");
+          if (pM && pJ && overlap(tStart, tEnd, pM.start, addD(pJ.end, tank.cleanupDays))) { busy = true; break; }
+        }
+        if (!busy) return tank.tankNo;
+      }
+      return batch.tankNo;
+    })();
+
     await supabaseUpdate("brewing_process_batches", batch.id, {
-      start_date: candidate,
+      start_date: candidate, tank_no: assignedTankNo,
       target_end_date: addD(finalSteps[finalSteps.length - 1].end, 0),
       updated_at: new Date().toISOString()
     });

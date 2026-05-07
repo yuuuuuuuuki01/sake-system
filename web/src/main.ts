@@ -996,6 +996,7 @@ const state: AppState = {
   bpShowNewForm: false,
   bpWorkerSettings: { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6, deadlineDate: "", allowSunday: false } as import("./api").WorkerSettings,
   bpStepLabor: [] as import("./api").StepLabor[],
+  bpTanks: [] as import("./api").TankInfo[],
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1663,21 +1664,23 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-process": {
-        const { fetchBrewingBatches, fetchBrewingProcessSteps, fetchBrewingCustomCategories, fetchBrewingSchedule, fetchWorkerSettings, fetchStepLabor, fetchBrewingRiceParams } = await import("./api");
+        const { fetchBrewingBatches, fetchBrewingProcessSteps, fetchBrewingCustomCategories, fetchBrewingSchedule, fetchWorkerSettings, fetchStepLabor, fetchBrewingRiceParams, fetchTanks } = await import("./api");
         const fy = state.brewingPlanFY;
-        const [batches, customCats, schedule, workerS, stepL, riceP] = await Promise.all([
+        const [batches, customCats, schedule, workerS, stepL, riceP, tanksData] = await Promise.all([
           fetchBrewingBatches(fy).catch(() => []),
           fetchBrewingCustomCategories().catch(() => []),
           fetchBrewingSchedule(fy).catch(() => []),
-          fetchWorkerSettings().catch(() => ({ workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6 })),
+          fetchWorkerSettings().catch(() => ({ workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6, deadlineDate: "", allowSunday: false })),
           fetchStepLabor().catch(() => []),
-          fetchBrewingRiceParams().catch(() => ({}))
+          fetchBrewingRiceParams().catch(() => ({})),
+          fetchTanks().catch(() => [])
         ]);
         state.brewingBatches = batches;
         state.brewingSchedule = schedule;
         state.bpWorkerSettings = workerS;
         state.bpStepLabor = stepL;
         state.brewingRiceParams = riceP;
+        state.bpTanks = tanksData;
         if (batches.length > 0) {
           state.brewingProcessSteps = await fetchBrewingProcessSteps(batches.map(b => b.id)).catch(() => []);
         } else {
@@ -2050,7 +2053,8 @@ function renderView(): string {
         schedule: state.brewingSchedule.map(s => ({ brewCategory: s.brewCategory, fy: s.fy, brewMonth: s.brewMonth, durationMonths: s.durationMonths, plannedVolumeL: s.plannedVolumeL })),
         fy: state.brewingPlanFY,
         workerSettings: state.bpWorkerSettings,
-        stepLabor: state.bpStepLabor
+        stepLabor: state.bpStepLabor,
+        tanks: state.bpTanks.map(t => ({ id: t.id, tankNo: t.tankNo, capacityL: t.capacityL, tankType: t.tankType, preferredCategories: t.preferredCategories, cleanupDays: t.cleanupDays }))
       });
     }
     case "/jikomi":
@@ -6627,7 +6631,9 @@ function bindEvents(root: HTMLElement): void {
     const btn = root.querySelector<HTMLButtonElement>("[data-action='bp-auto-schedule']");
     if (btn) { btn.textContent = "計算中..."; btn.disabled = true; }
     const { autoScheduleAllBatches, fetchBrewingBatches, fetchBrewingProcessSteps } = await import("./api");
-    await autoScheduleAllBatches(state.brewingBatches, state.bpWorkerSettings, state.bpStepLabor);
+    const { fetchTanks: ft } = await import("./api");
+    const tanks = await ft().catch(() => []);
+    await autoScheduleAllBatches(state.brewingBatches, state.bpWorkerSettings, state.bpStepLabor, tanks);
     state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
     state.brewingProcessSteps = state.brewingBatches.length > 0
       ? await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id)) : [];
@@ -6657,6 +6663,30 @@ function bindEvents(root: HTMLElement): void {
     const { saveWorkerSettings } = await import("./api");
     await saveWorkerSettings(state.bpWorkerSettings);
     renderApp();
+  });
+
+  // 醸造工程: タンク追加
+  root.querySelector<HTMLButtonElement>("[data-action='bp-tank-add']")?.addEventListener("click", async () => {
+    const no = (root.querySelector<HTMLInputElement>("#bp-tank-no") as HTMLInputElement)?.value?.trim() ?? "";
+    const cap = parseFloat((root.querySelector<HTMLInputElement>("#bp-tank-cap") as HTMLInputElement)?.value ?? "0");
+    const catsStr = (root.querySelector<HTMLInputElement>("#bp-tank-cats") as HTMLInputElement)?.value?.trim() ?? "";
+    if (!no || cap <= 0) return;
+    const cats = catsStr ? catsStr.split(/[,、]/).map(s => s.trim()).filter(Boolean) : [];
+    const { addTank, fetchTanks } = await import("./api");
+    await addTank(no, cap, "", cats);
+    state.bpTanks = await fetchTanks();
+    renderApp();
+  });
+  // 醸造工程: タンク削除
+  root.querySelectorAll<HTMLButtonElement>("[data-action='bp-tank-delete']").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.tankId ?? "";
+      if (!id) return;
+      const { deleteTank, fetchTanks } = await import("./api");
+      await deleteTank(id);
+      state.bpTanks = await fetchTanks();
+      renderApp();
+    });
   });
 
   // 醸造工程: 調達計画から一括取込

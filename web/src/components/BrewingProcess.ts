@@ -316,9 +316,56 @@ function renderStepDetail(batch: BrewingBatch, steps: BrewingProcessStep[]): str
   </section>`;
 }
 
+// ─── タンク管理 ─────────────────────────────────────────────────────────────
+
+function renderTankSection(tanks: TankView[], batches: BrewingBatch[], stepsByBatch: Record<string, BrewingProcessStep[]>): string {
+  // タンク占有状況を計算
+  const tankOccupancy = new Map<string, { batchCode: string; start: string; end: string }[]>();
+  for (const b of batches) {
+    if (!b.tankNo || b.status === "completed") continue;
+    const steps = stepsByBatch[b.id] ?? [];
+    const moromi = steps.find(s => s.stepName === "仕込み(添/仲/留)");
+    const joso = steps.find(s => s.stepName === "上槽");
+    if (moromi?.plannedStart && joso?.plannedEnd) {
+      if (!tankOccupancy.has(b.tankNo)) tankOccupancy.set(b.tankNo, []);
+      tankOccupancy.get(b.tankNo)!.push({ batchCode: b.batchCode, start: moromi.plannedStart, end: joso.plannedEnd });
+    }
+  }
+
+  const rows = tanks.map(t => {
+    const occ = tankOccupancy.get(t.tankNo) ?? [];
+    const occHtml = occ.length > 0
+      ? occ.map(o => `<span style="font-size:9px;padding:1px 4px;border-radius:3px;background:#dbeafe;color:#2563eb;">${o.batchCode}(${fmtMD(o.start)}〜${fmtMD(o.end)})</span>`).join(" ")
+      : `<span style="font-size:9px;color:#22c55e;">空き</span>`;
+    return `<tr style="border-bottom:1px solid #f3f4f6;">
+      <td style="padding:4px 6px;font-size:12px;font-weight:600;">${t.tankNo}</td>
+      <td style="padding:4px 6px;font-size:11px;text-align:right;">${fmtNum(t.capacityL)}L</td>
+      <td style="padding:4px 6px;font-size:10px;color:#6b7280;">${t.preferredCategories.length > 0 ? t.preferredCategories.join(", ") : "全区分"}</td>
+      <td style="padding:4px 6px;">${occHtml}</td>
+      <td style="padding:4px 3px;"><button data-action="bp-tank-delete" data-tank-id="${t.id}" style="font-size:9px;padding:1px 6px;border:1px solid #fca5a5;color:#ef4444;background:white;border-radius:3px;cursor:pointer;">×</button></td>
+    </tr>`;
+  }).join("");
+
+  return `<section class="panel" style="margin-bottom:16px;">
+    <div class="panel-header"><h2>タンク管理</h2><p class="panel-caption">タンクの登録と占有状況</p></div>
+    ${tanks.length > 0 ? `<div style="overflow-x:auto;margin-bottom:8px;">
+      <table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:2px solid #e5e7eb;font-size:10px;color:#6b7280;text-align:left;">
+        <th style="padding:3px 6px;">No.</th><th style="padding:3px 6px;text-align:right;">容量</th><th style="padding:3px 6px;">対応区分</th><th style="padding:3px 6px;">占有</th><th></th>
+      </tr></thead><tbody>${rows}</tbody></table>
+    </div>` : ""}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;font-size:11px;">
+      <label>No.<input id="bp-tank-no" type="text" placeholder="1号" style="width:50px;padding:3px;border:1px solid #d1d5db;border-radius:3px;font-size:11px;"></label>
+      <label>容量L<input id="bp-tank-cap" type="number" placeholder="3000" style="width:60px;padding:3px;border:1px solid #d1d5db;border-radius:3px;font-size:11px;"></label>
+      <label>区分<input id="bp-tank-cats" type="text" placeholder="純米吟醸,純米（空=全て）" style="width:140px;padding:3px;border:1px solid #d1d5db;border-radius:3px;font-size:11px;"></label>
+      <button data-action="bp-tank-add" class="button primary" style="font-size:11px;padding:4px 10px;">追加</button>
+    </div>
+  </section>`;
+}
+
 // ─── Main Renderer ───────────────────────────────────────────────────────────
 
-export interface WorkerSettingsView { workerCount: number; weeklyHoursLimit: number; dayStartHour: number; }
+export interface WorkerSettingsView { workerCount: number; weeklyHoursLimit: number; dayStartHour: number; deadlineDate: string; allowSunday: boolean; }
+export interface TankView { id: string; tankNo: string; capacityL: number; tankType: string; preferredCategories: string[]; cleanupDays: number; }
 export interface StepLaborView { stepName: string; laborHours: number; workerCountNeeded: number; }
 
 function renderWorkerChart(steps: BrewingProcessStep[], workerSettings: WorkerSettingsView, stepLabor: StepLaborView[]): string {
@@ -393,9 +440,9 @@ export function renderBrewingProcess(
   batches: BrewingBatch[],
   steps: BrewingProcessStep[],
   categories: string[],
-  opts: { expandedBatchId?: string; showNewForm?: boolean; schedule?: ScheduleEntry[]; fy?: number; workerSettings?: WorkerSettingsView; stepLabor?: StepLaborView[] } = {}
+  opts: { expandedBatchId?: string; showNewForm?: boolean; schedule?: ScheduleEntry[]; fy?: number; workerSettings?: WorkerSettingsView; stepLabor?: StepLaborView[]; tanks?: TankView[] } = {}
 ): string {
-  const { expandedBatchId, showNewForm, schedule = [], fy = 2026, workerSettings = { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6 }, stepLabor = [] } = opts;
+  const { expandedBatchId, showNewForm, schedule = [], fy = 2026, workerSettings = { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6, deadlineDate: "", allowSunday: false }, stepLabor = [], tanks = [] } = opts;
 
   const stepsByBatch: Record<string, BrewingProcessStep[]> = {};
   for (const s of steps) { (stepsByBatch[s.batchId] ??= []).push(s); }
@@ -425,6 +472,7 @@ export function renderBrewingProcess(
 
     ${renderGantt(batches, stepsByBatch, expandedBatchId)}
     ${renderWorkerChart(steps, workerSettings, stepLabor)}
+    ${renderTankSection(tanks, batches, stepsByBatch)}
     ${showNewForm ? renderNewBatchForm(categories) : ""}
     ${renderImportSection(schedule, batches)}
     ${networkHtml}
