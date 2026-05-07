@@ -7771,11 +7771,8 @@ async function loadData(): Promise<void> {
       saveQuoteSettings(merged); // localStorageにも書き戻す（オフライン用）
     }
 
-    // お知らせはバックグラウンドで（テーブル未作成でも画面をブロックしない）
-    fetchAnnouncements().then((list) => {
-      state.announcements = list;
-      if (list.length > 0) renderApp();
-    }).catch(() => {/* サイレント */});
+    // system_announcements テーブル未作成のためスキップ
+    // fetchAnnouncements().then(...)
 
     // メール配信先をバックグラウンドで取得
     if (EMAIL_RECIPIENTS.length === 0) {
