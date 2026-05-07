@@ -2162,7 +2162,6 @@ function renderView(): string {
     !state.paymentStatus ||
     !state.masterStats ||
     !state.pipelineMeta ||
-    !state.customerLedger ||
     !state.salesAnalytics
   ) {
     return "";
