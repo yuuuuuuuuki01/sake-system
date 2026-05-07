@@ -85,7 +85,7 @@ export async function supabaseRpc<T>(
   if (!SUPABASE_ANON_KEY) return null;
   try {
     const url = new URL(`/rest/v1/rpc/${fnName}`, SUPABASE_URL);
-    const response = await fetchWithTimeout(url.toString(), {
+    const response = await fetch(url.toString(), {
       method: "POST",
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -130,14 +130,6 @@ export async function supabaseCount(table: string): Promise<number> {
   }
 }
 
-const FETCH_TIMEOUT_MS = 15000;
-
-function fetchWithTimeout(url: string, options: RequestInit): Promise<Response> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-  return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(timer));
-}
-
 export async function supabaseQuery<T>(
   table: string,
   params: Record<string, string> = {}
@@ -152,7 +144,7 @@ export async function supabaseQuery<T>(
       url.searchParams.set(key, value);
     });
 
-    const response = await fetchWithTimeout(url.toString(), {
+    const response = await fetch(url.toString(), {
       method: "GET",
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -206,7 +198,7 @@ export async function supabaseQueryAll<T>(
       });
       url.searchParams.set("limit", String(pageSize));
       url.searchParams.set("offset", String(offset));
-      const response = await fetchWithTimeout(url.toString(), {
+      const response = await fetch(url.toString(), {
         method: "GET",
         headers: {
           apikey: SUPABASE_ANON_KEY,
