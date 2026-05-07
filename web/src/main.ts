@@ -7729,6 +7729,26 @@ async function loadData(): Promise<void> {
   state.loading = !cached;
   if (!cached) renderApp();
   try {
+    // 各fetchは内部でtry/catchしているため個別エラーは握り潰される。
+    // ただしネットワーク無応答時に無限待ちになるのを防ぐため
+    // Promise.allSettled + 10秒のタイムアウトで確実に脱出する。
+    const TIMEOUT = 10_000;
+    const timer = new Promise<null[]>((resolve) =>
+      setTimeout(() => resolve(Array(7).fill(null)), TIMEOUT)
+    );
+    const results = await Promise.race([
+      Promise.all([
+        fetchSalesSummary(),
+        fetchPaymentStatus(),
+        fetchMasterStats(),
+        fetchPipelineMeta(),
+        fetchInvoices(state.invoiceFilter),
+        fetchSalesAnalytics(),
+        fetchSystemSetting<QuoteCompanySettings>("quote_company"),
+      ]),
+      timer,
+    ]);
+
     const [
       salesSummary,
       paymentStatus,
@@ -7737,22 +7757,14 @@ async function loadData(): Promise<void> {
       invoiceRecords,
       salesAnalytics,
       dbCompanySettings,
-    ] = await Promise.all([
-      fetchSalesSummary(),
-      fetchPaymentStatus(),
-      fetchMasterStats(),
-      fetchPipelineMeta(),
-      fetchInvoices(state.invoiceFilter),
-      fetchSalesAnalytics(),
-      fetchSystemSetting<QuoteCompanySettings>("quote_company"),
-    ]);
+    ] = results;
 
-    state.salesSummary = salesSummary;
-    state.paymentStatus = paymentStatus;
-    state.masterStats = masterStats;
-    state.pipelineMeta = pipelineMeta;
-    state.invoiceRecords = invoiceRecords;
-    state.salesAnalytics = salesAnalytics;
+    if (salesSummary) state.salesSummary = salesSummary;
+    if (paymentStatus) state.paymentStatus = paymentStatus;
+    if (masterStats) state.masterStats = masterStats;
+    if (pipelineMeta) state.pipelineMeta = pipelineMeta;
+    if (invoiceRecords) state.invoiceRecords = invoiceRecords;
+    if (salesAnalytics) state.salesAnalytics = salesAnalytics;
     // customerLedger は /ledger 遷移時のみ取得
     // syncDashboard は /setup 遷移時のみ取得
 
@@ -7774,7 +7786,7 @@ async function loadData(): Promise<void> {
     // rawブラウザのテーブル一覧は /raw-browser 遷移時に取得（初期ロードでは不要）
 
     if (!state.salesFilter.startDate || !state.salesFilter.endDate) {
-      const sortedRecords = [...salesSummary.salesRecords].sort(
+      const sortedRecords = [...(salesSummary?.salesRecords ?? [])].sort(
         (left, right) => new Date(right.date).getTime() - new Date(left.date).getTime()
       );
       const latestDate = sortedRecords[0]?.date ?? new Date().toISOString();
