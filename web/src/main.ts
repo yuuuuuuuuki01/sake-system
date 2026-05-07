@@ -2455,6 +2455,7 @@ function renderShell(): string {
         <div class="app-header-left">${leftHtml}</div>
         <div class="app-header-right">
           <button class="button secondary small" type="button" data-action="global-search-open">検索 <kbd>Ctrl+K</kbd></button>
+          <button class="button secondary small" type="button" data-action="share-page" title="このページのURLを共有">🔗</button>
           ${userHtml}
         </div>
       </header>
@@ -2699,6 +2700,26 @@ function bindEvents(root: HTMLElement): void {
   // アプデ通知のリロードボタン
   root.querySelector<HTMLButtonElement>("[data-action='reload-app']")?.addEventListener("click", () => {
     location.reload();
+  });
+
+  // ページ共有ボタン
+  root.querySelector<HTMLButtonElement>("[data-action='share-page']")?.addEventListener("click", async () => {
+    const url = window.location.href;
+    const title = document.title;
+    if (navigator.share) {
+      try {
+        await navigator.share({ url, title });
+      } catch {
+        // キャンセル等は無視
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast("URLをコピーしました", "success");
+      } catch {
+        showToast("コピーに失敗しました", "error");
+      }
+    }
   });
 
   root.querySelectorAll<HTMLElement>("[data-link]").forEach((element) => {
@@ -7649,6 +7670,11 @@ function renderApp(): void {
     app.innerHTML = `<div style="padding:32px;color:red;font-family:monospace;white-space:pre-wrap;">[描画エラー] ${String(err)}\n\n${(err as Error)?.stack ?? ""}</div>`;
     return;
   }
+  // ページタイトルを更新（URLシェア時に正しいタイトルが表示されるよう）
+  const pageTitleEl = app.querySelector<HTMLElement>(".app-page-title");
+  document.title = pageTitleEl?.textContent
+    ? `${pageTitleEl.textContent} | 酒仙iクラウド`
+    : "酒仙iクラウド";
   bindEvents(app);
   if (state.pickerMode) {
     app.querySelector<HTMLInputElement>("#modal-search")?.focus();
