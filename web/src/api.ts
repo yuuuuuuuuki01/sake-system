@@ -1807,7 +1807,38 @@ export async function fetchBrewingProcessSteps(batchIds: string[]): Promise<Brew
   }));
 }
 
-// 工程の標準日数
+// 日曜を除いてN営業日後の日付を返す
+function addWorkdays(base: Date, workdays: number): Date {
+  const d = new Date(base);
+  let added = 0;
+  while (added < workdays) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() !== 0) added++; // 日曜=0をスキップ
+  }
+  return d;
+}
+
+// 日曜を除いた営業日数を返す
+function workdaySpan(startDate: Date, days: number): Date {
+  // days日間（営業日ベース）の終了日を返す
+  const d = new Date(startDate);
+  let remaining = days - 1; // 開始日含む
+  while (remaining > 0) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() !== 0) remaining--;
+  }
+  // 終了日が日曜なら翌月曜に
+  if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+// 開始日が日曜なら翌月曜にずらす
+function skipSunday(d: Date): Date {
+  if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+// 工程の標準日数（営業日ベース）
 const BREW_STEPS = [
   { name: "洗米・浸漬", days: 1 }, { name: "蒸米", days: 1 }, { name: "製麹", days: 2 },
   { name: "酒母", days: 14 }, { name: "仕込み(添/仲/留)", days: 4 }, { name: "醪管理", days: 25 },
@@ -1869,15 +1900,17 @@ export async function createBrewingBatch(
   });
   if (!batch?.id) return null;
 
-  let d = new Date(adjustedStart);
+  let d = skipSunday(new Date(adjustedStart));
   for (let i = 0; i < BREW_STEPS.length; i++) {
+    d = skipSunday(d);
     const ps = d.toISOString().slice(0, 10);
-    const pe = new Date(d.getTime() + (BREW_STEPS[i].days - 1) * 86400000).toISOString().slice(0, 10);
+    const endDate = workdaySpan(d, BREW_STEPS[i].days);
+    const pe = endDate.toISOString().slice(0, 10);
     await supabaseInsert("brewing_process_steps", {
       batch_id: batch.id, step_order: i + 1, step_name: BREW_STEPS[i].name,
       planned_start: ps, planned_end: pe
     });
-    d = new Date(d.getTime() + BREW_STEPS[i].days * 86400000);
+    d = addWorkdays(endDate, 1); // 翌営業日
   }
   await supabaseUpdate("brewing_process_batches", batch.id, { target_end_date: d.toISOString().slice(0, 10) });
   return batch.id;
@@ -1918,7 +1951,7 @@ export async function autoScheduleAllBatches(
   };
   const overlap = (s1: string, e1: string, s2: string, e2: string) => s1 <= e2 && e1 >= s2;
 
-  // 週別労働時間を計算する関数
+  // 週別労働時間を計算する関数（日曜除外）
   const calcWeekLoad = (): Map<string, number> => {
     const wh = new Map<string, number>();
     for (const steps of placed.values()) {
@@ -1926,10 +1959,17 @@ export async function autoScheduleAllBatches(
         const lb = laborMap.get(s.stepName);
         if (!lb) continue;
         const days = Math.max(Math.round((new Date(s.end).getTime() - new Date(s.start).getTime()) / 86400000) + 1, 1);
-        const hpd = lb.laborHours / days;
+        // 日曜を除いた実稼働日数
+        let workDays = 0;
         for (let i = 0; i < days; i++) {
-          const dt = new Date(s.start);
-          dt.setDate(dt.getDate() + i);
+          const dt = new Date(s.start); dt.setDate(dt.getDate() + i);
+          if (dt.getDay() !== 0) workDays++;
+        }
+        if (workDays === 0) continue;
+        const hpd = lb.laborHours / workDays;
+        for (let i = 0; i < days; i++) {
+          const dt = new Date(s.start); dt.setDate(dt.getDate() + i);
+          if (dt.getDay() === 0) continue; // 日曜スキップ
           const tmp = new Date(dt); tmp.setDate(tmp.getDate() + 3 - (tmp.getDay() + 6) % 7);
           const w1 = new Date(tmp.getFullYear(), 0, 4);
           const wn = 1 + Math.round(((tmp.getTime() - w1.getTime()) / 86400000 - 3 + (w1.getDay() + 6) % 7) / 7);
@@ -1946,14 +1986,18 @@ export async function autoScheduleAllBatches(
     let candidate = batch.startDate;
 
     for (let attempt = 0; attempt < 90; attempt++) {
-      // この候補日で工程を生成
+      // 候補日が日曜ならスキップ
+      if (new Date(candidate).getDay() === 0) { candidate = addD(candidate, 1); continue; }
+      // この候補日で工程を生成（日曜スキップ）
       const candidateSteps: PlacedStep[] = [];
-      let d = candidate;
+      let curD = new Date(candidate);
       for (const step of BREW_STEPS) {
-        const start = d;
-        const end = addD(d, step.days - 1);
+        curD = skipSunday(curD);
+        const start = curD.toISOString().slice(0, 10);
+        const endDt = workdaySpan(curD, step.days);
+        const end = endDt.toISOString().slice(0, 10);
         candidateSteps.push({ stepName: step.name, start, end });
-        d = addD(d, step.days);
+        curD = addWorkdays(endDt, 1);
       }
 
       // 制約1: 麹室（製麹の重複チェック）
@@ -3738,6 +3782,43 @@ export async function saveTaxDeclaration(decl: TaxDeclaration): Promise<void> {
     xml_data: generateTaxXML(decl),
     submitted_at: decl.submittedAt
   });
+}
+
+// ─── 酒税移出量集計 ───────────────────────────────────────────────────────────
+
+export interface SakeTaxRow {
+  sakeType: string;
+  alcDegree: number | null;
+  volumeSaleL: number;
+  volumeReturnL: number;
+  volumeExportL: number;
+  volumeNetL: number;
+  taxRatePerKl: number | null;
+  taxAmount: number;
+}
+
+export async function fetchSakeTaxByMonth(year: number, month: number): Promise<SakeTaxRow[]> {
+  const rows = await supabaseRpc<{
+    sake_type: string;
+    alc_degree: number | null;
+    volume_sale_l: number;
+    volume_return_l: number;
+    volume_export_l: number;
+    volume_net_l: number;
+    tax_rate_per_kl: number | null;
+    tax_amount: number;
+  }>("get_sake_tax_by_month", { p_year: year, p_month: month });
+
+  return rows.map((r) => ({
+    sakeType: r.sake_type,
+    alcDegree: r.alc_degree ?? null,
+    volumeSaleL: Number(r.volume_sale_l) || 0,
+    volumeReturnL: Number(r.volume_return_l) || 0,
+    volumeExportL: Number(r.volume_export_l) || 0,
+    volumeNetL: Number(r.volume_net_l) || 0,
+    taxRatePerKl: r.tax_rate_per_kl !== null ? Number(r.tax_rate_per_kl) : null,
+    taxAmount: Number(r.tax_amount) || 0,
+  }));
 }
 
 // ─── 店舗・直売所 ─────────────────────────────────────────────────────────────

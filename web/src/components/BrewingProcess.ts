@@ -333,8 +333,13 @@ function renderWorkerChart(steps: BrewingProcessStep[], workerSettings: WorkerSe
     const startD = new Date(s.plannedStart);
     const endD = new Date(s.plannedEnd);
     const totalDays = Math.max(Math.round((endD.getTime() - startD.getTime()) / 86400000) + 1, 1);
-    const hoursPerDay = lb.laborHours / totalDays;
+    // 日曜を除いた稼働日数
+    let workDays = 0;
+    for (let i = 0; i < totalDays; i++) { const t = new Date(startD.getTime() + i * 86400000); if (t.getDay() !== 0) workDays++; }
+    if (workDays === 0) continue;
+    const hoursPerDay = lb.laborHours / workDays;
     for (let d = new Date(startD); d <= endD; d = new Date(d.getTime() + 86400000)) {
+      if (d.getDay() === 0) continue; // 日曜スキップ
       const tmp = new Date(d); tmp.setDate(tmp.getDate() + 3 - (tmp.getDay() + 6) % 7);
       const w1 = new Date(tmp.getFullYear(), 0, 4);
       const wn = 1 + Math.round(((tmp.getTime() - w1.getTime()) / 86400000 - 3 + (w1.getDay() + 6) % 7) / 7);
