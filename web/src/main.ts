@@ -6515,6 +6515,68 @@ function bindEvents(root: HTMLElement): void {
   function fmtNum(n: number): string { return n.toLocaleString("ja-JP"); }
 
   // ─── 醸造工程管理 イベントハンドラ ──────────────────────────────────────────
+
+  // 醸造工程ガント: ドラッグ移動・リサイズ（日程調整）
+  (() => {
+    const gantt = root.querySelector<HTMLElement>("#bp-gantt");
+    if (!gantt) return;
+    let drag: null | {
+      bar: HTMLElement; mode: "move" | "resize-left" | "resize-right";
+      stepId: string; startX: number; origLeft: number; origWidth: number;
+    } = null;
+
+    function startDrag(e: MouseEvent | TouchEvent) {
+      const target = e.target as HTMLElement;
+      const bar = target.closest<HTMLElement>(".bp-gantt-bar");
+      if (!bar) return;
+      let mode: "move" | "resize-left" | "resize-right" = "move";
+      if (target.classList.contains("bp-gantt-resize-right")) mode = "resize-right";
+      else if (target.classList.contains("bp-gantt-resize-left")) mode = "resize-left";
+      const x = "touches" in e ? e.touches[0].clientX : e.clientX;
+      bar.style.opacity = "0.7"; bar.style.zIndex = "10";
+      drag = { bar, mode, stepId: bar.dataset.stepId ?? "", startX: x, origLeft: parseFloat(bar.style.left), origWidth: parseFloat(bar.style.width) };
+      e.preventDefault();
+    }
+    function moveDrag(e: MouseEvent | TouchEvent) {
+      if (!drag) return;
+      const x = "touches" in e ? e.touches[0].clientX : e.clientX;
+      const dx = x - drag.startX;
+      if (drag.mode === "move") { drag.bar.style.left = (drag.origLeft + dx) + "px"; }
+      else if (drag.mode === "resize-right") { drag.bar.style.width = Math.max(6, drag.origWidth + dx) + "px"; }
+      else { drag.bar.style.left = (drag.origLeft + dx) + "px"; drag.bar.style.width = Math.max(6, drag.origWidth - dx) + "px"; }
+    }
+    async function endDrag() {
+      if (!drag) return;
+      const { bar, stepId, origLeft, origWidth } = drag;
+      const newLeft = parseFloat(bar.style.left);
+      const newWidth = parseFloat(bar.style.width);
+      bar.style.opacity = "1"; bar.style.zIndex = "";
+      drag = null;
+      const dxDays = Math.round((newLeft - origLeft) / 6); // DAY_PX=6
+      const dWDays = Math.round((newWidth - origWidth) / 6);
+      if (dxDays === 0 && dWDays === 0) return;
+      // 現在の日程から新日程を計算
+      const origStart = bar.dataset.plannedStart ?? "";
+      const origEnd = bar.dataset.plannedEnd ?? "";
+      if (!origStart || !origEnd) return;
+      const shift = (d: string, n: number) => { const dt = new Date(d); dt.setDate(dt.getDate() + n); return dt.toISOString().slice(0, 10); };
+      let newStart = origStart, newEnd = origEnd;
+      if (dxDays !== 0 && dWDays === 0) { newStart = shift(origStart, dxDays); newEnd = shift(origEnd, dxDays); }
+      else if (dWDays !== 0 && dxDays === 0) { newEnd = shift(origEnd, dWDays); }
+      else { newStart = shift(origStart, dxDays); newEnd = shift(origEnd, dxDays + dWDays); }
+      const { updateBrewingProcessStep, fetchBrewingProcessSteps } = await import("./api");
+      await updateBrewingProcessStep(stepId, { planned_start: newStart, planned_end: newEnd });
+      state.brewingProcessSteps = await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id));
+      renderApp();
+    }
+    gantt.addEventListener("mousedown", startDrag);
+    gantt.addEventListener("touchstart", startDrag, { passive: false });
+    document.addEventListener("mousemove", moveDrag);
+    document.addEventListener("touchmove", moveDrag, { passive: false });
+    document.addEventListener("mouseup", endDrag);
+    document.addEventListener("touchend", endDrag);
+  })();
+
   // 醸造工程: 調達計画から一括取込
   root.querySelector<HTMLButtonElement>("[data-action='bp-import-schedule']")?.addEventListener("click", async () => {
     const checks = root.querySelectorAll<HTMLInputElement>("[data-action='bp-import-check']:checked");
