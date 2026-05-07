@@ -234,7 +234,7 @@ function renderBatchDetail(batch: BrewingBatch, steps: BrewingProcessStep[]): st
           <select data-action="bp-batch-status" data-batch-id="${batch.id}" style="height:24px;font-size:11px;border:1px solid #d1d5db;border-radius:3px;padding:0 4px;">
             ${(["planned", "active", "completed"] as const).map(o => `<option value="${o}"${batch.status === o ? " selected" : ""}>${STATUS_LABELS[o]}</option>`).join("")}
           </select></label>
-        <button data-action="bp-batch-delete" data-batch-id="${batch.id}" style="height:24px;font-size:11px;padding:0 10px;border:1px solid #ef4444;color:#ef4444;background:white;border-radius:3px;cursor:pointer;">削除</button>
+        <button data-action="bp-show-delete-modal" data-batch-id="${batch.id}" data-batch-code="${batch.batchCode}" style="height:24px;font-size:11px;padding:0 10px;border:1px solid #ef4444;color:#ef4444;background:white;border-radius:3px;cursor:pointer;">削除</button>
       </div>
       <!-- ミニガント -->
       <div style="overflow-x:auto;margin-bottom:12px">
@@ -348,5 +348,16 @@ export function renderBrewingProcess(
     ${renderProgressChart(batches, stepsByBatch)}
     ${showNewForm ? renderNewBatchForm(categories) : ""}
     ${importSection}
-    <section>${groupHtml || '<div class="panel" style="padding:20px;text-align:center;color:#9ca3af">バッチ未登録。調達計画から取込むか、新規バッチを追加してください。</div>'}</section>`;
+    <section>${groupHtml || '<div class="panel" style="padding:20px;text-align:center;color:#9ca3af">バッチ未登録。調達計画から取込むか、新規バッチを追加してください。</div>'}</section>
+
+    <div id="bp-delete-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+      <div style="background:white;border-radius:12px;padding:24px;max-width:360px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <h3 style="margin:0 0 12px;font-size:15px;">バッチを削除</h3>
+        <p style="font-size:13px;color:#6b7280;margin-bottom:20px;"><strong id="bp-delete-batch-name"></strong> を削除します。<br>関連する全工程データも削除されます。</p>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button data-action="bp-delete-cancel" style="padding:8px 16px;font-size:13px;border:1px solid #d1d5db;background:white;border-radius:6px;cursor:pointer;">キャンセル</button>
+          <button data-action="bp-delete-confirm" style="padding:8px 16px;font-size:13px;border:none;background:#ef4444;color:white;border-radius:6px;cursor:pointer;font-weight:600;">削除する</button>
+        </div>
+      </div>
+    </div>`;
 }
