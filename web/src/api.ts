@@ -1009,13 +1009,33 @@ export interface InvoiceLineDetail {
   amount: number;
 }
 
+// UUIDv5 を JS で計算して id 検索（インデックスが効くので高速）
+const SAKE_UUID_NS = "b7e3f1a0-4c2d-4e8f-9a1b-0c3d5e7f9a2b";
+
+async function uuidv5(name: string): Promise<string> {
+  const nsBytes = SAKE_UUID_NS.replace(/-/g, "").match(/.{2}/g)!.map(h => parseInt(h, 16));
+  const data = new Uint8Array([...nsBytes, ...new TextEncoder().encode(name)]);
+  const hash = await crypto.subtle.digest("SHA-1", data);
+  const b = new Uint8Array(hash);
+  b[6] = (b[6] & 0x0f) | 0x50;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = Array.from(b.slice(0, 16), x => x.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`;
+}
+
 export async function fetchInvoiceLines(documentNo: string): Promise<InvoiceLineDetail[]> {
-  // note に "inv:{docNo}" が含まれるレコードを検索（document_no カラムはインデックスなしでタイムアウトするため）
+  // id(UUID)はインデックスが効くので、想定されるline_no 1-30 + 99のUUIDを生成して一括検索
+  const ids: string[] = [];
+  for (let ln = 1; ln <= 30; ln++) {
+    ids.push(await uuidv5(`shtor:${documentNo}:${ln}`));
+  }
+  ids.push(await uuidv5(`shtor:${documentNo}:99`)); // 消費税行
+
   const rows = await supabaseQuery<LooseRow>("sales_document_lines", {
     select: "line_no,legacy_product_code,product_name,quantity,unit_price,amount",
-    note: `like.*inv:${documentNo} *`,
+    id: `in.(${ids.join(",")})`,
     order: "line_no",
-    limit: "100"
+    limit: "31"
   });
   return rows.map((row) => ({
     lineNo: getNumber(row, ["line_no"], 0),
