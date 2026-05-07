@@ -5990,11 +5990,19 @@ export async function saveProductionPlan(row: ProductionPlanRow): Promise<boolea
 
 // ─── 出荷カレンダー ──────────────────────────────────────────────────────────
 
+export interface VolumeBreakdown {
+  volumeMl: number;
+  label: string;   // "720ml", "1800ml" etc.
+  bottles: number;
+}
+
 export interface ShipmentEntry {
   customerCode: string;
   customerName: string;
   city: string;
   amount: number;
+  invoiceCount: number;
+  volumes: VolumeBreakdown[];
 }
 
 export interface ShipmentDay {
@@ -6003,6 +6011,7 @@ export interface ShipmentDay {
   cityGroups: { city: string; count: number }[];
   totalAmount: number;
   count: number;
+  totalVolumes: VolumeBreakdown[];
 }
 
 export type ShipmentCalendarData = Record<string, ShipmentDay>;
@@ -6017,26 +6026,80 @@ function extractCity(address: string): string {
   return m ? m[1] : noPref.substring(0, 6);
 }
 
+function mergeVolumes(target: Record<number, number>, volumeMl: number, qty: number): void {
+  if (volumeMl > 0 && qty > 0) {
+    target[volumeMl] = (target[volumeMl] || 0) + qty;
+  }
+}
+
+function volumeMapToList(map: Record<number, number>): VolumeBreakdown[] {
+  return Object.entries(map)
+    .map(([ml, bottles]) => ({
+      volumeMl: Number(ml),
+      label: Number(ml) >= 1000 ? `${Number(ml)}ml` : `${Number(ml)}ml`,
+      bottles: Number(bottles)
+    }))
+    .sort((a, b) => a.volumeMl - b.volumeMl);
+}
+
 export async function fetchShipmentCalendar(yearMonth: string): Promise<ShipmentCalendarData> {
   const [y, mo] = yearMonth.split("-").map(Number);
   const startDate = `${yearMonth}-01`;
-  // 月末日を計算
   const lastDay = new Date(y, mo, 0).getDate();
   const endDate = `${yearMonth}-${String(lastDay).padStart(2, "0")}`;
 
-  // 月内の伝票ヘッダを取得
+  // 伝票ヘッダ
   const headers = await supabaseQueryAll<{
+    document_no: string;
+    legacy_document_no: string;
     sales_date: string;
     customer_name: string;
     legacy_customer_code: string;
     total_amount: number | string;
   }>("sales_document_headers", {
-    select: "sales_date,customer_name,legacy_customer_code,total_amount",
+    select: "document_no,legacy_document_no,sales_date,customer_name,legacy_customer_code,total_amount",
     and: `(sales_date.gte.${startDate},sales_date.lte.${endDate})`,
     order: "sales_date.asc"
   });
 
-  // 得意先住所マップを取得（legacy_customer_code でキー）
+  // 明細（容量取得用）— noteからdate:YYYY-MMでフィルタ
+  const lines = await supabaseQueryAll<{
+    document_no: string;
+    legacy_product_code: string;
+    quantity: number;
+  }>("sales_document_lines", {
+    select: "document_no,legacy_product_code,quantity",
+    note: `like.*date:${yearMonth}*`,
+    order: "document_no"
+  });
+
+  // 商品マスタ（容量）
+  const products = await supabaseQueryAll<{
+    legacy_product_code: string;
+    volume_ml: number | null;
+  }>("products", {
+    select: "legacy_product_code,volume_ml"
+  });
+
+  const volumeMap: Record<string, number> = {};
+  for (const p of products) {
+    if (p.legacy_product_code && p.volume_ml) {
+      volumeMap[p.legacy_product_code] = p.volume_ml;
+    }
+  }
+
+  // 伝票番号 → 容量別本数
+  const docVolumes: Record<string, Record<number, number>> = {};
+  for (const ln of lines) {
+    const docNo = ln.document_no;
+    const vol = volumeMap[ln.legacy_product_code] || 0;
+    if (vol > 0 && ln.quantity > 0) {
+      if (!docVolumes[docNo]) docVolumes[docNo] = {};
+      mergeVolumes(docVolumes[docNo], vol, ln.quantity);
+    }
+  }
+
+  // 得意先住所
   const customers = await supabaseQueryAll<{
     legacy_customer_code: string;
     address1: string | null;
@@ -6044,42 +6107,78 @@ export async function fetchShipmentCalendar(yearMonth: string): Promise<Shipment
     select: "legacy_customer_code,address1",
     address1: "not.is.null"
   });
-
   const cityMap: Record<string, string> = {};
   for (const c of customers) {
     if (c.address1) cityMap[c.legacy_customer_code] = extractCity(c.address1);
   }
 
-  // 日付ごとに集計
-  const result: ShipmentCalendarData = {};
+  // 日付×得意先でグループ化（同一得意先の伝票を1行にまとめる）
+  type CustKey = string; // "date|custCode"
+  const grouped: Record<CustKey, {
+    date: string; custCode: string; custName: string; city: string;
+    amount: number; invoiceCount: number; volumes: Record<number, number>;
+  }> = {};
+
   for (const h of headers) {
     const date = h.sales_date;
     if (!date) continue;
-    const city = cityMap[h.legacy_customer_code] || "住所未登録";
-    const amount = Number(h.total_amount) || 0;
+    const custCode = h.legacy_customer_code || "";
+    const key = `${date}|${custCode}`;
+    const docNo = h.document_no || h.legacy_document_no || "";
 
-    if (!result[date]) {
-      result[date] = { date, entries: [], cityGroups: [], totalAmount: 0, count: 0 };
+    if (!grouped[key]) {
+      grouped[key] = {
+        date, custCode,
+        custName: h.customer_name || "",
+        city: cityMap[custCode] || "住所未登録",
+        amount: 0, invoiceCount: 0, volumes: {}
+      };
     }
-    result[date].entries.push({
-      customerCode: h.legacy_customer_code || "",
-      customerName: h.customer_name || "",
-      city,
-      amount
-    });
-    result[date].totalAmount += amount;
-    result[date].count++;
+    grouped[key].amount += Number(h.total_amount) || 0;
+    grouped[key].invoiceCount++;
+
+    // 伝票の容量を追加
+    const dv = docVolumes[docNo];
+    if (dv) {
+      for (const [ml, qty] of Object.entries(dv)) {
+        mergeVolumes(grouped[key].volumes, Number(ml), Number(qty));
+      }
+    }
   }
 
-  // 市区町村グループを集計
+  // 日付ごとに集計
+  const result: ShipmentCalendarData = {};
+  for (const g of Object.values(grouped)) {
+    if (!result[g.date]) {
+      result[g.date] = { date: g.date, entries: [], cityGroups: [], totalAmount: 0, count: 0, totalVolumes: [] };
+    }
+    const day = result[g.date];
+    day.entries.push({
+      customerCode: g.custCode,
+      customerName: g.custName,
+      city: g.city,
+      amount: g.amount,
+      invoiceCount: g.invoiceCount,
+      volumes: volumeMapToList(g.volumes)
+    });
+    day.totalAmount += g.amount;
+    day.count += g.invoiceCount;
+  }
+
+  // 市区町村グループ + 日合計の容量
   for (const day of Object.values(result)) {
     const cityCount: Record<string, number> = {};
+    const dayVolumes: Record<number, number> = {};
     for (const e of day.entries) {
       cityCount[e.city] = (cityCount[e.city] || 0) + 1;
+      for (const v of e.volumes) {
+        mergeVolumes(dayVolumes, v.volumeMl, v.bottles);
+      }
     }
     day.cityGroups = Object.entries(cityCount)
       .sort((a, b) => b[1] - a[1])
       .map(([city, count]) => ({ city, count }));
+    day.totalVolumes = volumeMapToList(dayVolumes);
   }
 
   return result;

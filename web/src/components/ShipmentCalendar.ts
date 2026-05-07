@@ -1,4 +1,4 @@
-import type { ShipmentCalendarData, ShipmentDay } from "../api";
+import type { ShipmentCalendarData, ShipmentDay, VolumeBreakdown } from "../api";
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -172,9 +172,16 @@ export function renderShipmentCalendar(
       .sc-detail-meta { font-size: 0.8rem; color: var(--text-muted, #6b7280); margin-bottom: 12px; }
       .sc-city-section { margin-bottom: 12px; }
       .sc-city-label { font-size: 0.75rem; font-weight: 700; color: var(--primary, #0F5B8D); border-bottom: 1px solid #dbeafe; padding-bottom: 4px; margin-bottom: 6px; }
-      .sc-customer-row { display: flex; justify-content: space-between; align-items: baseline; padding: 3px 0; font-size: 0.8rem; border-bottom: 1px solid var(--border, #e5e7eb); gap: 8px; }
+      .sc-customer-row { padding: 4px 0; font-size: 0.8rem; border-bottom: 1px solid var(--border, #e5e7eb); }
+      .sc-customer-main { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
       .sc-customer-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .sc-customer-amt { flex-shrink: 0; color: var(--text-muted, #6b7280); font-size: 0.75rem; }
+      .sc-customer-vols { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+      .sc-vol-badge { font-size: 0.65rem; background: #fef3c7; color: #92400e; border-radius: 3px; padding: 1px 4px; display: flex; align-items: center; gap: 2px; }
+      .sc-vol-badge em { font-style: normal; font-weight: 700; }
+      .sc-day-volumes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; padding: 8px; background: #fffbeb; border-radius: 6px; border: 1px solid #fde68a; }
+      .sc-vol-tag { font-size: 0.8rem; color: #78350f; }
+      .sc-vol-tag strong { margin-left: 2px; }
 
       /* ── スマホ: 1画面レイアウト ── */
       @media (max-width: 640px) {
@@ -228,8 +235,22 @@ export function renderShipmentCalendar(
   `;
 }
 
+function renderVolumeBadges(volumes: VolumeBreakdown[]): string {
+  if (!volumes.length) return "";
+  return volumes.map(v =>
+    `<span class="sc-vol-badge">${v.label}<em>${v.bottles}</em></span>`
+  ).join("");
+}
+
 function renderDayDetail(day: ShipmentDay): string {
   const dateLabel = day.date.replace(/-/g, "/").slice(5);
+
+  // 日合計の容量別本数
+  const dayVolHtml = day.totalVolumes.length
+    ? `<div class="sc-day-volumes">${day.totalVolumes.map(v =>
+        `<span class="sc-vol-tag">${v.label} <strong>${v.bottles}本</strong></span>`
+      ).join("")}</div>`
+    : "";
 
   // 市区町村ごとにグループ化
   const byCity: Record<string, typeof day.entries> = {};
@@ -245,14 +266,17 @@ function renderDayDetail(day: ShipmentDay): string {
         .map(
           (e) => `
           <div class="sc-customer-row">
-            <span class="sc-customer-name" title="${e.customerName}">${e.customerName}</span>
-            <span class="sc-customer-amt">${e.amount > 0 ? `¥${e.amount.toLocaleString()}` : "-"}</span>
+            <div class="sc-customer-main">
+              <span class="sc-customer-name" title="${e.customerName}">${e.customerName}</span>
+              <span class="sc-customer-amt">${e.amount > 0 ? `¥${e.amount.toLocaleString()}` : "-"}${e.invoiceCount > 1 ? ` (${e.invoiceCount}伝票)` : ""}</span>
+            </div>
+            ${e.volumes.length ? `<div class="sc-customer-vols">${renderVolumeBadges(e.volumes)}</div>` : ""}
           </div>`
         )
         .join("");
       return `
         <div class="sc-city-section">
-          <div class="sc-city-label">📍 ${city}（${entries.length}件）</div>
+          <div class="sc-city-label">📍 ${city}（${entries.length}先）</div>
           ${rows}
         </div>`;
     })
@@ -260,7 +284,8 @@ function renderDayDetail(day: ShipmentDay): string {
 
   return `
     <p class="sc-detail-date">${dateLabel}の出荷</p>
-    <p class="sc-detail-meta">${day.count}件 / ¥${day.totalAmount.toLocaleString()}</p>
+    <p class="sc-detail-meta">${day.entries.length}先 ${day.count}伝票 / ¥${day.totalAmount.toLocaleString()}</p>
+    ${dayVolHtml}
     ${sections}
   `;
 }
