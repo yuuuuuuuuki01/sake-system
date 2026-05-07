@@ -1010,9 +1010,10 @@ export interface InvoiceLineDetail {
 }
 
 export async function fetchInvoiceLines(documentNo: string): Promise<InvoiceLineDetail[]> {
+  // note に "inv:{docNo}" が含まれるレコードを検索（document_no カラムはインデックスなしでタイムアウトするため）
   const rows = await supabaseQuery<LooseRow>("sales_document_lines", {
     select: "line_no,legacy_product_code,product_name,quantity,unit_price,amount",
-    or: `document_no.eq.${documentNo},legacy_document_no.eq.${documentNo}`,
+    note: `like.*inv:${documentNo} *`,
     order: "line_no",
     limit: "100"
   });
