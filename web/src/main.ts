@@ -1759,6 +1759,11 @@ async function loadRouteData(route: RoutePath): Promise<void> {
           if (state.integrations.length === 0) state.integrations = await fetchIntegrationSettings();
         }
         break;
+      case "/raw-browser":
+        if (state.rawTableList.length === 0) {
+          state.rawTableList = await fetchRawTableList();
+        }
+        break;
       case "/users":
         {
           const { fetchUserProfiles } = await import("./api");
@@ -1833,7 +1838,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       case "/":
         {
-          // ダッシュボード追加データ取得
+          // ダッシュボード追加データ取得（並列）
           const {
             fetchProspects,
             fetchCalendarEvents,
@@ -1841,12 +1846,14 @@ async function loadRouteData(route: RoutePath): Promise<void> {
             fetchTourInquiriesFromDb,
             fetchOrderHeaders
           } = await import("./api");
-          if (state.prospects.length === 0) state.prospects = await fetchProspects();
-          if (state.calendarEvents.length === 0) state.calendarEvents = await fetchCalendarEvents(state.calendarYearMonth);
-          if (state.materialList.length === 0) state.materialList = await fetchMaterialList();
-          if (state.workflowOrders.length === 0) state.workflowOrders = await fetchWorkflowOrdersFromDb();
-          if (state.tourInquiries.length === 0) state.tourInquiries = await fetchTourInquiriesFromDb();
-          if (state.orderHeaders.length === 0) state.orderHeaders = await fetchOrderHeaders();
+          await Promise.allSettled([
+            state.prospects.length === 0 ? fetchProspects().then(v => { state.prospects = v; }) : Promise.resolve(),
+            state.calendarEvents.length === 0 ? fetchCalendarEvents(state.calendarYearMonth).then(v => { state.calendarEvents = v; }) : Promise.resolve(),
+            state.materialList.length === 0 ? fetchMaterialList().then(v => { state.materialList = v; }) : Promise.resolve(),
+            state.workflowOrders.length === 0 ? fetchWorkflowOrdersFromDb().then(v => { state.workflowOrders = v; }) : Promise.resolve(),
+            state.tourInquiries.length === 0 ? fetchTourInquiriesFromDb().then(v => { state.tourInquiries = v; }) : Promise.resolve(),
+            state.orderHeaders.length === 0 ? fetchOrderHeaders().then(v => { state.orderHeaders = v; }) : Promise.resolve(),
+          ]);
         }
         break;
       default:
@@ -7764,13 +7771,7 @@ async function loadData(): Promise<void> {
       void loadEmailRecipients();
     }
 
-    // rawブラウザのテーブル一覧をバックグラウンドで取得
-    if (state.rawTableList.length === 0) {
-      fetchRawTableList().then((list) => {
-        state.rawTableList = list;
-        if (state.route === "/raw-browser") renderApp();
-      });
-    }
+    // rawブラウザのテーブル一覧は /raw-browser 遷移時に取得（初期ロードでは不要）
 
     if (!state.salesFilter.startDate || !state.salesFilter.endDate) {
       const sortedRecords = [...salesSummary.salesRecords].sort(
