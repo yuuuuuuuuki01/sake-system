@@ -991,6 +991,8 @@ const state: AppState = {
   brewingProcessSteps: [] as import("./api").BrewingProcessStepRow[],
   bpExpandedBatchId: "",
   bpShowNewForm: false,
+  bpWorkerSettings: { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6 } as import("./api").WorkerSettings,
+  bpStepLabor: [] as import("./api").StepLabor[],
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1658,15 +1660,21 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/brewing-process": {
-        const { fetchBrewingBatches, fetchBrewingProcessSteps, fetchBrewingCustomCategories, fetchBrewingSchedule } = await import("./api");
+        const { fetchBrewingBatches, fetchBrewingProcessSteps, fetchBrewingCustomCategories, fetchBrewingSchedule, fetchWorkerSettings, fetchStepLabor, fetchBrewingRiceParams } = await import("./api");
         const fy = state.brewingPlanFY;
-        const [batches, customCats, schedule] = await Promise.all([
+        const [batches, customCats, schedule, workerS, stepL, riceP] = await Promise.all([
           fetchBrewingBatches(fy).catch(() => []),
           fetchBrewingCustomCategories().catch(() => []),
-          fetchBrewingSchedule(fy).catch(() => [])
+          fetchBrewingSchedule(fy).catch(() => []),
+          fetchWorkerSettings().catch(() => ({ workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6 })),
+          fetchStepLabor().catch(() => []),
+          fetchBrewingRiceParams().catch(() => ({}))
         ]);
         state.brewingBatches = batches;
         state.brewingSchedule = schedule;
+        state.bpWorkerSettings = workerS;
+        state.bpStepLabor = stepL;
+        state.brewingRiceParams = riceP;
         if (batches.length > 0) {
           state.brewingProcessSteps = await fetchBrewingProcessSteps(batches.map(b => b.id)).catch(() => []);
         } else {
@@ -2034,7 +2042,9 @@ function renderView(): string {
       return renderBrewingProcess(state.brewingBatches, state.brewingProcessSteps, cats, {
         expandedBatchId: state.bpExpandedBatchId, showNewForm: state.bpShowNewForm,
         schedule: state.brewingSchedule.map(s => ({ brewCategory: s.brewCategory, fy: s.fy, brewMonth: s.brewMonth, durationMonths: s.durationMonths, plannedVolumeL: s.plannedVolumeL })),
-        fy: state.brewingPlanFY
+        fy: state.brewingPlanFY,
+        workerSettings: state.bpWorkerSettings,
+        stepLabor: state.bpStepLabor
       });
     }
     case "/jikomi":
@@ -6582,6 +6592,19 @@ function bindEvents(root: HTMLElement): void {
     document.addEventListener("touchend", endDrag);
   })();
 
+  // 醸造工程: 作業者設定変更
+  for (const action of ["bp-worker-count", "bp-worker-hours", "bp-worker-start"] as const) {
+    root.querySelector<HTMLInputElement>(`[data-action='${action}']`)?.addEventListener("change", async (e) => {
+      const val = parseFloat((e.target as HTMLInputElement).value) || 0;
+      if (action === "bp-worker-count") state.bpWorkerSettings.workerCount = val;
+      else if (action === "bp-worker-hours") state.bpWorkerSettings.weeklyHoursLimit = val;
+      else state.bpWorkerSettings.dayStartHour = val;
+      const { saveWorkerSettings } = await import("./api");
+      await saveWorkerSettings(state.bpWorkerSettings);
+      renderApp();
+    });
+  }
+
   // 醸造工程: 調達計画から一括取込
   root.querySelector<HTMLButtonElement>("[data-action='bp-import-schedule']")?.addEventListener("click", async () => {
     const checks = root.querySelectorAll<HTMLInputElement>("[data-action='bp-import-check']:checked");
@@ -6593,7 +6616,7 @@ function bindEvents(root: HTMLElement): void {
       const vol = parseFloat(cb.dataset.vol ?? "0");
       const date = cb.dataset.date ?? "";
       if (!cat || !code || !date) continue;
-      await createBrewingBatch(cat, code, state.brewingPlanFY, vol, date);
+      await createBrewingBatch(cat, code, state.brewingPlanFY, vol, date, state.brewingProcessSteps, state.brewingRiceParams);
     }
     state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
     if (state.brewingBatches.length > 0) {
@@ -6614,7 +6637,7 @@ function bindEvents(root: HTMLElement): void {
     const date = (root.querySelector<HTMLInputElement>("#bp-new-date") as HTMLInputElement)?.value ?? "";
     if (!cat || !code || !date) return;
     const { createBrewingBatch, fetchBrewingBatches, fetchBrewingProcessSteps } = await import("./api");
-    await createBrewingBatch(cat, code, state.brewingPlanFY, vol, date);
+    await createBrewingBatch(cat, code, state.brewingPlanFY, vol, date, state.brewingProcessSteps, state.brewingRiceParams);
     state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
     state.brewingProcessSteps = await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id));
     state.bpShowNewForm = false;

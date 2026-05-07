@@ -318,13 +318,77 @@ function renderStepDetail(batch: BrewingBatch, steps: BrewingProcessStep[]): str
 
 // ─── Main Renderer ───────────────────────────────────────────────────────────
 
+export interface WorkerSettingsView { workerCount: number; weeklyHoursLimit: number; dayStartHour: number; }
+export interface StepLaborView { stepName: string; laborHours: number; workerCountNeeded: number; }
+
+function renderWorkerChart(steps: BrewingProcessStep[], workerSettings: WorkerSettingsView, stepLabor: StepLaborView[]): string {
+  if (steps.length === 0 || stepLabor.length === 0) return "";
+  const laborMap = new Map(stepLabor.map(l => [l.stepName, l]));
+  // 週別の作業時間を集計
+  const weekHours = new Map<string, number>();
+  for (const s of steps) {
+    if (!s.plannedStart || !s.plannedEnd) continue;
+    const lb = laborMap.get(s.stepName);
+    if (!lb) continue;
+    const startD = new Date(s.plannedStart);
+    const endD = new Date(s.plannedEnd);
+    const totalDays = Math.max(Math.round((endD.getTime() - startD.getTime()) / 86400000) + 1, 1);
+    const hoursPerDay = lb.laborHours / totalDays;
+    for (let d = new Date(startD); d <= endD; d = new Date(d.getTime() + 86400000)) {
+      const tmp = new Date(d); tmp.setDate(tmp.getDate() + 3 - (tmp.getDay() + 6) % 7);
+      const w1 = new Date(tmp.getFullYear(), 0, 4);
+      const wn = 1 + Math.round(((tmp.getTime() - w1.getTime()) / 86400000 - 3 + (w1.getDay() + 6) % 7) / 7);
+      const key = `${tmp.getFullYear()}-W${String(wn).padStart(2, "0")}`;
+      weekHours.set(key, (weekHours.get(key) ?? 0) + hoursPerDay);
+    }
+  }
+  if (weekHours.size === 0) return "";
+  const weeks = [...weekHours.keys()].sort();
+  const maxCap = workerSettings.workerCount * workerSettings.weeklyHoursLimit;
+  const maxH = Math.max(...weekHours.values(), maxCap);
+
+  const bars = weeks.map(w => {
+    const h = weekHours.get(w) ?? 0;
+    const pct = Math.min(h / maxH * 100, 100);
+    const over = h > maxCap;
+    const color = over ? "#ef4444" : h > maxCap * 0.8 ? "#f59e0b" : "#22c55e";
+    const label = w.replace(/^\d{4}-W/, "W");
+    return `<div style="text-align:center;flex:1;min-width:32px;">
+      <div style="height:60px;display:flex;align-items:flex-end;justify-content:center;">
+        <div style="width:20px;height:${pct}%;background:${color};border-radius:3px 3px 0 0;min-height:2px;" title="${Math.round(h)}h / ${maxCap}h"></div>
+      </div>
+      <div style="font-size:8px;color:#9ca3af;margin-top:2px;">${label}</div>
+      <div style="font-size:9px;font-weight:600;color:${over ? "#ef4444" : "#374151"};">${Math.round(h)}h</div>
+    </div>`;
+  }).join("");
+
+  return `<section class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <div><h2>週別労働時間</h2><p class="panel-caption">上限: ${workerSettings.workerCount}名 × ${workerSettings.weeklyHoursLimit}h = ${maxCap}h/週（赤=超過）</p></div>
+      <div style="display:flex;gap:6px;align-items:center;font-size:11px;">
+        <label>人数 <input type="number" min="1" max="10" value="${workerSettings.workerCount}" data-action="bp-worker-count" style="width:40px;height:22px;font-size:11px;text-align:center;border:1px solid #d1d5db;border-radius:3px;"></label>
+        <label>上限h <input type="number" min="20" max="60" value="${workerSettings.weeklyHoursLimit}" data-action="bp-worker-hours" style="width:44px;height:22px;font-size:11px;text-align:center;border:1px solid #d1d5db;border-radius:3px;"></label>
+        <label>開始 <input type="number" min="4" max="10" step="0.5" value="${workerSettings.dayStartHour}" data-action="bp-worker-start" style="width:40px;height:22px;font-size:11px;text-align:center;border:1px solid #d1d5db;border-radius:3px;">時</label>
+      </div>
+    </div>
+    <div style="display:flex;gap:2px;overflow-x:auto;padding:4px 0;">
+      <div style="width:40px;flex-shrink:0;display:flex;align-items:flex-end;justify-content:flex-end;padding-bottom:18px;">
+        <div style="border-top:2px dashed #ef4444;width:100%;position:relative;top:${-60 * (maxCap / maxH) + 60}px;">
+          <span style="font-size:7px;color:#ef4444;position:absolute;right:0;top:-10px;">${maxCap}h</span>
+        </div>
+      </div>
+      ${bars}
+    </div>
+  </section>`;
+}
+
 export function renderBrewingProcess(
   batches: BrewingBatch[],
   steps: BrewingProcessStep[],
   categories: string[],
-  opts: { expandedBatchId?: string; showNewForm?: boolean; schedule?: ScheduleEntry[]; fy?: number } = {}
+  opts: { expandedBatchId?: string; showNewForm?: boolean; schedule?: ScheduleEntry[]; fy?: number; workerSettings?: WorkerSettingsView; stepLabor?: StepLaborView[] } = {}
 ): string {
-  const { expandedBatchId, showNewForm, schedule = [], fy = 2026 } = opts;
+  const { expandedBatchId, showNewForm, schedule = [], fy = 2026, workerSettings = { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6 }, stepLabor = [] } = opts;
 
   const stepsByBatch: Record<string, BrewingProcessStep[]> = {};
   for (const s of steps) { (stepsByBatch[s.batchId] ??= []).push(s); }
@@ -350,6 +414,7 @@ export function renderBrewingProcess(
     </section>
 
     ${renderGantt(batches, stepsByBatch, expandedBatchId)}
+    ${renderWorkerChart(steps, workerSettings, stepLabor)}
     ${showNewForm ? renderNewBatchForm(categories) : ""}
     ${renderImportSection(schedule, batches)}
     ${networkHtml}

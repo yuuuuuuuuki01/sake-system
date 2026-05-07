@@ -1807,28 +1807,78 @@ export async function fetchBrewingProcessSteps(batchIds: string[]): Promise<Brew
   }));
 }
 
-export async function createBrewingBatch(cat: string, code: string, fy: number, volL: number, startDate: string): Promise<string | null> {
+// 工程の標準日数
+const BREW_STEPS = [
+  { name: "洗米・浸漬", days: 1 }, { name: "蒸米", days: 1 }, { name: "製麹", days: 2 },
+  { name: "酒母", days: 14 }, { name: "仕込み(添/仲/留)", days: 4 }, { name: "醪管理", days: 25 },
+  { name: "上槽", days: 2 }, { name: "濾過・火入れ", days: 1 }, { name: "貯蔵", days: 30 }, { name: "瓶詰め", days: 1 }
+];
+
+// 麹室制約（180kg）を考慮して製麹が重ならない開始日を自動算出
+async function findValidStartDate(startDate: string, volL: number, riceParams: Record<string, BrewingRiceParams>, cat: string, existingSteps: BrewingProcessStepRow[]): Promise<string> {
+  // 新バッチの製麹期間: 開始日+2日目〜+3日目（step3）
+  const KOJI_CAPACITY_KG = 180;
+  // 新バッチの麹米kg概算
+  const p = riceParams[cat];
+  const ricePerL = p?.ricePerLiterKg ?? 0.50;
+  const kojiRatio = p?.kojiRatio ?? 0.30;
+  const polishing = p?.polishingRatio ?? 0.70;
+  const alcRatio = p?.alcoholAdditionRatio ?? 0;
+  const newKojiKg = Math.round(volL * (1 - alcRatio) * ricePerL * kojiRatio / polishing);
+
+  // 既存バッチの製麹期間を収集
+  const kojiSteps = existingSteps.filter(s => s.stepName === "製麹" && s.plannedStart && s.plannedEnd);
+
+  let candidate = new Date(startDate);
+  for (let attempt = 0; attempt < 60; attempt++) {
+    // この候補日から製麹開始日を計算（洗米1日+蒸米1日の後）
+    const kojiStart = new Date(candidate.getTime() + 2 * 86400000);
+    const kojiEnd = new Date(candidate.getTime() + 3 * 86400000);
+    // 重なる製麹の麹米合計をチェック
+    let overlapKg = 0;
+    for (const ks of kojiSteps) {
+      const ksStart = new Date(ks.plannedStart).getTime();
+      const ksEnd = new Date(ks.plannedEnd).getTime();
+      if (kojiStart.getTime() <= ksEnd && kojiEnd.getTime() >= ksStart) {
+        // 重なっている → その既存バッチの麹米kgを概算（簡易: バッチ量から推定）
+        // TODO: 正確にはバッチの醸造量から計算すべきだが、ここでは固定値で
+        overlapKg += KOJI_CAPACITY_KG; // 安全側: 1バッチ=麹室フル使用と仮定
+      }
+    }
+    if (overlapKg + newKojiKg <= KOJI_CAPACITY_KG) {
+      return candidate.toISOString().slice(0, 10);
+    }
+    // 1日ずらす
+    candidate = new Date(candidate.getTime() + 86400000);
+  }
+  return candidate.toISOString().slice(0, 10);
+}
+
+export async function createBrewingBatch(
+  cat: string, code: string, fy: number, volL: number, startDate: string,
+  existingSteps?: BrewingProcessStepRow[], riceParams?: Record<string, BrewingRiceParams>
+): Promise<string | null> {
+  // 麹室制約で開始日を自動調整
+  let adjustedStart = startDate;
+  if (existingSteps && riceParams) {
+    adjustedStart = await findValidStartDate(startDate, volL, riceParams, cat, existingSteps);
+  }
+
   const batch = await supabaseInsert<{ id: string }>("brewing_process_batches", {
-    brew_category: cat, batch_code: code, fy, planned_volume_l: volL, start_date: startDate
+    brew_category: cat, batch_code: code, fy, planned_volume_l: volL, start_date: adjustedStart
   });
   if (!batch?.id) return null;
-  // 10工程を自動生成
-  const STEPS = [
-    { name: "洗米・浸漬", days: 1 }, { name: "蒸米", days: 1 }, { name: "製麹", days: 2 },
-    { name: "酒母", days: 14 }, { name: "仕込み(添/仲/留)", days: 4 }, { name: "醪管理", days: 25 },
-    { name: "上槽", days: 2 }, { name: "濾過・火入れ", days: 1 }, { name: "貯蔵", days: 30 }, { name: "瓶詰め", days: 1 }
-  ];
-  let d = new Date(startDate);
-  for (let i = 0; i < STEPS.length; i++) {
+
+  let d = new Date(adjustedStart);
+  for (let i = 0; i < BREW_STEPS.length; i++) {
     const ps = d.toISOString().slice(0, 10);
-    const pe = new Date(d.getTime() + (STEPS[i].days - 1) * 86400000).toISOString().slice(0, 10);
+    const pe = new Date(d.getTime() + (BREW_STEPS[i].days - 1) * 86400000).toISOString().slice(0, 10);
     await supabaseInsert("brewing_process_steps", {
-      batch_id: batch.id, step_order: i + 1, step_name: STEPS[i].name,
+      batch_id: batch.id, step_order: i + 1, step_name: BREW_STEPS[i].name,
       planned_start: ps, planned_end: pe
     });
-    d = new Date(d.getTime() + STEPS[i].days * 86400000);
+    d = new Date(d.getTime() + BREW_STEPS[i].days * 86400000);
   }
-  // target_end_dateを更新
   await supabaseUpdate("brewing_process_batches", batch.id, { target_end_date: d.toISOString().slice(0, 10) });
   return batch.id;
 }
@@ -1839,6 +1889,84 @@ export async function updateBrewingProcessStep(stepId: string, fields: Record<st
 
 export async function updateBrewingBatch(batchId: string, fields: Record<string, unknown>): Promise<boolean> {
   return supabaseUpdate("brewing_process_batches", batchId, { ...fields, updated_at: new Date().toISOString() });
+}
+
+// ─── 作業者設定 ──────────────────────────────────────────────────────────────
+
+export interface WorkerSettings {
+  workerCount: number;
+  weeklyHoursLimit: number;
+  dayStartHour: number;
+}
+
+export interface StepLabor {
+  stepName: string;
+  laborHours: number;
+  workerCountNeeded: number;
+}
+
+export async function fetchWorkerSettings(): Promise<WorkerSettings> {
+  const rows = await supabaseQuery<LooseRow>("brewing_worker_settings", { limit: "1" });
+  const r = (rows ?? [])[0];
+  if (!r) return { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6 };
+  return {
+    workerCount: getNumber(r, ["worker_count"], 2),
+    weeklyHoursLimit: getNumber(r, ["weekly_hours_limit"], 40),
+    dayStartHour: getNumber(r, ["day_start_hour"], 6)
+  };
+}
+
+export async function saveWorkerSettings(s: WorkerSettings): Promise<boolean> {
+  // upsert (1行のみ)
+  const rows = await supabaseQuery<LooseRow>("brewing_worker_settings", { limit: "1" });
+  if (rows && rows.length > 0) {
+    const id = getString(rows[0], ["id"], "");
+    return supabaseUpdate("brewing_worker_settings", id, {
+      worker_count: s.workerCount, weekly_hours_limit: s.weeklyHoursLimit,
+      day_start_hour: s.dayStartHour, updated_at: new Date().toISOString()
+    });
+  }
+  return (await supabaseInsert("brewing_worker_settings", {
+    worker_count: s.workerCount, weekly_hours_limit: s.weeklyHoursLimit, day_start_hour: s.dayStartHour
+  })) !== null;
+}
+
+export async function fetchStepLabor(): Promise<StepLabor[]> {
+  const rows = await supabaseQuery<LooseRow>("brewing_step_labor", { order: "step_name" });
+  return (rows ?? []).map(r => ({
+    stepName: getString(r, ["step_name"], ""),
+    laborHours: getNumber(r, ["labor_hours"], 4),
+    workerCountNeeded: getNumber(r, ["worker_count_needed"], 1)
+  }));
+}
+
+// 週別の作業時間を計算
+export function calcWeeklyLabor(
+  steps: BrewingProcessStepRow[], labor: StepLabor[]
+): Map<string, number> {
+  const laborMap = new Map(labor.map(l => [l.stepName, l]));
+  const weekHours = new Map<string, number>(); // "YYYY-Www" → total hours
+
+  for (const s of steps) {
+    if (!s.plannedStart || !s.plannedEnd) continue;
+    const lb = laborMap.get(s.stepName);
+    if (!lb) continue;
+    const startD = new Date(s.plannedStart);
+    const endD = new Date(s.plannedEnd);
+    const totalDays = Math.max(Math.round((endD.getTime() - startD.getTime()) / 86400000) + 1, 1);
+    const hoursPerDay = lb.laborHours / totalDays;
+
+    for (let d = new Date(startD); d <= endD; d = new Date(d.getTime() + 86400000)) {
+      // ISO week
+      const tmp = new Date(d);
+      tmp.setDate(tmp.getDate() + 3 - (tmp.getDay() + 6) % 7);
+      const week1 = new Date(tmp.getFullYear(), 0, 4);
+      const weekNum = 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+      const key = `${tmp.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+      weekHours.set(key, (weekHours.get(key) ?? 0) + hoursPerDay);
+    }
+  }
+  return weekHours;
 }
 
 // ─── 作付け予定（購入確定分） ──────────────────────────────────────────────────
