@@ -176,43 +176,60 @@ def sync_headers_from_lines(config: dict[str, Any],
     # 直近3ヶ月の lines から伝票情報を集約
     from datetime import date, timedelta
     cutoff = (date.today() - timedelta(days=90)).isoformat()
+    cutoff_ym = cutoff[:7]  # e.g. "2026-02"
     inv_data: dict[str, dict] = {}
-    offset = 0
-    while True:
-        url = (f"{base}/rest/v1/sales_document_lines"
-               f"?select=document_no,note,amount"
-               f"&note=like.*src:diff*"
-               f"&note=like.*date:{cutoff[:4]}*"
-               f"&order=id&limit=1000&offset={offset}")
-        resp = sess.get(url, timeout=60)
-        if not resp.ok or not resp.json():
-            break
-        for r in resp.json():
-            inv = r["document_no"]
-            note = r.get("note") or ""
-            dm = NOTE_DATE_RE.search(note)
-            cm = NOTE_CUST_RE.search(note)
-            if dm and cm:
-                if inv not in inv_data:
-                    inv_data[inv] = {"date": dm.group(1), "cust": cm.group(1),
-                                     "total": 0}
-                inv_data[inv]["total"] += r.get("amount") or 0
-        offset += 1000
-        if len(resp.json()) < 1000:
-            break
+    # 月単位でフェッチ（タイムアウト回避）
+    current = date.today()
+    months_to_check = []
+    for i in range(4):  # 今月+過去3ヶ月
+        d = current.replace(day=1) - timedelta(days=30 * i)
+        months_to_check.append(f"{d.year:04d}-{d.month:02d}")
+    months_to_check = sorted(set(months_to_check))
+
+    for ym in months_to_check:
+        offset = 0
+        while True:
+            url = (f"{base}/rest/v1/sales_document_lines"
+                   f"?select=document_no,note,amount"
+                   f"&note=like.*src:diff*"
+                   f"&note=like.*date:{ym}*"
+                   f"&order=id&limit=1000&offset={offset}")
+            resp = sess.get(url, timeout=60)
+            if not resp.ok or not resp.json():
+                break
+            for r in resp.json():
+                inv = r["document_no"]
+                note = r.get("note") or ""
+                dm = NOTE_DATE_RE.search(note)
+                cm = NOTE_CUST_RE.search(note)
+                if dm and cm:
+                    if inv not in inv_data:
+                        inv_data[inv] = {"date": dm.group(1), "cust": cm.group(1),
+                                         "total": 0}
+                    inv_data[inv]["total"] += r.get("amount") or 0
+            offset += 1000
+            if len(resp.json()) < 1000:
+                break
 
     if not inv_data:
         logger.info("No recent lines to sync headers from")
         return
 
-    # 既存ヘッダを確認
-    existing: set[str] = set()
-    resp = sess.get(
-        f"{base}/rest/v1/sales_document_headers"
-        f"?select=legacy_document_no&sales_date=gte.{cutoff}&limit=5000",
-        timeout=30)
-    if resp.ok:
-        existing = {r["legacy_document_no"] for r in resp.json()}
+    # 既存ヘッダの金額を取得（金額変更の検出用）
+    existing_amt: dict[str, int] = {}
+    offset = 0
+    while True:
+        resp = sess.get(
+            f"{base}/rest/v1/sales_document_headers"
+            f"?select=legacy_document_no,total_amount&sales_date=gte.{cutoff}&limit=1000&offset={offset}",
+            timeout=30)
+        if not resp.ok or not resp.json():
+            break
+        for r in resp.json():
+            existing_amt[r["legacy_document_no"]] = r.get("total_amount") or 0
+        offset += 1000
+        if len(resp.json()) < 1000:
+            break
 
     # 得意先名
     cust_names: dict[str, str] = {}
@@ -224,12 +241,13 @@ def sync_headers_from_lines(config: dict[str, Any],
             if c.get("legacy_customer_code"):
                 cust_names[c["legacy_customer_code"]] = c.get("name", "")
 
-    new_headers = []
+    upsert_headers = []
     for inv_no, data in inv_data.items():
-        if inv_no in existing:
-            continue
+        old_amt = existing_amt.get(inv_no)
+        if old_amt is not None and old_amt == data["total"]:
+            continue  # 金額変更なし→スキップ
         uid = str(uuid.uuid5(SAKE_UUID_NS, f"shden_header:{inv_no}"))
-        new_headers.append({
+        upsert_headers.append({
             "id": uid,
             "legacy_document_no": inv_no,
             "document_no": inv_no,
@@ -242,13 +260,25 @@ def sync_headers_from_lines(config: dict[str, Any],
             "closing_status": "open",
         })
 
-    if new_headers:
-        sess.headers["Prefer"] = "resolution=merge-duplicates"
-        for i in range(0, len(new_headers), 500):
-            batch = new_headers[i:i + 500]
-            sess.post(f"{base}/rest/v1/sales_document_headers?on_conflict=id",
-                      json=batch, timeout=60)
-        logger.info("Synced %d new headers from lines", len(new_headers))
+    if upsert_headers:
+        # 新規はPOST、既存の金額更新はPATCH
+        new_ones = [h for h in upsert_headers if h["legacy_document_no"] not in existing_amt]
+        updates = [h for h in upsert_headers if h["legacy_document_no"] in existing_amt]
+
+        if new_ones:
+            sess.headers["Prefer"] = "resolution=merge-duplicates"
+            for i in range(0, len(new_ones), 500):
+                batch = new_ones[i:i + 500]
+                sess.post(f"{base}/rest/v1/sales_document_headers?on_conflict=id",
+                          json=batch, timeout=60)
+
+        for h in updates:
+            sess.patch(
+                f"{base}/rest/v1/sales_document_headers?id=eq.{h['id']}",
+                json={"total_amount": h["total_amount"]},
+                timeout=30)
+
+        logger.info("Synced headers: %d new, %d updated", len(new_ones), len(updates))
     else:
         logger.info("Headers up to date")
 
