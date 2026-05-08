@@ -2431,6 +2431,93 @@ function renderHome(): string {
   `;
 }
 
+function renderSidebar(): string {
+  const r = state.route;
+  const cat = inferCurrentCategory(r);
+
+  const GROUPS: Array<{key: string; icon: string; label: string; items: Array<{path: RoutePath; label: string}>}> = [
+    { key: "sales", icon: "💼", label: "売上管理", items: [
+      { path: "/invoice-entry", label: "伝票入力" },
+      { path: "/invoice",       label: "伝票照会" },
+      { path: "/ledger",        label: "得意先台帳" },
+      { path: "/sales",         label: "売上一覧" },
+      { path: "/payment",       label: "入金状況" },
+      { path: "/billing",       label: "月次請求" },
+      { path: "/delivery",      label: "納品書" },
+      { path: "/report",        label: "集計帳票" },
+    ]},
+    { key: "analytics", icon: "📊", label: "分析", items: [
+      { path: "/analytics",           label: "売上分析" },
+      { path: "/customer-analysis",   label: "ABC分析" },
+      { path: "/customer-efficiency", label: "営業効率" },
+    ]},
+    { key: "crm", icon: "🤝", label: "CRM・営業", items: [
+      { path: "/churn-alert",   label: "営業アクション" },
+      { path: "/map",           label: "取引先マップ" },
+      { path: "/visit-planner", label: "訪問計画" },
+      { path: "/prospects",     label: "新規営業" },
+      { path: "/calls",         label: "通話履歴" },
+    ]},
+    { key: "brewery", icon: "🍶", label: "醸造管理", items: [
+      { path: "/jikomi",          label: "仕込管理" },
+      { path: "/tanks",           label: "タンク管理" },
+      { path: "/brewing-plan",    label: "醸造計画" },
+      { path: "/brewing-process", label: "醸造工程" },
+      { path: "/tax",             label: "酒税申告" },
+      { path: "/demand",          label: "需要・生産計画" },
+    ]},
+    { key: "master", icon: "🗂", label: "マスタ・帳票", items: [
+      { path: "/master",    label: "マスタ管理" },
+      { path: "/store",     label: "店舗・直売所" },
+      { path: "/print",     label: "印刷センター" },
+      { path: "/calendar",  label: "カレンダー" },
+      { path: "/tour",      label: "酒蔵見学" },
+    ]},
+    { key: "settings", icon: "⚙", label: "設定", items: [
+      { path: "/setup",        label: "連動設定" },
+      { path: "/integrations", label: "外部連携" },
+      { path: "/users",        label: "ユーザー管理" },
+      { path: "/import",       label: "データ取込" },
+    ]},
+  ];
+
+  const groupsHtml = GROUPS.map((g) => {
+    const isOpen = g.key === cat;
+    const itemsHtml = g.items.map((item) =>
+      `<a href="${item.path}" data-link="${item.path}" class="snav-sub${r === item.path ? " active" : ""}">${item.label}</a>`
+    ).join("");
+    return `<div class="snav-group${isOpen ? " open" : ""}">
+      <button class="snav-group-btn" type="button" data-snav-group="${g.key}">
+        <span>${g.icon}</span><span class="snav-group-label">${g.label}</span><span class="snav-arrow">›</span>
+      </button>
+      <div class="snav-items">${itemsHtml}</div>
+    </div>`;
+  }).join("");
+
+  const overlayHtml = state.sidebarOpen ? `<div class="sidebar-overlay" data-action="sidebar-close"></div>` : "";
+
+  return `
+    <aside class="app-sidebar${state.sidebarOpen ? " open" : ""}">
+      <div class="snav-brand">
+        <a href="/" data-link="/" class="snav-brand-link">
+          <span class="snav-brand-mark">syusen</span>
+          <span class="snav-brand-name">酒仙i クラウド</span>
+        </a>
+        <button class="snav-close-btn" type="button" data-action="sidebar-close" aria-label="メニューを閉じる">✕</button>
+      </div>
+      <div class="snav-scroll">
+        <a href="/" data-link="/" class="snav-home${r === "/" ? " active" : ""}">🏠 ホーム・ダッシュボード</a>
+        ${groupsHtml}
+        <a href="/changelog" data-link="/changelog" class="snav-home${r === "/changelog" ? " active" : ""}">📋 機能一覧</a>
+      </div>
+      <div class="snav-footer">
+        <a href="/profile" data-link="/profile" class="snav-profile">${state.user?.email ?? "👤 プロフィール"}</a>
+      </div>
+    </aside>
+    ${overlayHtml}
+  `;
+}
+
 function renderShell(): string {
   if (shouldShowLogin()) {
     return `
@@ -2518,13 +2605,10 @@ function renderShell(): string {
       ? `<span class="app-header-user">デモモード</span>`
       : "";
 
-  const leftHtml = isHome
-    ? `<div class="app-brand">
-        <span class="app-brand-mark">syusen-cloud</span>
-        <span class="app-brand-name">酒仙i クラウド</span>
-       </div>`
-    : `<a href="${import.meta.env.BASE_URL.replace(/\/$/, "") || "/"}" data-link="/" class="app-back-btn">← ホーム</a>
-       <span class="app-page-title">${pageTitle}</span>`;
+  const leftHtml = `
+    <button class="sidebar-hamburger" type="button" data-action="sidebar-open" aria-label="メニュー">☰</button>
+    ${!isHome ? `<span class="app-page-title">${pageTitle}</span>` : `<span class="app-brand-name">酒仙i クラウド</span>`}
+  `;
 
   return `
     <div class="shell-v2">
@@ -2537,10 +2621,13 @@ function renderShell(): string {
         </div>
       </header>
       ${renderAnnouncementBar()}
-      <main class="main-v2">
-        <div class="view ${state.actionLoading ? "is-busy" : ""}">${renderView()}</div>
-        <button class="no-print" data-action="print-page" title="印刷" style="position:fixed;bottom:24px;right:24px;z-index:900;width:48px;height:48px;border-radius:50%;background:#1e40af;color:white;border:none;cursor:pointer;font-size:20px;box-shadow:0 2px 8px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;" aria-label="印刷">🖨</button>
-      </main>
+      <div class="shell-body">
+        ${renderSidebar()}
+        <main class="main-v2">
+          <div class="view ${state.actionLoading ? "is-busy" : ""}">${renderView()}</div>
+          <button class="no-print" data-action="print-page" title="印刷" style="position:fixed;bottom:24px;right:24px;z-index:900;width:48px;height:48px;border-radius:50%;background:#1e40af;color:white;border:none;cursor:pointer;font-size:20px;box-shadow:0 2px 8px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;" aria-label="印刷">🖨</button>
+        </main>
+      </div>
       ${pickerHtml}
       ${globalSearchHtml}
     </div>
@@ -2746,6 +2833,14 @@ function bindEvents(root: HTMLElement): void {
     button.addEventListener("click", () => {
       state.sidebarOpen = false;
       renderApp();
+    });
+  });
+
+  // Sidebar accordion groups
+  root.querySelectorAll<HTMLButtonElement>("[data-snav-group]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const group = btn.closest(".snav-group");
+      group?.classList.toggle("open");
     });
   });
 
