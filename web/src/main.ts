@@ -720,6 +720,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/customer-analysis":
     case "/product-power":
     case "/customer-efficiency":
+    case "/demand-forecast":
     case "/report":
       return "analytics";
     case "/prospects":
@@ -748,6 +749,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/brewing-plan":
     case "/procurement":
     case "/brewing-process":
+    case "/workforce":
       return "brewery";
     case "/master":
     case "/calendar":
@@ -755,6 +757,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/tour":
     case "/print":
     case "/form-designer":
+    case "/shopify":
       return "master";
     case "/setup":
     case "/integrations":
@@ -764,6 +767,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/users":
     case "/profile":
     case "/audit":
+    case "/changelog":
       return "settings";
     default:
       return "dashboard";
@@ -2543,37 +2547,48 @@ function renderSidebar(): string {
     ]},
     { key: "analytics", icon: "📊", label: "分析", items: [
       { path: "/analytics",           label: "売上分析" },
+      { path: "/product-power",       label: "商品パワー" },
       { path: "/customer-analysis",   label: "ABC分析" },
       { path: "/customer-efficiency", label: "営業効率" },
+      { path: "/demand-forecast",     label: "需要予測" },
+      { path: "/shipment-calendar",   label: "出荷カレンダー" },
     ]},
     { key: "crm", icon: "🤝", label: "CRM・営業", items: [
-      { path: "/churn-alert",   label: "営業アクション" },
-      { path: "/map",           label: "取引先マップ" },
-      { path: "/visit-planner", label: "訪問計画" },
-      { path: "/prospects",     label: "新規営業" },
-      { path: "/calls",         label: "通話履歴" },
+      { path: "/churn-alert",         label: "営業アクション" },
+      { path: "/map",                 label: "取引先マップ" },
+      { path: "/visit-planner",       label: "訪問計画" },
+      { path: "/prospects",           label: "新規営業" },
+      { path: "/calls",               label: "通話履歴" },
+      { path: "/seasonal-calendar",   label: "季節提案" },
+      { path: "/list-builder",        label: "リスト取得" },
     ]},
     { key: "brewery", icon: "🍶", label: "醸造管理", items: [
+      { path: "/brewing-plan",    label: "醸造計画" },
+      { path: "/procurement",     label: "調達計画" },
+      { path: "/brewing-process", label: "醸造工程" },
+      { path: "/demand",          label: "需要・生産計画" },
       { path: "/jikomi",          label: "仕込管理" },
       { path: "/tanks",           label: "タンク管理" },
-      { path: "/brewing-plan",    label: "醸造計画" },
-      { path: "/brewing-process", label: "醸造工程" },
+      { path: "/kentei",          label: "検定管理" },
       { path: "/tax",             label: "酒税申告" },
-      { path: "/demand",          label: "需要・生産計画" },
       { path: "/workforce",       label: "人員・シフト" },
     ]},
     { key: "master", icon: "🗂", label: "マスタ・帳票", items: [
-      { path: "/master",    label: "マスタ管理" },
-      { path: "/store",     label: "店舗・直売所" },
-      { path: "/print",     label: "印刷センター" },
-      { path: "/calendar",  label: "カレンダー" },
-      { path: "/tour",      label: "酒蔵見学" },
+      { path: "/master",         label: "マスタ管理" },
+      { path: "/materials",      label: "資材管理" },
+      { path: "/purchase",       label: "仕入・買掛" },
+      { path: "/store",          label: "店舗・直売所" },
+      { path: "/shopify",        label: "Shopify注文" },
+      { path: "/print",          label: "印刷センター" },
+      { path: "/calendar",       label: "カレンダー" },
+      { path: "/tour",           label: "酒蔵見学" },
     ]},
     { key: "settings", icon: "⚙", label: "設定", items: [
       { path: "/setup",        label: "連動設定" },
       { path: "/integrations", label: "外部連携" },
       { path: "/users",        label: "ユーザー管理" },
       { path: "/import",       label: "データ取込" },
+      { path: "/changelog",    label: "更新履歴" },
     ]},
   ];
 
