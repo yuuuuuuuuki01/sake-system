@@ -37,10 +37,28 @@ function buildCalendarCells(yearMonth: string): { date?: string; outside?: boole
   return cells;
 }
 
-/** 前年の同日を取得（日付ベース） */
-function prevYearDate(date: string): string {
+/**
+ * 前年同月の「第N回 同曜日」を返す。
+ * 例: 2026-05-12 (第2火曜) → 2025-05-13 (第2火曜)
+ * 該当日が存在しない場合（第5週など）は空文字を返す。
+ */
+function prevYearSameWeekday(date: string): string {
   const [y, m, d] = date.split("-").map(Number);
-  return `${y - 1}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const dt = new Date(y, m - 1, d);
+  const wd = dt.getDay(); // 0=日〜6=土
+  const nth = Math.ceil(d / 7); // 第何回目
+
+  // 前年同月の1日の曜日
+  const prevFirst = new Date(y - 1, m - 1, 1);
+  const firstWd = prevFirst.getDay();
+  // 前年同月で最初にその曜日が現れる日
+  let firstOccurrence = 1 + ((wd - firstWd + 7) % 7);
+  // 第N回目
+  const targetDay = firstOccurrence + (nth - 1) * 7;
+  // 月末チェック
+  const prevLastDay = new Date(y - 1, m, 0).getDate();
+  if (targetDay > prevLastDay) return "";
+  return `${y - 1}-${String(m).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
 }
 
 interface AggStats { count: number; amount: number; bottles: number; days: number }
@@ -80,17 +98,19 @@ function calcWeeklyStats(data: ShipmentCalendarData, cells: { date?: string; out
   return weeks;
 }
 
-/** 前年の同じ週（カレンダー行の日付リストから前年日付で集計） */
-function calcPrevYearWeeklyStats(prevData: ShipmentCalendarData, cells: { date?: string; outside?: boolean }[]): AggStats[] {
+/** 前年同月のカレンダーグリッドを構築し、同じ行位置（週）で集計 */
+function calcPrevYearWeeklyStats(prevData: ShipmentCalendarData, yearMonth: string): AggStats[] {
+  const [y, mo] = yearMonth.split("-").map(Number);
+  const prevYM = `${y - 1}-${String(mo).padStart(2, "0")}`;
+  const prevCells = buildCalendarCells(prevYM);
   const weeks: AggStats[] = [];
-  for (let i = 0; i < cells.length; i += 7) {
-    const row = cells.slice(i, i + 7);
+  for (let i = 0; i < prevCells.length; i += 7) {
+    const row = prevCells.slice(i, i + 7);
     let count = 0, amount = 0, bottles = 0, days = 0;
     for (const cell of row) {
       if (cell.date) {
         days++;
-        const py = prevYearDate(cell.date);
-        const day = prevData[py];
+        const day = prevData[cell.date];
         if (day) { count += day.count; amount += day.totalAmount; bottles += totalBottles(day); }
       }
     }
@@ -122,7 +142,7 @@ export function renderShipmentCalendar(
 
   // 週別集計（当年＋前年）
   const weekStats = data ? calcWeeklyStats(data, cells) : null;
-  const weekStatsPrev = prevYearData ? calcPrevYearWeeklyStats(prevYearData, cells) : null;
+  const weekStatsPrev = prevYearData ? calcPrevYearWeeklyStats(prevYearData, yearMonth) : null;
 
   // ── カレンダーセル生成 ──
   let calendarHtml = "";
@@ -142,7 +162,7 @@ export function renderShipmentCalendar(
         const isSelected = date === selectedDate;
 
         // 前年同日
-        const pyDay = pyData[prevYearDate(date)];
+        const pyDay = pyData[prevYearSameWeekday(date)];
         const curAmt = dayData?.totalAmount ?? 0;
         const prevAmt = pyDay?.totalAmount ?? 0;
 
@@ -237,7 +257,7 @@ export function renderShipmentCalendar(
 
   // 詳細パネル
   const detailHtml = selectedDate && data?.[selectedDate]
-    ? renderDayDetail(data[selectedDate], pyData[prevYearDate(selectedDate)])
+    ? renderDayDetail(data[selectedDate], pyData[prevYearSameWeekday(selectedDate)])
     : selectedDate
       ? `<div class="sc-detail-empty"><p>📦 ${selectedDate.slice(5)} は出荷なし</p></div>`
       : `<div class="sc-detail-empty"><p>日付を選択すると出荷先一覧が表示されます</p></div>`;
@@ -261,7 +281,7 @@ export function renderShipmentCalendar(
           <span class="sc-month-label">${year}年${month}月</span>
           <button class="sc-nav-btn" data-sc-ym="${nextYM}">▶</button>
         </div>
-        <div class="sc-unit-note">K=¥1,000 / M=¥1,000,000 ｜ 昨対: 前年同月比</div>
+        <div class="sc-unit-note">K=¥1,000 / M=¥1,000,000 ｜ 昨対: 前年同月 同週同曜日比</div>
       </div>
 
       <div class="sc-body">
