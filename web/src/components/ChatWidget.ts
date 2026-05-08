@@ -134,9 +134,18 @@ function renderWidget(): string {
 
     body = `
       <div class="cw-home">
+        <div class="cw-guide">
+          <p class="cw-guide-title">このチャットでできること</p>
+          <ul class="cw-guide-list">
+            <li>画面の使い方がわからない時に質問できます</li>
+            <li>「こうしてほしい」という改修要望を出せます</li>
+            <li>不具合を見つけた場合の報告もこちらから</li>
+          </ul>
+          <p class="cw-guide-note">今いるページを自動で検出するので、気になった時にすぐ送れます。</p>
+        </div>
         <div class="cw-current-page">
           <span class="cw-page-pin">📍</span>
-          <span class="cw-page-label">${escapeHTML(pageLabel)}</span>
+          <span class="cw-page-label">現在のページ: ${escapeHTML(pageLabel)}</span>
         </div>
         <p class="cw-subtitle">どのようなご用件ですか？</p>
         <div class="cw-categories">${categoryCards}</div>

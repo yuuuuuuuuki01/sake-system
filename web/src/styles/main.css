@@ -5310,21 +5310,21 @@ th.sortable:hover {
 
 .cw-panel {
   position: fixed;
-  bottom: 24px;
+  top: 24px;
   right: 24px;
   z-index: 9000;
   width: 380px;
-  max-height: 520px;
+  max-height: min(520px, calc(100vh - 48px));
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 8px 32px rgba(0,0,0,.18);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: cw-slide-up .2s ease-out;
+  animation: cw-slide-down .2s ease-out;
 }
-@keyframes cw-slide-up {
-  from { opacity: 0; transform: translateY(16px); }
+@keyframes cw-slide-down {
+  from { opacity: 0; transform: translateY(-16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
@@ -5401,6 +5401,32 @@ th.sortable:hover {
   font-size: 12px;
   color: #6b7280;
   margin-top: 2px;
+}
+
+.cw-guide {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.cw-guide-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0 0 6px;
+}
+.cw-guide-list {
+  margin: 0 0 6px;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #374151;
+  line-height: 1.7;
+}
+.cw-guide-note {
+  margin: 0;
+  font-size: 11px;
+  color: #6b7280;
 }
 
 .cw-current-page {
@@ -5576,8 +5602,8 @@ th.sortable:hover {
   .cw-panel {
     width: calc(100vw - 16px);
     right: 8px;
-    bottom: 8px;
-    max-height: 70vh;
+    top: 8px;
+    max-height: calc(100vh - 16px);
   }
   .cw-fab {
     bottom: 16px;
