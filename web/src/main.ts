@@ -1497,7 +1497,7 @@ function buildPlanFromAnalysis(ym: string): import("./api").ProductionPlanRow[] 
   });
 }
 
-async function loadRouteData(route: RoutePath): Promise<void> {
+async function loadRouteData(route: RoutePath, background = false): Promise<void> {
   state.actionLoading = true;
   renderApp();
   try {
@@ -1707,6 +1707,8 @@ async function loadRouteData(route: RoutePath): Promise<void> {
       }
       case "/procurement":
       case "/brewing-plan": {
+        // バックグラウンド更新時はデータが既にある場合スキップ（編集中の値を上書きしない）
+        if (background && state.brewingPlanData.length > 0) break;
         const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments, fetchBrewingSeasonalPattern, fetchBrewingForecastOverrides, fetchBrewingRiceParams, fetchRiceVarieties, fetchRicePurchaseCommitments, fetchProcurementDecisions } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
@@ -8662,7 +8664,7 @@ async function loadData(): Promise<void> {
   } finally {
     state.loading = false;
     renderApp();
-    void loadRouteData(state.route);
+    void loadRouteData(state.route, true);
     lastLoadTime = Date.now();
   }
 }
