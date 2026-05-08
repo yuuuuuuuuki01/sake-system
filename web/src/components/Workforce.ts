@@ -5,8 +5,8 @@ export type WorkforceTab = 'staff' | 'shift' | 'cost';
 
 // ── 定数 ─────────────────────────────────────────────────────────────────────
 
-const BOTTLING_LINE_SIZE = 4;    // 詰口ライン定員
-const LABELING_LINE_SIZE = 4;    // 貼場ライン定員
+const BOTTLING_LINE_SIZE = 4;    // 詰口ライン定員（最低4名）
+const LABELING_MIN       = 1;    // 貼場最小人数（1名〜）
 const LINE_MAX_DAILY      = 4000; // 日産最大本数（1800ml換算）
 
 function fmtYen(n: number | null | undefined): string {
@@ -366,11 +366,11 @@ function renderShiftTab(
   }
 
   const bottlingInfo = bottlingTargetQty > 0
-    ? `目標 ${bottlingTargetQty.toLocaleString('ja-JP')} 本 → 推定 ${bottlingDays} 日稼働（${BOTTLING_LINE_SIZE}名）`
-    : `最大 ${LINE_MAX_DAILY.toLocaleString('ja-JP')} 本/日・${BOTTLING_LINE_SIZE}名ライン`;
+    ? `目標 ${bottlingTargetQty.toLocaleString('ja-JP')} 本 → 推定 ${bottlingDays} 日稼働（${BOTTLING_LINE_SIZE}名固定）`
+    : `最大 ${LINE_MAX_DAILY.toLocaleString('ja-JP')} 本/日・${BOTTLING_LINE_SIZE}名固定`;
   const labelingInfo = bottlingTargetQty > 0
-    ? `詰口と同日稼働（${LABELING_LINE_SIZE}名ライン）`
-    : `最大 ${LINE_MAX_DAILY.toLocaleString('ja-JP')} 本/日・${LABELING_LINE_SIZE}名ライン`;
+    ? `詰口と同日稼働（${LABELING_MIN}名〜、量に応じて増員）`
+    : `${LABELING_MIN}名〜（量に応じて増員）`;
 
   return `
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
