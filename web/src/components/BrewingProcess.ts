@@ -180,8 +180,12 @@ function renderNetwork(batch: BrewingBatch, steps: BrewingProcessStep[]): string
 
 // ─── 3. Batch List ───────────────────────────────────────────────────────────
 
-function renderBatchList(batches: BrewingBatch[], stepsByBatch: Record<string, BrewingProcessStep[]>, selectedId?: string): string {
+function renderBatchList(batches: BrewingBatch[], stepsByBatch: Record<string, BrewingProcessStep[]>, selectedId?: string, selectedBatchIds: string[] = []): string {
   if (batches.length === 0) return `<div class="panel" style="padding:20px;text-align:center;color:#9ca3af">仕込が未登録です。調達計画から取込むか、新規登録してください。</div>`;
+
+  const selSet = new Set(selectedBatchIds);
+  const allChecked = batches.length > 0 && batches.every(b => selSet.has(b.id));
+  const someChecked = selectedBatchIds.length > 0;
 
   const rows = batches.map(b => {
     const steps = stepsByBatch[b.id] ?? [];
@@ -190,8 +194,12 @@ function renderBatchList(batches: BrewingBatch[], stepsByBatch: Record<string, B
     const pct = total > 0 ? Math.round(done / total * 100) : 0;
     const color = catColor(b.brewCategory);
     const sel = selectedId === b.id;
+    const checked = selSet.has(b.id);
 
-    return `<tr style="border-bottom:1px solid #f3f4f6;background:${sel ? "#eff6ff" : "transparent"};cursor:pointer;" data-action="bp-toggle-detail" data-batch-id="${b.id}">
+    return `<tr style="border-bottom:1px solid #f3f4f6;background:${checked ? "#fef2f2" : sel ? "#eff6ff" : "transparent"};cursor:pointer;" data-action="bp-toggle-detail" data-batch-id="${b.id}">
+      <td style="padding:4px 6px;text-align:center;" onclick="event.stopPropagation()">
+        <input type="checkbox" data-action="bp-batch-check" data-batch-id="${b.id}" ${checked ? "checked" : ""} style="cursor:pointer;width:14px;height:14px;">
+      </td>
       <td style="padding:6px;font-size:12px;font-weight:600;color:${color};">${b.batchCode}</td>
       <td style="padding:6px;font-size:11px;"><span style="background:${color};color:#fff;padding:1px 6px;border-radius:9999px;font-size:10px;">${b.brewCategory}</span></td>
       <td style="padding:6px;font-size:11px;text-align:right;">
@@ -219,11 +227,19 @@ function renderBatchList(batches: BrewingBatch[], stepsByBatch: Record<string, B
     </tr>`;
   }).join("");
 
+  const bulkDeleteBtn = someChecked
+    ? `<button data-action="bp-bulk-delete" style="font-size:12px;padding:4px 14px;border:1px solid #ef4444;color:#ef4444;background:white;border-radius:5px;cursor:pointer;font-weight:600;">選択した ${selectedBatchIds.length}件を削除</button>`
+    : "";
+
   return `<section class="panel" style="margin-bottom:16px;">
-    <div class="panel-header"><h2>仕込一覧</h2><p class="panel-caption">${batches.length}件 ／ 行クリックで醸造工程フロー表示</p></div>
+    <div class="panel-header">
+      <div><h2>仕込一覧</h2><p class="panel-caption">${batches.length}件 ／ 行クリックで醸造工程フロー表示</p></div>
+      <div style="display:flex;gap:6px;align-items:center;">${bulkDeleteBtn}</div>
+    </div>
     <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;min-width:600px;">
         <thead><tr style="border-bottom:2px solid #e5e7eb;font-size:10px;color:#6b7280;text-align:left;">
+          <th style="padding:4px 6px;text-align:center;"><input type="checkbox" data-action="bp-batch-check-all" ${allChecked ? "checked" : ""} style="cursor:pointer;width:14px;height:14px;" title="${allChecked ? "全解除" : "全選択"}"></th>
           <th style="padding:4px 6px;">コード</th><th style="padding:4px 6px;">区分</th>
           <th style="padding:4px 6px;text-align:right;">醸造量</th><th style="padding:4px 6px;">開始日</th>
           <th style="padding:4px 6px;">状態</th><th style="padding:4px 6px;">進捗</th><th style="padding:4px 6px;text-align:center;">操作</th>
@@ -447,9 +463,9 @@ export function renderBrewingProcess(
   batches: BrewingBatch[],
   steps: BrewingProcessStep[],
   categories: string[],
-  opts: { expandedBatchId?: string; showNewForm?: boolean; schedule?: ScheduleEntry[]; fy?: number; workerSettings?: WorkerSettingsView; stepLabor?: StepLaborView[]; tanks?: TankView[] } = {}
+  opts: { expandedBatchId?: string; showNewForm?: boolean; schedule?: ScheduleEntry[]; fy?: number; workerSettings?: WorkerSettingsView; stepLabor?: StepLaborView[]; tanks?: TankView[]; selectedBatchIds?: string[] } = {}
 ): string {
-  const { expandedBatchId, showNewForm, schedule = [], fy = 2026, workerSettings = { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6, deadlineDate: "", allowSunday: false }, stepLabor = [], tanks = [] } = opts;
+  const { expandedBatchId, showNewForm, schedule = [], fy = 2026, workerSettings = { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6, deadlineDate: "", allowSunday: false }, stepLabor = [], tanks = [], selectedBatchIds = [] } = opts;
 
   const stepsByBatch: Record<string, BrewingProcessStep[]> = {};
   for (const s of steps) { (stepsByBatch[s.batchId] ??= []).push(s); }
@@ -484,7 +500,7 @@ export function renderBrewingProcess(
     ${renderImportSection(schedule, batches)}
     ${networkHtml}
     ${stepDetailHtml}
-    ${renderBatchList(batches, stepsByBatch, expandedBatchId)}
+    ${renderBatchList(batches, stepsByBatch, expandedBatchId, selectedBatchIds)}
 
     <div id="bp-delete-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
       <div style="background:white;border-radius:12px;padding:24px;max-width:360px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">

@@ -682,6 +682,14 @@ interface AppState {
   riceVarieties: import("./api").RiceVariety[];
   ricePurchaseCommitments: import("./api").RicePurchaseCommitment[];
   procurementDecisions: Record<string, number>;
+  brewingBatches: import("./api").BrewingBatchRow[];
+  brewingProcessSteps: import("./api").BrewingProcessStepRow[];
+  bpExpandedBatchId: string;
+  bpShowNewForm: boolean;
+  bpSelectedBatchIds: string[];
+  bpWorkerSettings: import("./api").WorkerSettings;
+  bpStepLabor: import("./api").StepLabor[];
+  bpTanks: import("./api").TankInfo[];
   globalSearchOpen: boolean;
   globalQuery: string;
   orderHeaders: import("./api").OrderHeader[];
@@ -1041,6 +1049,7 @@ const state: AppState = {
   brewingProcessSteps: [] as import("./api").BrewingProcessStepRow[],
   bpExpandedBatchId: "",
   bpShowNewForm: false,
+  bpSelectedBatchIds: [] as string[],
   bpWorkerSettings: { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6, deadlineDate: "", allowSunday: false } as import("./api").WorkerSettings,
   bpStepLabor: [] as import("./api").StepLabor[],
   bpTanks: [] as import("./api").TankInfo[],
@@ -2176,7 +2185,8 @@ function renderView(): string {
         fy: state.brewingPlanFY,
         workerSettings: state.bpWorkerSettings,
         stepLabor: state.bpStepLabor,
-        tanks: state.bpTanks.map(t => ({ id: t.id, tankNo: t.tankNo, capacityL: t.capacityL, tankType: t.tankType, preferredCategories: t.preferredCategories, cleanupDays: t.cleanupDays }))
+        tanks: state.bpTanks.map(t => ({ id: t.id, tankNo: t.tankNo, capacityL: t.capacityL, tankType: t.tankType, preferredCategories: t.preferredCategories, cleanupDays: t.cleanupDays })),
+        selectedBatchIds: state.bpSelectedBatchIds
       });
     }
     case "/workforce":
@@ -7248,6 +7258,44 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 仕込一覧: 個別チェックボックス
+  root.querySelectorAll<HTMLInputElement>("[data-action='bp-batch-check']").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const id = cb.dataset.batchId ?? "";
+      if (!id) return;
+      if (cb.checked) {
+        if (!state.bpSelectedBatchIds.includes(id)) state.bpSelectedBatchIds = [...state.bpSelectedBatchIds, id];
+      } else {
+        state.bpSelectedBatchIds = state.bpSelectedBatchIds.filter(x => x !== id);
+      }
+      renderApp();
+    });
+  });
+
+  // 仕込一覧: 全選択/全解除チェックボックス
+  root.querySelector<HTMLInputElement>("[data-action='bp-batch-check-all']")?.addEventListener("change", (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    state.bpSelectedBatchIds = checked ? state.brewingBatches.map(b => b.id) : [];
+    renderApp();
+  });
+
+  // 仕込一覧: 一括削除
+  root.querySelector<HTMLButtonElement>("[data-action='bp-bulk-delete']")?.addEventListener("click", async () => {
+    const ids = state.bpSelectedBatchIds;
+    if (ids.length === 0) return;
+    const codes = ids.map(id => state.brewingBatches.find(b => b.id === id)?.batchCode ?? id).join("、");
+    if (!window.confirm(`以下の仕込 ${ids.length}件を削除します。\n${codes}\n\n関連する全工程データも削除されます。この操作は取り消せません。`)) return;
+    const { supabaseDelete } = await import("./supabase");
+    await Promise.all(ids.map(id => supabaseDelete("brewing_process_batches", id)));
+    const { fetchBrewingBatches, fetchBrewingProcessSteps } = await import("./api");
+    state.brewingBatches = await fetchBrewingBatches(state.brewingPlanFY);
+    state.brewingProcessSteps = state.brewingBatches.length > 0
+      ? await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id)) : [];
+    state.bpSelectedBatchIds = [];
+    state.bpExpandedBatchId = "";
+    renderApp();
+  });
+
   root.querySelectorAll<HTMLSelectElement>("[data-action='bp-step-status']").forEach(sel => {
     sel.addEventListener("change", async () => {
       const stepId = sel.dataset.stepId ?? "";
@@ -7308,6 +7356,7 @@ function bindEvents(root: HTMLElement): void {
     state.brewingProcessSteps = state.brewingBatches.length > 0
       ? await fetchBrewingProcessSteps(state.brewingBatches.map(b => b.id)) : [];
     state.bpExpandedBatchId = "";
+    state.bpSelectedBatchIds = state.bpSelectedBatchIds.filter(id => id !== pendingDeleteBatchId);
     pendingDeleteBatchId = "";
     renderApp();
   });
