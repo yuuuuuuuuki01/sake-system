@@ -3317,8 +3317,8 @@ export async function fetchCustomerEfficiency(): Promise<CustomerEfficiency[]> {
   }));
 }
 
-export async function fetchCustomerEfficiencyByYear(fiscalYear: number, groupBy: 'billing' | 'delivery' = 'billing'): Promise<CustomerEfficiency[]> {
-  const rows = await supabaseRpc<Record<string, unknown>[]>("get_customer_efficiency", { p_fiscal_year: fiscalYear, p_group_by: groupBy });
+export async function fetchCustomerEfficiencyByYear(fiscalYear: number, groupBy: 'billing' | 'delivery' = 'billing', fiscalType: 'apr' | 'jan' | 'oct' = 'apr'): Promise<CustomerEfficiency[]> {
+  const rows = await supabaseRpc<Record<string, unknown>[]>("get_customer_efficiency", { p_fiscal_year: fiscalYear, p_group_by: groupBy, p_fiscal_type: fiscalType });
   if (!rows) return [];
   return rows.map((r) => ({
     code: String(r.legacy_customer_code ?? ""),

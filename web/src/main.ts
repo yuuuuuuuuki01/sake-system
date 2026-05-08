@@ -937,6 +937,7 @@ const state: AppState = {
   analyticsSortState: [] as SortState,
   customerEfficiency: [],
   customerEfficiencyYear: (() => { const now = new Date(); return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1; })(),
+  customerEfficiencyFiscalType: "jan" as "apr" | "jan" | "oct",
   customerEfficiencyGroupBy: 'billing' as 'billing' | 'delivery',
   masterTab: "customers",
   masterFilter: { ...defaultMasterFilter },
@@ -1493,7 +1494,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.analysisTab = "product"; // navigate内リセットを上書き
         return;
       case "/customer-efficiency":
-        state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear, state.customerEfficiencyGroupBy);
+        state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear, state.customerEfficiencyGroupBy, state.customerEfficiencyFiscalType);
         break;
       case "/customer-analysis":
         await Promise.all([
@@ -1991,7 +1992,7 @@ function renderView(): string {
     case "/product-power":
       return renderProductPower(state.productPower, state.productFilter as ProductViewFilter, state.productDaily, state.productPeriod as ProductPeriod, state.productCustomStart, state.productCustomEnd, state.productSortState);
     case "/customer-efficiency":
-      return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState, state.customerEfficiencyYear, state.customerEfficiencyGroupBy);
+      return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState, state.customerEfficiencyYear, state.customerEfficiencyGroupBy, state.customerEfficiencyFiscalType);
     case "/customer-analysis":
       return state.customerAnalysis
         ? renderCustomerAnalysis(state.customerAnalysis, state.productABC, state.analysisTab, state.analysisPeriod)
@@ -4237,7 +4238,7 @@ function bindEvents(root: HTMLElement): void {
       const year = parseInt(btn.dataset.year ?? "", 10);
       if (!year) return;
       state.customerEfficiencyYear = year;
-      state.customerEfficiency = await fetchCustomerEfficiencyByYear(year, state.customerEfficiencyGroupBy);
+      state.customerEfficiency = await fetchCustomerEfficiencyByYear(year, state.customerEfficiencyGroupBy, state.customerEfficiencyFiscalType);
       renderApp();
     });
   });
@@ -4246,7 +4247,7 @@ function bindEvents(root: HTMLElement): void {
     const year = parseInt((e.target as HTMLSelectElement).value, 10);
     if (!year) return;
     state.customerEfficiencyYear = year;
-    state.customerEfficiency = await fetchCustomerEfficiencyByYear(year, state.customerEfficiencyGroupBy);
+    state.customerEfficiency = await fetchCustomerEfficiencyByYear(year, state.customerEfficiencyGroupBy, state.customerEfficiencyFiscalType);
     renderApp();
   });
   // 営業効率: 得意先/店舗 切り替え
@@ -4254,7 +4255,17 @@ function bindEvents(root: HTMLElement): void {
     btn.addEventListener("click", async () => {
       const groupBy = (btn.dataset.groupby ?? "billing") as 'billing' | 'delivery';
       state.customerEfficiencyGroupBy = groupBy;
-      state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear, groupBy);
+      state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear, groupBy, state.customerEfficiencyFiscalType);
+      renderApp();
+    });
+  });
+
+  // 営業効率: 年度区分切替
+  root.querySelectorAll<HTMLButtonElement>("[data-action='efficiency-fiscal-type']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const ft = (btn.dataset.fiscalType ?? "jan") as "apr" | "jan" | "oct";
+      state.customerEfficiencyFiscalType = ft;
+      state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear, state.customerEfficiencyGroupBy, ft);
       renderApp();
     });
   });

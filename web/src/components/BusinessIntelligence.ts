@@ -250,7 +250,7 @@ export function renderProductPower(
   `;
 }
 
-export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortState: SortState = [], selectedYear: number = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1, groupBy: 'billing' | 'delivery' = 'billing'): string {
+export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortState: SortState = [], selectedYear: number = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1, groupBy: 'billing' | 'delivery' = 'billing', fiscalType: 'apr' | 'jan' | 'oct' = 'jan'): string {
   const aCount = customers.filter((c) => c.currentRank === "A").length;
   const upgraded = customers.filter((c) => c.prevRank && c.currentRank < c.prevRank).length;
   const downgraded = customers.filter((c) => c.prevRank && c.currentRank > c.prevRank).length;
@@ -278,6 +278,13 @@ export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortSt
           .map((y) => `<option value="${y}" ${y === selectedYear ? "selected" : ""}>${y}年度</option>`)
           .join("")}
       </select>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;">
+      <span style="font-size:13px;color:var(--text-secondary);margin-right:4px;">年度区分：</span>
+      <button class="button ${fiscalType === 'jan' ? "primary" : "secondary"} small"
+        data-action="efficiency-fiscal-type" data-fiscal-type="jan">暦年（1〜12月）</button>
+      <button class="button ${fiscalType === 'oct' ? "primary" : "secondary"} small"
+        data-action="efficiency-fiscal-type" data-fiscal-type="oct">酒造年度（10〜9月）</button>
     </div>
     <div style="display:flex;gap:6px;align-items:center;margin-bottom:16px;">
       <span style="font-size:13px;color:var(--text-secondary);margin-right:4px;">表示単位：</span>
@@ -318,7 +325,7 @@ export function renderCustomerEfficiency(customers: CustomerEfficiency[], sortSt
     </section>
 
     <section class="panel">
-      <div class="panel-header"><h2>${groupLabel}ABC分析（${selectedYear}年度・4月〜翌3月）</h2></div>
+      <div class="panel-header"><h2>${groupLabel}ABC分析（${selectedYear}${fiscalType === 'jan' ? '年・1〜12月' : fiscalType === 'oct' ? '酒造年度・10〜翌9月' : '年度・4〜翌3月'}）</h2></div>
       ${yearSelector}
       <div class="table-wrap">
         <table>
