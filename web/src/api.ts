@@ -6780,9 +6780,8 @@ export async function upsertStaffMember(data: Partial<StaffMember> & { name: str
     monthly_tasks:       data.monthlyTasks ?? [],
     available_months:    data.availableMonths ?? null,
     cross_departments:   data.crossDepartments ?? [],
-    // fixed_days_off と is_dept_leader は migration 044 適用後に有効化
-    // fixed_days_off:   data.fixedDaysOff ?? [],
-    // is_dept_leader:   data.isDeptLeader ?? false,
+    fixed_days_off:      data.fixedDaysOff ?? [],
+    is_dept_leader:      data.isDeptLeader ?? false,
     notes:               data.notes ?? null,
     is_active:           data.isActive ?? true,
     updated_at:          new Date().toISOString(),
