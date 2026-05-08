@@ -6792,6 +6792,10 @@ export interface WorkforceMetrics {
   prevYearRouteSalesAmount: number;
   /** 前年同月: ルート伝票件数 */
   prevYearRouteDocCount: number;
+  /** 前年同月: 総出荷本数（詰口目標の算出基準） */
+  prevYearTotalQuantity: number;
+  /** 当月: 総出荷本数（実績あれば） */
+  currentTotalQuantity: number;
 }
 
 export interface DailyShiftPlan {
@@ -6827,22 +6831,24 @@ export async function fetchWorkforceMetrics(yearMonth: string): Promise<Workforc
   const pyDateRange = `(sales_date.gte.${pyStart},sales_date.lt.${pyEnd})`;
 
   const [factRows, directRows, allHeaderRows, pyFactRows, pyAllHeaderRows, pyDirectRows] = await Promise.all([
-    supabaseQuery<LooseRow>('daily_sales_fact',       { select: 'document_count', and: dateRange }),
+    supabaseQuery<LooseRow>('daily_sales_fact',       { select: 'document_count,total_quantity', and: dateRange }),
     supabaseQuery<LooseRow>('sales_document_headers', { select: 'total_amount', and: dateRange, customer_name: 'ilike.*上様*' }),
     supabaseQuery<LooseRow>('sales_document_headers', { select: 'total_amount', and: dateRange }),
     // 前年同月
-    supabaseQuery<LooseRow>('daily_sales_fact',       { select: 'document_count', and: pyDateRange }),
+    supabaseQuery<LooseRow>('daily_sales_fact',       { select: 'document_count,total_quantity', and: pyDateRange }),
     supabaseQuery<LooseRow>('sales_document_headers', { select: 'total_amount', and: pyDateRange }),
     supabaseQuery<LooseRow>('sales_document_headers', { select: 'total_amount', and: pyDateRange, customer_name: 'ilike.*上様*' }),
   ]);
 
   const monthlyDocumentCount     = factRows.reduce((s, r) => s + getNumber(r, ['document_count'], 0), 0);
+  const currentTotalQuantity     = Math.round(factRows.reduce((s, r) => s + getNumber(r, ['total_quantity'], 0), 0));
   const directSalesCount         = directRows.length;
   const directSalesAmount        = directRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
   const totalAmount              = allHeaderRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
   const routeSalesAmount         = Math.max(0, totalAmount - directSalesAmount);
 
   const prevYearDocumentCount    = pyFactRows.reduce((s, r) => s + getNumber(r, ['document_count'], 0), 0);
+  const prevYearTotalQuantity    = Math.round(pyFactRows.reduce((s, r) => s + getNumber(r, ['total_quantity'], 0), 0));
   const pyDirectAmount           = pyDirectRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
   const pyTotalAmount            = pyAllHeaderRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
   const prevYearRouteSalesAmount = Math.max(0, pyTotalAmount - pyDirectAmount);
@@ -6851,6 +6857,7 @@ export async function fetchWorkforceMetrics(yearMonth: string): Promise<Workforc
   return {
     monthlyDocumentCount, directSalesCount, directSalesAmount, routeSalesAmount, workingDays,
     prevYearDocumentCount, prevYearRouteSalesAmount, prevYearRouteDocCount,
+    prevYearTotalQuantity, currentTotalQuantity,
   };
 }
 

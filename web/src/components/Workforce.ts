@@ -432,14 +432,22 @@ export function generateAutoShifts(
     : 0;
   const assignedDeliveryConts = deliveryConts.slice(0, contractorsNeeded);
 
-  // ── 詰口・貼場
-  // 目標本数 → 稼働日数（入力値優先、なければ前年売上から粗推計）
-  let bottlingDaysNeeded = bottlingTargetQty > 0
-    ? Math.ceil(bottlingTargetQty / LINE_MAX_DAILY) : 0;
-  if (bottlingDaysNeeded === 0 && baseMonthlyRoute > 0) {
-    const estBottles = baseMonthlyRoute / 800; // ¥800/本で粗算
-    bottlingDaysNeeded = Math.min(18, Math.ceil(estBottles / LINE_MAX_DAILY));
-  }
+  // ── 詰口・貼場（需要・生産計画から算定）
+  // 優先順位: 1.手動入力 2.前年同月出荷本数 3.前年ルート売上÷単価粗算
+  const demandQty =
+    bottlingTargetQty > 0                    ? bottlingTargetQty :
+    (metrics?.prevYearTotalQuantity ?? 0) > 0 ? metrics!.prevYearTotalQuantity :
+    baseMonthlyRoute > 0                     ? Math.round(baseMonthlyRoute / 800) : 0;
+  const bottlingDaysNeeded = demandQty > 0
+    ? Math.min(18, Math.ceil(demandQty / LINE_MAX_DAILY)) : 0;
+  const bottlingBasis =
+    bottlingTargetQty > 0
+      ? `入力値 ${bottlingTargetQty.toLocaleString('ja-JP')}本`
+      : (metrics?.prevYearTotalQuantity ?? 0) > 0
+      ? `前年同月実績 ${metrics!.prevYearTotalQuantity.toLocaleString('ja-JP')}本`
+      : baseMonthlyRoute > 0
+      ? `前年売上推計 ${Math.round(baseMonthlyRoute / 800).toLocaleString('ja-JP')}本`
+      : '計画なし';
 
   const bottlingCandidates = businessDays.filter(d => !inventorySet.has(d));
   const bottlingDaySet = new Set<number>();
@@ -507,16 +515,21 @@ export function generateAutoShifts(
     }
 
     // ── 詰口・貼場（生産計画日のみ・パート含む全員）
+    // 詰口と貼場は同じ需要・生産計画から稼働日が決まる
     if (isBottling) {
       plans.push({
         planDate: dateStr, department: 'bottling',
         staffMemberIds: bottlingAll.map(s => s.id),
-        notes: bottlingAll.length < BOTTLING_LINE_SIZE ? `要員不足 ${bottlingAll.length}/${BOTTLING_LINE_SIZE}名` : '',
+        notes: bottlingAll.length < BOTTLING_LINE_SIZE
+          ? `要員不足 ${bottlingAll.length}/${BOTTLING_LINE_SIZE}名`
+          : bottlingBasis,
       });
       plans.push({
         planDate: dateStr, department: 'labeling',
         staffMemberIds: labelingAll.map(s => s.id),
-        notes: labelingAll.length < LABELING_MIN ? `要員不足 ${labelingAll.length}/${LABELING_MIN}名` : '',
+        notes: labelingAll.length < LABELING_MIN
+          ? `要員不足 ${labelingAll.length}/${LABELING_MIN}名`
+          : `詰口と同日稼働`,
       });
     }
   }
@@ -618,6 +631,13 @@ function renderShiftTab(
           <strong>${metrics.directSalesCount}件 ${fmtYen(metrics.directSalesAmount)}</strong>
         </div>
         <div>
+          <p style="font-size:10px;color:var(--text-secondary);margin:0 0 2px;">詰口・貼場 計画本数（需要計画）</p>
+          <strong>${(metrics.prevYearTotalQuantity || metrics.currentTotalQuantity || 0).toLocaleString('ja-JP')}本</strong>
+          <span style="font-size:10px;color:var(--text-secondary);margin-left:6px;">
+            ${metrics.prevYearTotalQuantity ? `前年同月実績 ${metrics.prevYearTotalQuantity.toLocaleString('ja-JP')}本` : metrics.currentTotalQuantity ? `当月実績 ${metrics.currentTotalQuantity.toLocaleString('ja-JP')}本` : '実績なし'}
+          </span>
+        </div>
+        <div>
           <p style="font-size:10px;color:var(--text-secondary);margin:0 0 2px;">配送積載率（2台 ${fmtYen(DELIVERY_CAPACITY_PER_VEHICLE)}/日）</p>
           <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
             <div style="flex:1;background:var(--border);border-radius:3px;height:5px;">
@@ -637,8 +657,10 @@ function renderShiftTab(
       <select id="shift-year-month" class="form-input" style="width:160px;">${monthOptions}</select>
       <div style="display:flex;align-items:center;gap:6px;">
         <label style="font-size:12px;white-space:nowrap;">詰口計画（本/月）</label>
-        <input type="number" id="shift-bottling-target" class="form-input" style="width:100px;"
-          value="${bottlingTargetQty || ''}" min="0" step="100" placeholder="未設定" />
+        <input type="number" id="shift-bottling-target" class="form-input" style="width:110px;"
+          value="${bottlingTargetQty || ''}" min="0" step="100"
+          placeholder="${metrics?.prevYearTotalQuantity ? `前年 ${metrics.prevYearTotalQuantity.toLocaleString('ja-JP')}本` : '自動算出'}" />
+        <span style="font-size:10px;color:var(--text-secondary);">空欄＝需要計画から自動算出</span>
       </div>
       <span style="font-size:11px;color:var(--text-secondary);">
         ${hasPlans ? `${dailyPlans.length}件登録済み` : '未生成'}
