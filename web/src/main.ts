@@ -490,6 +490,7 @@ interface AppState {
   deliveryNote: DeliveryNote | null;
   deliverySearchDocNo: string;
   shipmentCalendarData: import("./api").ShipmentCalendarData | null;
+  shipmentCalendarPrevYearData: import("./api").ShipmentCalendarData | null;
   shipmentCalendarYearMonth: string;
   shipmentCalendarSelectedDate: string | null;
   billingSummary: BillingSummary | null;
@@ -968,6 +969,7 @@ const state: AppState = {
   emailSending: false,
   demandForecast: { ...defaultDemandForecastState },
   shipmentCalendarData: null,
+  shipmentCalendarPrevYearData: null,
   shipmentCalendarYearMonth: new Date().toISOString().slice(0, 7),
   shipmentCalendarSelectedDate: null,
   churnAlert: null,
@@ -1474,7 +1476,15 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       case "/shipment-calendar": {
         const { fetchShipmentCalendar } = await import("./api");
-        state.shipmentCalendarData = await fetchShipmentCalendar(state.shipmentCalendarYearMonth);
+        const ym = state.shipmentCalendarYearMonth;
+        const [sy, sm] = ym.split("-").map(Number);
+        const prevYM = `${sy - 1}-${String(sm).padStart(2, "0")}`;
+        const [cur, prev] = await Promise.all([
+          fetchShipmentCalendar(ym),
+          fetchShipmentCalendar(prevYM)
+        ]);
+        state.shipmentCalendarData = cur;
+        state.shipmentCalendarPrevYearData = prev;
         break;
       }
       case "/billing":
@@ -1979,7 +1989,8 @@ function renderView(): string {
       return renderShipmentCalendar(
         state.shipmentCalendarData,
         state.shipmentCalendarYearMonth,
-        state.shipmentCalendarSelectedDate
+        state.shipmentCalendarSelectedDate,
+        state.shipmentCalendarPrevYearData
       );
     case "/billing":
       return state.billingSummary
@@ -7806,10 +7817,18 @@ function bindEvents(root: HTMLElement): void {
       if (!ym) return;
       state.shipmentCalendarYearMonth = ym;
       state.shipmentCalendarData = null;
+      state.shipmentCalendarPrevYearData = null;
       state.shipmentCalendarSelectedDate = null;
       renderApp();
       const { fetchShipmentCalendar } = await import("./api");
-      state.shipmentCalendarData = await fetchShipmentCalendar(ym);
+      const [sy, sm] = ym.split("-").map(Number);
+      const prevYM = `${sy - 1}-${String(sm).padStart(2, "0")}`;
+      const [cur, prev] = await Promise.all([
+        fetchShipmentCalendar(ym),
+        fetchShipmentCalendar(prevYM)
+      ]);
+      state.shipmentCalendarData = cur;
+      state.shipmentCalendarPrevYearData = prev;
       renderApp();
     });
   });
