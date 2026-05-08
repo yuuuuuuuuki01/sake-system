@@ -3674,6 +3674,78 @@ export async function deleteTankById(id: string): Promise<boolean> {
   return supabaseDelete("tanks", id);
 }
 
+// ─── タンク移動簿 ────────────────────────────────────────────────────────────
+
+export interface TankMovement {
+  id: string;
+  movementDate: string;
+  fromTankNo: string;
+  toTankNo: string;
+  volumeL: number;
+  productName: string;
+  batchCode: string;
+  alcoholDegree: number | null;
+  temperature: number | null;
+  movementType: "transfer" | "receive" | "ship" | "blend" | "discard" | "adjust";
+  recordedBy: string;
+  notes: string;
+}
+
+export async function fetchTankMovements(limit = 200): Promise<TankMovement[]> {
+  const rows = await supabaseQuery<LooseRow>("tank_movements", {
+    order: "movement_date.desc,created_at.desc", limit: String(limit)
+  });
+  return rows.map(r => ({
+    id: getString(r, ["id"], ""),
+    movementDate: getString(r, ["movement_date"], ""),
+    fromTankNo: getString(r, ["from_tank_no"], ""),
+    toTankNo: getString(r, ["to_tank_no"], ""),
+    volumeL: getNumber(r, ["volume_l"], 0),
+    productName: getString(r, ["product_name"], ""),
+    batchCode: getString(r, ["batch_code"], ""),
+    alcoholDegree: r["alcohol_degree"] != null ? getNumber(r, ["alcohol_degree"], 0) : null,
+    temperature: r["temperature"] != null ? getNumber(r, ["temperature"], 0) : null,
+    movementType: getString(r, ["movement_type"], "transfer") as TankMovement["movementType"],
+    recordedBy: getString(r, ["recorded_by"], ""),
+    notes: getString(r, ["notes"], "")
+  }));
+}
+
+export async function fetchTankMovementsByTank(tankNo: string): Promise<TankMovement[]> {
+  const rows = await supabaseQuery<LooseRow>("tank_movements", {
+    or: `from_tank_no.eq.${tankNo},to_tank_no.eq.${tankNo}`,
+    order: "movement_date.desc,created_at.desc"
+  });
+  return rows.map(r => ({
+    id: getString(r, ["id"], ""),
+    movementDate: getString(r, ["movement_date"], ""),
+    fromTankNo: getString(r, ["from_tank_no"], ""),
+    toTankNo: getString(r, ["to_tank_no"], ""),
+    volumeL: getNumber(r, ["volume_l"], 0),
+    productName: getString(r, ["product_name"], ""),
+    batchCode: getString(r, ["batch_code"], ""),
+    alcoholDegree: r["alcohol_degree"] != null ? getNumber(r, ["alcohol_degree"], 0) : null,
+    temperature: r["temperature"] != null ? getNumber(r, ["temperature"], 0) : null,
+    movementType: getString(r, ["movement_type"], "transfer") as TankMovement["movementType"],
+    recordedBy: getString(r, ["recorded_by"], ""),
+    notes: getString(r, ["notes"], "")
+  }));
+}
+
+export async function saveTankMovement(m: Omit<TankMovement, "id">): Promise<boolean> {
+  return (await supabaseInsert("tank_movements", {
+    movement_date: m.movementDate, from_tank_no: m.fromTankNo, to_tank_no: m.toTankNo,
+    volume_l: m.volumeL, product_name: m.productName, batch_code: m.batchCode,
+    alcohol_degree: m.alcoholDegree, temperature: m.temperature,
+    movement_type: m.movementType, recorded_by: m.recordedBy, notes: m.notes
+  })) !== null;
+}
+
+export async function deleteTankMovement(id: string): Promise<boolean> {
+  const { supabaseDelete } = await import("./supabase");
+  return supabaseDelete("tank_movements", id);
+}
+
 export interface KenteiRecord {
   id: string;
   kenteiNo: string;

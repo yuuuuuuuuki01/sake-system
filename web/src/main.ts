@@ -206,6 +206,7 @@ import { renderSeasonalCalendar, buildSeasonalData, type SeasonalCalendarState }
 import { renderShipmentCalendar } from "./components/ShipmentCalendar";
 import { renderVisitPlanner, buildVisitPlan, type VisitPlannerState } from "./components/VisitPlanner";
 import { renderTankList, renderTankForm } from "./components/TankList";
+import { renderTankMovements } from "./components/TankMovements";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { isNewRoute, renderChangelog } from "./components/Changelog";
 import { showToast } from "./components/Toast";
@@ -275,6 +276,7 @@ type RoutePath =
   | "/procurement"
   | "/brewing-process"
   | "/workforce"
+  | "/tank-movements"
   | "/changelog";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
@@ -423,6 +425,7 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/brewing-plan", title: "醸造計画" },
   { path: "/procurement", title: "調達計画" },
   { path: "/brewing-process", title: "醸造工程" },
+  { path: "/tank-movements", title: "移動簿" },
   { path: "/changelog", title: "機能一覧・更新履歴" }
 ];
 
@@ -750,6 +753,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
       return "orders";
     case "/jikomi":
     case "/tanks":
+    case "/tank-movements":
     case "/kentei":
     case "/materials":
     case "/tax":
@@ -1053,6 +1057,8 @@ const state: AppState = {
   bpWorkerSettings: { workerCount: 2, weeklyHoursLimit: 40, dayStartHour: 6, deadlineDate: "", allowSunday: false } as import("./api").WorkerSettings,
   bpStepLabor: [] as import("./api").StepLabor[],
   bpTanks: [] as import("./api").TankInfo[],
+  tankMovements: [] as import("./api").TankMovement[],
+  tankMovementFilter: "",
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1818,6 +1824,16 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
           state.tankList = await fetchTankList();
         }
         break;
+      case "/tank-movements": {
+        const { fetchTankMovements, fetchTankList: ftl } = await import("./api");
+        const [movements, tankList] = await Promise.all([
+          fetchTankMovements().catch(() => []),
+          ftl().catch(() => [])
+        ]);
+        state.tankMovements = movements;
+        state.tankList = tankList;
+        break;
+      }
       case "/kentei":
         if (state.kenteiList.length === 0) {
           state.kenteiList = await fetchKenteiList();
@@ -2207,6 +2223,8 @@ function renderView(): string {
         : renderJikomi(state.jikomiList, state.jikomiView);
     case "/tanks":
       return renderTankList(state.tankList);
+    case "/tank-movements":
+      return renderTankMovements(state.tankMovements, state.tankList, state.tankMovementFilter);
     case "/kentei":
       return renderKentei(state.kenteiList);
     case "/materials":
@@ -2585,6 +2603,7 @@ function renderSidebar(): string {
       { path: "/demand",          label: "需要・生産計画" },
       { path: "/jikomi",          label: "仕込管理" },
       { path: "/tanks",           label: "タンク管理" },
+      { path: "/tank-movements",  label: "移動簿" },
       { path: "/kentei",          label: "検定管理" },
       { path: "/tax",             label: "酒税申告" },
       { path: "/workforce",       label: "人員・シフト" },
@@ -8003,6 +8022,58 @@ function bindEvents(root: HTMLElement): void {
   });
   root.querySelector<HTMLButtonElement>("[data-action='bill-new']")?.addEventListener("click", () => {
     showToast("新規請求書の作成は伝票入力から行ってください", "info");
+  });
+
+  // ── 移動簿 ──────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='tm-add']")?.addEventListener("click", async () => {
+    const date = (root.querySelector<HTMLInputElement>("#tm-date") as HTMLInputElement)?.value ?? "";
+    const type = (root.querySelector<HTMLSelectElement>("#tm-type") as HTMLSelectElement)?.value ?? "transfer";
+    const from = (root.querySelector<HTMLSelectElement>("#tm-from") as HTMLSelectElement)?.value ?? "";
+    const to = (root.querySelector<HTMLSelectElement>("#tm-to") as HTMLSelectElement)?.value ?? "";
+    const vol = parseFloat((root.querySelector<HTMLInputElement>("#tm-vol") as HTMLInputElement)?.value ?? "0");
+    if (!date || vol <= 0) { showToast("日付と数量を入力してください", "warning"); return; }
+    if (!from && !to) { showToast("移動元か移動先を選択してください", "warning"); return; }
+    const { saveTankMovement, fetchTankMovements } = await import("./api");
+    await saveTankMovement({
+      movementDate: date, fromTankNo: from, toTankNo: to, volumeL: vol,
+      productName: (root.querySelector<HTMLInputElement>("#tm-product") as HTMLInputElement)?.value ?? "",
+      batchCode: (root.querySelector<HTMLInputElement>("#tm-batch") as HTMLInputElement)?.value ?? "",
+      alcoholDegree: parseFloat((root.querySelector<HTMLInputElement>("#tm-alc") as HTMLInputElement)?.value) || null,
+      temperature: parseFloat((root.querySelector<HTMLInputElement>("#tm-temp") as HTMLInputElement)?.value) || null,
+      movementType: type as any, recordedBy: state.myProfile?.name ?? "", notes: (root.querySelector<HTMLInputElement>("#tm-notes") as HTMLInputElement)?.value ?? ""
+    });
+    state.tankMovements = await fetchTankMovements();
+    showToast("記録しました");
+    renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='tm-delete']").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      if (!id || !confirm("この記録を削除しますか？")) return;
+      const { deleteTankMovement, fetchTankMovements } = await import("./api");
+      await deleteTankMovement(id);
+      state.tankMovements = await fetchTankMovements();
+      renderApp();
+    });
+  });
+  root.querySelector<HTMLSelectElement>("[data-action='tm-filter-tank']")?.addEventListener("change", (e) => {
+    state.tankMovementFilter = (e.target as HTMLSelectElement).value;
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='tm-print']")?.addEventListener("click", () => {
+    const table = root.querySelector<HTMLElement>("#tm-table");
+    if (!table) return;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
+      <title>移動簿</title><style>
+        body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:10px; padding:10mm; }
+        table { width:100%; border-collapse:collapse; } th, td { border:1px solid #ccc; padding:3px 5px; }
+        th { background:#f0f0f0; } button { display:none; }
+        @media print { body { padding:5mm; } }
+      </style></head><body><h1 style="font-size:14px;margin-bottom:8px;">移動簿${state.tankMovementFilter ? ` — ${state.tankMovementFilter}` : ""}</h1>${table.innerHTML}</body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 300);
   });
 
   // ── タンク ──────────────────────────────────────────
