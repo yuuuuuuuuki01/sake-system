@@ -8351,7 +8351,7 @@ try {
 
 // ── Google Maps 初期化 ──────────────────────────────────────────────
 let _gmap: google.maps.Map | null = null;
-let _gmarkers: google.maps.marker.AdvancedMarkerElement[] = [];
+let _gmarkers: google.maps.Marker[] = [];
 let _ginfoWindow: google.maps.InfoWindow | null = null;
 
 function initCustomerMap(container: HTMLElement): void {
@@ -8366,11 +8366,9 @@ function initCustomerMap(container: HTMLElement): void {
   const deliveries: { name: string; address: string; lat: number; lng: number; phone: string }[] =
     JSON.parse(decodeURIComponent(dataEl.dataset.deliveries ?? "[]"));
 
-  // マップ初期化（既存なら再利用）
   if (!_gmap) {
     _gmap = new G.Map(mapEl, {
       center: { lat: 35.38, lng: 139.25 }, zoom: 10,
-      mapId: "customer-map-id",
       gestureHandling: "greedy",
       streetViewControl: false, mapTypeControl: false,
     });
@@ -8386,14 +8384,16 @@ function initCustomerMap(container: HTMLElement): void {
     return "#aaa";
   }
 
-  function makePin(color: string, scale: number = 1.3): HTMLElement {
-    const el = document.createElement("div");
-    el.style.cssText = `width:${18 * scale}px;height:${18 * scale}px;border-radius:50%;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);cursor:pointer;`;
-    return el;
+  // SVGピン（大きめ）
+  function pinIcon(color: string, size: number = 32): google.maps.Icon {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24">` +
+      `<circle cx="12" cy="12" r="10" fill="${color}" stroke="white" stroke-width="2.5"/>` +
+      `</svg>`;
+    return { url: "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg), scaledSize: new G.Size(size, size), anchor: new G.Point(size / 2, size / 2) };
   }
 
   function clearMarkers(): void {
-    _gmarkers.forEach(m => (m.map = null));
+    _gmarkers.forEach(m => m.setMap(null));
     _gmarkers = [];
   }
 
@@ -8417,17 +8417,13 @@ function initCustomerMap(container: HTMLElement): void {
       const pos = { lat: c.lat, lng: c.lng };
       bounds.extend(pos);
       hasPoints = true;
-      const marker = new G.marker.AdvancedMarkerElement({
-        map, position: pos,
-        content: makePin(customerColor(c)),
-        title: c.name
-      });
+      const marker = new G.Marker({ map, position: pos, icon: pinIcon(customerColor(c), 28), title: c.name });
       marker.addListener("click", () => {
         infoW.setContent(`<div style="font-size:13px;max-width:260px;">
           <strong>${c.name}</strong><br>${c.address1 ?? ""}<br>
           エリア: ${c.areaCode ?? "―"} / ${c.businessTypeName ?? c.businessType ?? "―"}<br>
           12ヶ月売上: <strong>${c.amount12m?.toLocaleString() ?? 0}円</strong></div>`);
-        infoW.open({ anchor: marker, map });
+        infoW.open(map, marker);
       });
       _gmarkers.push(marker);
     });
@@ -8437,14 +8433,10 @@ function initCustomerMap(container: HTMLElement): void {
       const pos = { lat: d.lat, lng: d.lng };
       bounds.extend(pos);
       hasPoints = true;
-      const marker = new G.marker.AdvancedMarkerElement({
-        map, position: pos,
-        content: makePin("#FF9800", 1.0),
-        title: d.name
-      });
+      const marker = new G.Marker({ map, position: pos, icon: pinIcon("#FF9800", 22), title: d.name });
       marker.addListener("click", () => {
         infoW.setContent(`<div style="font-size:13px;"><strong>${d.name}</strong><br>${d.address ?? ""}${d.phone ? `<br>${d.phone}` : ""}</div>`);
-        infoW.open({ anchor: marker, map });
+        infoW.open(map, marker);
       });
       _gmarkers.push(marker);
     });
