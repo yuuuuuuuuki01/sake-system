@@ -397,7 +397,7 @@ const PRODUCTION_TYPE_LABELS: Record<string, string> = {
   november:      "11月生産"
 };
 
-function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter: string, sort: DemandSortState): string {
+function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter: string, sort: DemandSortState, shifts: DayShift[] = [], cap: CalendarCapacity = { partCapacity: DEFAULT_PART_CAPACITY, empCapacity: DEFAULT_EMP_CAPACITY }): string {
   const statusLabel: Record<string, string> = {
     draft: "下書き",
     confirmed: "確定",
@@ -417,6 +417,23 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
   // ラベル貼り工数定数: 表+裏の手貼り 80本/時 × 8時間 = 640本/人日
   const LABEL_BOTTLES_PER_PERSON_DAY = 640;
 
+  // 稼働日から商品→製造予定日マップを構築（当月+翌月）
+  const labelPlan = plan.filter(r => r.plannedQty > 0 || Math.max(0, r.demandForecast + r.safetyStockTarget - r.openingStock) > 0);
+  const allocation = shifts.length > 0 ? allocateProductionToDays(labelPlan, shifts, cap) : [];
+  // 翌月のシフトも生成して配分
+  const [ym_y, ym_m] = yearMonth.split("-").map(Number);
+  const nextYM = ym_m === 12 ? `${ym_y + 1}-01` : `${ym_y}-${String(ym_m + 1).padStart(2, "0")}`;
+  const nextShifts = buildDefaultShifts(nextYM, 1, 0);
+  const nextAlloc = nextShifts.length > 0 ? allocateProductionToDays(labelPlan, nextShifts, cap) : [];
+  // 商品コード→製造日リスト
+  const scheduleMap = new Map<string, Array<{ date: string; qty: number }>>();
+  for (const day of [...allocation, ...nextAlloc]) {
+    for (const item of day.items) {
+      if (!scheduleMap.has(item.productCode)) scheduleMap.set(item.productCode, []);
+      scheduleMap.get(item.productCode)!.push({ date: day.date, qty: item.qty });
+    }
+  }
+
   const buildRows = (source: ProductionPlanRow[]) => source.map((row) => {
     const required = Math.max(0, row.demandForecast + row.safetyStockTarget - row.openingStock);
     const qtyForLabel = row.plannedQty > 0 ? row.plannedQty : Math.round(required);
@@ -427,6 +444,16 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
       ? ((row.actualQty - row.plannedQty) / row.plannedQty) * 100
       : null;
     const varClass = variance !== null ? (variance >= 0 ? "text-success" : "text-danger") : "";
+
+    // 製造予定日
+    const sched = scheduleMap.get(row.productCode) ?? [];
+    const schedHtml = sched.length > 0
+      ? sched.map(s => {
+          const d = s.date.slice(5).replace("-", "/");
+          const isNextMonth = s.date.startsWith(nextYM);
+          return `<span style="font-size:9px;padding:1px 4px;border-radius:3px;margin:1px;display:inline-block;${isNextMonth ? "background:#fef3c7;color:#92400e;" : "background:#dbeafe;color:#1e40af;"}" title="${s.date}">${d}(${s.qty})</span>`;
+        }).join("")
+      : `<span style="font-size:9px;color:var(--text-disabled);">—</span>`;
 
     return `
       <tr>
@@ -445,6 +472,7 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
             data-action="plan-qty" data-code="${row.productCode}"
             style="width:80px;text-align:right;" />
         </td>
+        <td style="max-width:200px;overflow-x:auto;white-space:nowrap;">${schedHtml}</td>
         <td class="numeric">
           <input class="input-sm" type="number" min="0"
             value="${row.actualQty || ""}"
@@ -592,6 +620,7 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
               <th class="numeric">期首在庫</th>
               ${sortableHeader("必要生産数", "plan-required", sort, "numeric")}
               ${sortableHeader("計画数", "plan-planned", sort, "numeric")}
+              <th style="white-space:nowrap;">製造予定</th>
               ${sortableHeader("実績数", "plan-actual", sort, "numeric")}
               <th class="numeric">達成率</th>
               ${sortableHeader("ラベル工数", "plan-label", sort, "numeric")}
@@ -599,7 +628,7 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
             </tr>
           </thead>
           <tbody>
-            ${filteredRows || `<tr><td colspan="11" class="empty-row">データなし</td></tr>`}
+            ${filteredRows || `<tr><td colspan="12" class="empty-row">データなし</td></tr>`}
             ${filteredPlan.length > 0 ? `
               <tr style="background:var(--surface-alt);font-weight:700;">
                 <td>合計</td>
@@ -609,6 +638,7 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
                 <td class="numeric">—</td>
                 <td class="numeric">${fmtQty(Math.round(totalRequired))}</td>
                 <td class="numeric">${fmtQty(totalPlanned)}</td>
+                <td>—</td>
                 <td class="numeric">${totalActual > 0 ? fmtQty(totalActual) : "—"}</td>
                 <td class="numeric">—</td>
                 <td class="numeric">${totalLabelDays.toFixed(1)}<span style="font-size:11px;color:var(--text-secondary);margin-left:2px;">人日</span></td>
@@ -1195,7 +1225,7 @@ export function renderDemandPlanning(
   } else if (tab === "safety") {
     body = renderSafetyTab(safetyStockParams, sort);
   } else if (tab === "plan") {
-    body = renderPlanTab(productionPlan, planYearMonth, planTypeFilter, sort);
+    body = renderPlanTab(productionPlan, planYearMonth, planTypeFilter, sort, shifts, cap);
   } else if (tab === "calendar") {
     try {
       body = renderCalendarTab(productionPlan, planYearMonth, shifts, selectedDate, labelExcluded, cap);
