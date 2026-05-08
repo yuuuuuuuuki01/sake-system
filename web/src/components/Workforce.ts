@@ -432,29 +432,44 @@ export function generateAutoShifts(
     : 0;
   const assignedDeliveryConts = deliveryConts.slice(0, contractorsNeeded);
 
-  // ── 詰口・貼場（需要・生産計画から算定）
-  // 優先順位: 1.手動入力 2.前年同月出荷本数 3.前年ルート売上÷単価粗算
+  // ── 詰口・貼場（需要・生産計画から個別算定）
+  // 詰口と貼場はスケジュールが独立する（詰口は先詰め可能、貼場は出荷直前）
+  // 算出根拠: 1.手動入力 2.前年同月実績本数（daily_sales_fact.total_quantity）
   const demandQty =
-    bottlingTargetQty > 0                    ? bottlingTargetQty :
-    (metrics?.prevYearTotalQuantity ?? 0) > 0 ? metrics!.prevYearTotalQuantity :
-    baseMonthlyRoute > 0                     ? Math.round(baseMonthlyRoute / 800) : 0;
-  const bottlingDaysNeeded = demandQty > 0
-    ? Math.min(18, Math.ceil(demandQty / LINE_MAX_DAILY)) : 0;
+    bottlingTargetQty > 0                      ? bottlingTargetQty :
+    (metrics?.prevYearTotalQuantity ?? 0) > 0   ? metrics!.prevYearTotalQuantity :
+    (metrics?.currentTotalQuantity  ?? 0) > 0   ? metrics!.currentTotalQuantity  : 0;
+
   const bottlingBasis =
     bottlingTargetQty > 0
       ? `入力値 ${bottlingTargetQty.toLocaleString('ja-JP')}本`
       : (metrics?.prevYearTotalQuantity ?? 0) > 0
       ? `前年同月実績 ${metrics!.prevYearTotalQuantity.toLocaleString('ja-JP')}本`
-      : baseMonthlyRoute > 0
-      ? `前年売上推計 ${Math.round(baseMonthlyRoute / 800).toLocaleString('ja-JP')}本`
-      : '計画なし';
+      : (metrics?.currentTotalQuantity ?? 0) > 0
+      ? `当月実績 ${metrics!.currentTotalQuantity.toLocaleString('ja-JP')}本`
+      : '実績データなし（本数を入力してください）';
 
+  // 詰口: 月全体に均等配置（先詰め可能のため前半から稼働）
+  const bottlingDaysNeeded = demandQty > 0
+    ? Math.min(18, Math.ceil(demandQty / LINE_MAX_DAILY)) : 0;
   const bottlingCandidates = businessDays.filter(d => !inventorySet.has(d));
   const bottlingDaySet = new Set<number>();
   if (bottlingDaysNeeded > 0 && bottlingCandidates.length > 0) {
     const step = bottlingCandidates.length / bottlingDaysNeeded;
     for (let i = 0; i < bottlingDaysNeeded && i < bottlingCandidates.length; i++) {
       bottlingDaySet.add(bottlingCandidates[Math.min(Math.round(i * step), bottlingCandidates.length - 1)]);
+    }
+  }
+
+  // 貼場: 出荷に近い月後半に集中配置（詰口とは独立したスケジュール）
+  const labelingDaysNeeded = bottlingDaysNeeded; // 本数ベースは同じ
+  // 後半の営業日（月の折り返し以降、ただし棚卸週含む）
+  const labelingCandidates = businessDays.slice(Math.floor(businessDays.length / 2));
+  const labelingDaySet = new Set<number>();
+  if (labelingDaysNeeded > 0 && labelingCandidates.length > 0) {
+    const step = labelingCandidates.length / labelingDaysNeeded;
+    for (let i = 0; i < labelingDaysNeeded && i < labelingCandidates.length; i++) {
+      labelingDaySet.add(labelingCandidates[Math.min(Math.round(i * step), labelingCandidates.length - 1)]);
     }
   }
 
@@ -472,6 +487,7 @@ export function generateAutoShifts(
     const dateStr     = `${y}-${pad(m)}-${pad(d)}`;
     const isInventory = inventorySet.has(d);
     const isBottling  = bottlingDaySet.has(d);
+    const isLabeling  = labelingDaySet.has(d);
 
     // ── 総務（業務量ベース配置）
     const soumuAssigned: string[] = soumuEmps.map(s => s.id);
@@ -514,8 +530,7 @@ export function generateAutoShifts(
       plans.push({ planDate: dateStr, department: 'brewing', staffMemberIds: brewingAll.map(s => s.id), notes: '' });
     }
 
-    // ── 詰口・貼場（生産計画日のみ・パート含む全員）
-    // 詰口と貼場は同じ需要・生産計画から稼働日が決まる
+    // ── 詰口（均等先詰め、パート含む全員）
     if (isBottling) {
       plans.push({
         planDate: dateStr, department: 'bottling',
@@ -524,12 +539,16 @@ export function generateAutoShifts(
           ? `要員不足 ${bottlingAll.length}/${BOTTLING_LINE_SIZE}名`
           : bottlingBasis,
       });
+    }
+
+    // ── 貼場（出荷直前・月後半集中、詰口とは独立スケジュール）
+    if (isLabeling) {
       plans.push({
         planDate: dateStr, department: 'labeling',
         staffMemberIds: labelingAll.map(s => s.id),
         notes: labelingAll.length < LABELING_MIN
           ? `要員不足 ${labelingAll.length}/${LABELING_MIN}名`
-          : `詰口と同日稼働`,
+          : `出荷前貼付 ${bottlingBasis}`,
       });
     }
   }
