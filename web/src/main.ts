@@ -676,6 +676,7 @@ interface AppState {
   workforceYearMonth: string;
   shiftBottlingTarget: number;
   workforceSelectedDay: string | null;
+  bottlingSchedule: import("./api").BottlingScheduleItem[];
   brewingProductDetail: import("./api").BrewingProductDetail[];
   brewingExcludedProducts: Set<string>;
   brewingCustomCategories: import("./api").BrewingCustomCategory[];
@@ -2261,7 +2262,9 @@ function renderView(): string {
         state.shiftBottlingTarget,
         state.workforceMetrics,
         state.dailyShiftPlans,
-        state.workforceSelectedDay
+        state.workforceSelectedDay,
+        state.productionPlan,
+        state.bottlingSchedule ?? []
       );
     case "/jikomi":
       return state.jikomiView === "calendar"
@@ -2807,6 +2810,7 @@ function renderShell(): string {
       <header class="app-header">
         <div class="app-header-left">${leftHtml}</div>
         <div class="app-header-right">
+          <button class="button secondary small no-print" type="button" data-action="print-page" title="印刷" style="font-size:14px;padding:4px 8px;">🖨</button>
           <button class="button secondary small" type="button" data-action="global-search-open">検索 <kbd>Ctrl+K</kbd></button>
           <button class="button secondary small" type="button" data-action="hard-refresh" title="再読み込み" style="font-size:14px;padding:4px 8px;">↺</button>
           <button class="button secondary small" type="button" data-action="share-page" title="このページのURLを共有">🔗</button>
@@ -2818,7 +2822,6 @@ function renderShell(): string {
         ${renderSidebar()}
         <main class="main-v2">
           <div class="view ${state.actionLoading ? "is-busy" : ""}">${renderView()}</div>
-          <button class="no-print" data-action="print-page" title="印刷" style="position:fixed;bottom:24px;right:24px;z-index:900;width:48px;height:48px;border-radius:50%;background:#1e40af;color:white;border:none;cursor:pointer;font-size:20px;box-shadow:0 2px 8px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;" aria-label="印刷">🖨</button>
         </main>
       </div>
       ${pickerHtml}
