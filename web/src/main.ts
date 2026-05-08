@@ -197,7 +197,7 @@ import { renderBrewingPlan } from "./components/BrewingPlan";
 import { renderProcurement } from "./components/Procurement";
 import { renderBrewingProcess } from "./components/BrewingProcess";
 import { renderWorkforce, renderStaffModal, type WorkforceTab } from "./components/Workforce";
-import { fetchStaffMembers, upsertStaffMember, deleteStaffMember, type StaffMember } from "./api";
+import { fetchStaffMembers, upsertStaffMember, deleteStaffMember, fetchWorkforceMetrics, type StaffMember, type WorkforceMetrics } from "./api";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { CHURN_REASONS } from "./api";
 const CHURN_REASONS_MAP: Record<string, string> = Object.fromEntries(CHURN_REASONS.map((r) => [r.value, r.label]));
@@ -660,6 +660,7 @@ interface AppState {
   calendarCapacity: CalendarCapacity;
   brewingSchedule: import("./api").BrewingScheduleRow[];
   staffMembers: StaffMember[];
+  workforceMetrics: WorkforceMetrics | null;
   workforceTab: WorkforceTab;
   staffDeptFilter: string;
   workforceYearMonth: string;
@@ -1007,6 +1008,7 @@ const state: AppState = {
   calendarCapacity: { partCapacity: DEFAULT_PART_CAPACITY, empCapacity: DEFAULT_EMP_CAPACITY } as CalendarCapacity,
   brewingSchedule: [] as import("./api").BrewingScheduleRow[],
   staffMembers: [] as StaffMember[],
+  workforceMetrics: null as WorkforceMetrics | null,
   workforceTab: "staff" as WorkforceTab,
   staffDeptFilter: "",
   workforceYearMonth: new Date().toISOString().slice(0, 7),
@@ -1764,19 +1766,21 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/workforce": {
-        if (state.staffMembers.length === 0) {
-          const [members, schedule] = await Promise.all([
-            fetchStaffMembers(),
-            state.brewingSchedule.length > 0
-              ? Promise.resolve(state.brewingSchedule)
-              : (async () => {
-                  const { fetchBrewingSchedule } = await import("./api");
-                  return fetchBrewingSchedule(state.brewingPlanFY).catch(() => []);
-                })()
-          ]);
-          state.staffMembers = members;
-          if (state.brewingSchedule.length === 0) state.brewingSchedule = schedule;
-        }
+        const [members, schedule, wfMetrics] = await Promise.all([
+          state.staffMembers.length > 0
+            ? Promise.resolve(state.staffMembers)
+            : fetchStaffMembers(),
+          state.brewingSchedule.length > 0
+            ? Promise.resolve(state.brewingSchedule)
+            : (async () => {
+                const { fetchBrewingSchedule } = await import("./api");
+                return fetchBrewingSchedule(state.brewingPlanFY).catch(() => []);
+              })(),
+          fetchWorkforceMetrics(state.workforceYearMonth),
+        ]);
+        state.staffMembers    = members;
+        state.workforceMetrics = wfMetrics;
+        if (state.brewingSchedule.length === 0) state.brewingSchedule = schedule;
         break;
       }
       case "/jikomi":
@@ -2164,7 +2168,8 @@ function renderView(): string {
         state.staffDeptFilter,
         state.workforceYearMonth,
         state.brewingSchedule,
-        0
+        0,
+        state.workforceMetrics
       );
     case "/jikomi":
       return state.jikomiView === "calendar"
@@ -8352,7 +8357,8 @@ function bindEvents(root: HTMLElement): void {
   });
   root.querySelector<HTMLSelectElement>("#shift-year-month")?.addEventListener("change", e => {
     state.workforceYearMonth = (e.target as HTMLSelectElement).value;
-    renderApp();
+    state.workforceMetrics = null; // 月変更時に再取得
+    navigate(state.currentPath);   // loadRouteData 経由で再フェッチ
   });
 
   // スタッフ追加ボタン

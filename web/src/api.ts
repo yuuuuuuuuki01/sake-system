@@ -6772,3 +6772,65 @@ export async function upsertStaffMember(data: Partial<StaffMember> & { name: str
 export async function deleteStaffMember(id: string): Promise<boolean> {
   return supabaseDelete('staff_members', id);
 }
+
+// ── 人員計画用 稼働指標 ───────────────────────────────────────────────────────
+
+export interface WorkforceMetrics {
+  /** 総務: 月間処理伝票数（受注・発送件数の目安） */
+  monthlyDocumentCount: number;
+  /** 総務: 上様（直売所）売上件数（来店数の代替） */
+  directSalesCount: number;
+  /** 総務: 上様売上金額 */
+  directSalesAmount: number;
+  /** 配送/ルート: ルート売上金額（直売除く） */
+  routeSalesAmount: number;
+  /** 稼働日数（月〜金カウント） */
+  workingDays: number;
+}
+
+export async function fetchWorkforceMetrics(yearMonth: string): Promise<WorkforceMetrics> {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const startDate = `${y}-${pad(m)}-01`;
+  const nextM = m === 12 ? 1  : m + 1;
+  const nextY = m === 12 ? y + 1 : y;
+  const endDate   = `${nextY}-${pad(nextM)}-01`;
+
+  // 稼働日数（月〜金）
+  let workingDays = 0;
+  const cur = new Date(y, m - 1, 1);
+  while (cur.getMonth() === m - 1) {
+    const dow = cur.getDay();
+    if (dow !== 0 && dow !== 6) workingDays++;
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  const dateRange = `(sales_date.gte.${startDate},sales_date.lt.${endDate})`;
+
+  const [factRows, directRows, allHeaderRows] = await Promise.all([
+    // 日次集計から伝票数を取得
+    supabaseQuery<LooseRow>('daily_sales_fact', {
+      select: 'document_count',
+      and: dateRange,
+    }),
+    // 上様（直売所）伝票
+    supabaseQuery<LooseRow>('sales_document_headers', {
+      select: 'total_amount',
+      and: dateRange,
+      customer_name: 'ilike.*上様*',
+    }),
+    // 全伝票（月額ルート売上算出用）
+    supabaseQuery<LooseRow>('sales_document_headers', {
+      select: 'total_amount',
+      and: dateRange,
+    }),
+  ]);
+
+  const monthlyDocumentCount = factRows.reduce((s, r) => s + getNumber(r, ['document_count'], 0), 0);
+  const directSalesCount     = directRows.length;
+  const directSalesAmount    = directRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
+  const totalAmount          = allHeaderRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
+  const routeSalesAmount     = Math.max(0, totalAmount - directSalesAmount);
+
+  return { monthlyDocumentCount, directSalesCount, directSalesAmount, routeSalesAmount, workingDays };
+}
