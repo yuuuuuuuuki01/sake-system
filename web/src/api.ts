@@ -6670,21 +6670,25 @@ export async function unconfirmFeature(featureId: string): Promise<void> {
 
 // ── 人員マスタ ────────────────────────────────────────────────────────────────
 
-export type EmploymentType = 'employee' | 'part_time';
-export type StaffDepartment = 'soumu' | 'route_sales' | 'brewing' | 'bottling';
+export type EmploymentType = 'employee' | 'part_time' | 'contractor';
+export type StaffDepartment = 'soumu' | 'route_sales' | 'brewing' | 'bottling' | 'labeling' | 'delivery';
 
 export const DEPT_LABEL: Record<StaffDepartment, string> = {
   soumu:       '総務',
   route_sales: 'ルートセールス',
   brewing:     '造り',
-  bottling:    '詰口・貼場',
+  bottling:    '詰口',
+  labeling:    '貼場',
+  delivery:    '配送（業務委託）',
 };
 
 export const DEPT_MONTHS: Record<StaffDepartment, number[] | null> = {
-  soumu:       null,   // 通年
-  route_sales: null,   // 通年
+  soumu:       null,
+  route_sales: null,
   brewing:     [9,10,11,12,1,2,3,4],
-  bottling:    null,   // 通年（生産計画連動）
+  bottling:    null,
+  labeling:    null,
+  delivery:    null,
 };
 
 export interface StaffMember {
@@ -6695,9 +6699,10 @@ export interface StaffMember {
   department: StaffDepartment;
   hourlyRate: number | null;
   monthlySalary: number | null;
+  contractFee: number | null;     // 業務委託月額
   workHoursPerDay: number;
-  workDaysPerMonth: number;
   availableMonths: number[] | null;
+  crossDepartments: StaffDepartment[];  // 兼務可能部門
   notes: string;
   isActive: boolean;
 }
@@ -6714,9 +6719,10 @@ export async function fetchStaffMembers(): Promise<StaffMember[]> {
     department:       getString(r, ['department'], 'bottling') as StaffDepartment,
     hourlyRate:       r['hourly_rate'] != null ? Number(r['hourly_rate']) : null,
     monthlySalary:    r['monthly_salary'] != null ? Number(r['monthly_salary']) : null,
+    contractFee:      r['contract_fee'] != null ? Number(r['contract_fee']) : null,
     workHoursPerDay:  getNumber(r, ['work_hours_per_day'], 8),
-    workDaysPerMonth: getNumber(r, ['work_days_per_month'], 22),
     availableMonths:  Array.isArray(r['available_months']) ? (r['available_months'] as number[]) : null,
+    crossDepartments: Array.isArray(r['cross_departments']) ? (r['cross_departments'] as StaffDepartment[]) : [],
     notes:            getString(r, ['notes'], ''),
     isActive:         r['is_active'] !== false,
   }));
@@ -6730,9 +6736,10 @@ export async function upsertStaffMember(data: Partial<StaffMember> & { name: str
     department:          data.department ?? 'bottling',
     hourly_rate:         data.hourlyRate ?? null,
     monthly_salary:      data.monthlySalary ?? null,
+    contract_fee:        data.contractFee ?? null,
     work_hours_per_day:  data.workHoursPerDay ?? 8,
-    work_days_per_month: data.workDaysPerMonth ?? 22,
     available_months:    data.availableMonths ?? null,
+    cross_departments:   data.crossDepartments ?? [],
     notes:               data.notes ?? null,
     is_active:           data.isActive ?? true,
     updated_at:          new Date().toISOString(),
