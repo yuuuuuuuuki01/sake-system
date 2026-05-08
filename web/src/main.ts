@@ -205,7 +205,7 @@ const CHURN_REASONS_MAP: Record<string, string> = Object.fromEntries(CHURN_REASO
 import { renderSeasonalCalendar, buildSeasonalData, type SeasonalCalendarState } from "./components/SeasonalCalendar";
 import { renderShipmentCalendar } from "./components/ShipmentCalendar";
 import { renderVisitPlanner, buildVisitPlan, type VisitPlannerState } from "./components/VisitPlanner";
-import { renderTankList } from "./components/TankList";
+import { renderTankList, renderTankForm } from "./components/TankList";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { isNewRoute, renderChangelog } from "./components/Changelog";
 import { showToast } from "./components/Toast";
@@ -7951,12 +7951,68 @@ function bindEvents(root: HTMLElement): void {
   });
 
   // ── タンク ──────────────────────────────────────────
-  root.querySelectorAll<HTMLButtonElement>("[data-action='tank-detail']").forEach((btn) => {
+  // ── タンク管理 CRUD ──
+  root.querySelector<HTMLButtonElement>("[data-action='tank-show-add']")?.addEventListener("click", () => {
+    const area = root.querySelector<HTMLElement>("#tank-form-area");
+    if (area) { area.innerHTML = renderTankForm(); bindTankFormEvents(); }
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='tank-edit']").forEach(btn => {
     btn.addEventListener("click", () => {
-      const tankNo = btn.closest("tr")?.querySelector("td")?.textContent ?? "";
-      showToast(`タンク ${tankNo} の詳細: 仕込台帳を参照してください`, "info");
+      const id = btn.dataset.tankId ?? "";
+      const tank = state.tankList.find(t => t.id === id);
+      if (!tank) return;
+      const area = root.querySelector<HTMLElement>("#tank-form-area");
+      if (area) { area.innerHTML = renderTankForm(tank); bindTankFormEvents(); }
     });
   });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='tank-delete']").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.tankId ?? "";
+      if (!id || !confirm("このタンクを削除しますか？")) return;
+      const { deleteTankById, fetchTankList } = await import("./api");
+      await deleteTankById(id);
+      state.tankList = await fetchTankList();
+      renderApp();
+    });
+  });
+  function bindTankFormEvents() {
+    // 深さ÷容量でL/mm自動計算
+    const depthEl = root.querySelector<HTMLInputElement>("#tank-f-depth");
+    const capEl = root.querySelector<HTMLInputElement>("#tank-f-cap");
+    const lpmmEl = root.querySelector<HTMLInputElement>("#tank-f-lpmm");
+    const autoCalc = () => {
+      const depth = parseFloat(depthEl?.value ?? "0");
+      const cap = parseFloat(capEl?.value ?? "0");
+      if (depth > 0 && cap > 0 && lpmmEl) lpmmEl.value = (cap / depth).toFixed(2);
+    };
+    depthEl?.addEventListener("input", autoCalc);
+    capEl?.addEventListener("input", autoCalc);
+
+    root.querySelector<HTMLButtonElement>("[data-action='tank-save']")?.addEventListener("click", async () => {
+      const id = (root.querySelector<HTMLInputElement>("#tank-edit-id") as HTMLInputElement)?.value ?? "";
+      const no = (root.querySelector<HTMLInputElement>("#tank-f-no") as HTMLInputElement)?.value?.trim() ?? "";
+      if (!no) { showToast("容器番号を入力してください", "warning"); return; }
+      const { saveTank, fetchTankList } = await import("./api");
+      await saveTank({
+        id: id || undefined,
+        tankNo: no,
+        displayName: (root.querySelector<HTMLInputElement>("#tank-f-name") as HTMLInputElement)?.value?.trim() ?? no,
+        depthMm: parseFloat((root.querySelector<HTMLInputElement>("#tank-f-depth") as HTMLInputElement)?.value ?? "0"),
+        capacity: parseFloat((root.querySelector<HTMLInputElement>("#tank-f-cap") as HTMLInputElement)?.value ?? "0"),
+        litersPerMm: parseFloat((root.querySelector<HTMLInputElement>("#tank-f-lpmm") as HTMLInputElement)?.value ?? "0"),
+        remarks: (root.querySelector<HTMLInputElement>("#tank-f-remarks") as HTMLInputElement)?.value ?? ""
+      });
+      state.tankList = await fetchTankList();
+      showToast(id ? "更新しました" : "登録しました");
+      renderApp();
+    });
+    root.querySelector<HTMLButtonElement>("[data-action='tank-cancel']")?.addEventListener("click", () => {
+      const area = root.querySelector<HTMLElement>("#tank-form-area");
+      if (area) area.innerHTML = "";
+    });
+  }
+  // 初期表示時にフォーム内イベントがあればバインド
+  if (root.querySelector("#tank-f-no")) bindTankFormEvents();
 
   // ── 店舗POS ─────────────────────────────────────────
   root.querySelector<HTMLButtonElement>("[data-action='order-new']")?.addEventListener("click", () => {

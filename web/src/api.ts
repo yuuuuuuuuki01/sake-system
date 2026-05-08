@@ -3623,30 +3623,55 @@ export async function fetchJikomiList(): Promise<JikomiRecord[]> {
 export interface TankRecord {
   id: string;
   tankNo: string;
+  displayName: string;
   capacity: number;
+  depthMm: number;
+  litersPerMm: number;
   currentVolume: number;
   productName: string;
   jikomiNo: string;
   status: "empty" | "in_use" | "aging";
   lastUpdated: string;
+  remarks: string;
 }
-
 
 export async function fetchTankList(): Promise<TankRecord[]> {
   const rows = await supabaseQuery<LooseRow>("tanks", { order: "tank_no.asc" });
-  if (rows.length > 0) {
-    return rows.map((row) => ({
-      id: getString(row, ["id"], ""),
-      tankNo: getString(row, ["tank_no"], ""),
-      capacity: getNumber(row, ["capacity_l"], 0),
-      currentVolume: getNumber(row, ["current_volume_l"], 0),
-      productName: getString(row, ["current_product_code"], ""),
-      jikomiNo: getString(row, ["current_batch_id"], ""),
-      status: (getString(row, ["status"], "empty") as TankRecord["status"]),
-      lastUpdated: getDateString(row, ["last_updated_at"], "")
-    }));
+  return rows.map((row) => ({
+    id: getString(row, ["id"], ""),
+    tankNo: getString(row, ["tank_no"], ""),
+    displayName: getString(row, ["display_name"], ""),
+    capacity: getNumber(row, ["capacity_l"], 0),
+    depthMm: getNumber(row, ["depth_mm"], 0),
+    litersPerMm: getNumber(row, ["liters_per_mm"], 0),
+    currentVolume: getNumber(row, ["current_volume_l"], 0),
+    productName: getString(row, ["current_product_code"], ""),
+    jikomiNo: getString(row, ["current_batch_id"], ""),
+    status: (getString(row, ["status"], "empty") as TankRecord["status"]),
+    lastUpdated: getDateString(row, ["last_updated_at"], ""),
+    remarks: getString(row, ["remarks"], "")
+  }));
+}
+
+export async function saveTank(tank: Partial<TankRecord> & { tankNo: string }): Promise<boolean> {
+  if (tank.id) {
+    return supabaseUpdate("tanks", tank.id, {
+      tank_no: tank.tankNo, display_name: tank.displayName ?? tank.tankNo,
+      capacity_l: tank.capacity ?? 0, depth_mm: tank.depthMm ?? 0,
+      liters_per_mm: tank.litersPerMm ?? 0, remarks: tank.remarks ?? "",
+      last_updated_at: new Date().toISOString()
+    });
   }
-  return [];
+  return (await supabaseInsert("tanks", {
+    tank_no: tank.tankNo, display_name: tank.displayName ?? tank.tankNo,
+    capacity_l: tank.capacity ?? 0, depth_mm: tank.depthMm ?? 0,
+    liters_per_mm: tank.litersPerMm ?? 0, status: "empty", remarks: tank.remarks ?? ""
+  })) !== null;
+}
+
+export async function deleteTankById(id: string): Promise<boolean> {
+  const { supabaseDelete } = await import("./supabase");
+  return supabaseDelete("tanks", id);
 }
 
 export interface KenteiRecord {
