@@ -864,7 +864,7 @@ function renderCalendarTab(
 
     calCells.push(`
       <div data-action="cal-toggle-day" data-date="${date}"
-        style="min-height:44px;padding:3px;border:${selected ? "2px solid #0F5B8D" : "1px solid var(--border)"};border-radius:6px;
+        style="min-height:72px;padding:3px;border:${selected ? "2px solid #0F5B8D" : "1px solid var(--border)"};border-radius:6px;
           background:${bg};cursor:pointer;display:flex;flex-direction:column;
           ${selected ? "box-shadow:0 0 0 2px rgba(15,91,141,0.2);" : ""}">
         <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -872,8 +872,11 @@ function renderCalendarTab(
           ${staffLabel}
         </div>
         ${hc > 0 ? `
-          <div style="font-size:10px;font-weight:600;color:var(--text);margin-top:auto;line-height:1;">${total > 0 ? fmtQty(total) : ""}</div>
-          <div style="height:3px;background:var(--border);border-radius:2px;margin-top:2px;">
+          ${alloc && alloc.items.length > 0 ? `<div style="margin-top:2px;overflow:hidden;flex:1;">${alloc.items.slice(0, 3).map(it =>
+            `<div style="font-size:7px;line-height:1.2;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.productName.slice(0, 6)} ${it.qty}</div>`
+          ).join("")}${alloc.items.length > 3 ? `<div style="font-size:7px;color:var(--text-disabled);">+${alloc.items.length - 3}品</div>` : ""}</div>` : ""}
+          <div style="font-size:10px;font-weight:600;color:var(--text);line-height:1;">${total > 0 ? fmtQty(total) : ""}</div>
+          <div style="height:3px;background:var(--border);border-radius:2px;margin-top:1px;">
             <div style="height:100%;width:${Math.min(util * 100, 100)}%;background:${barColor};border-radius:2px;"></div>
           </div>
         ` : `<div style="font-size:9px;color:var(--text-disabled);margin-top:auto;">休</div>`}
@@ -1079,7 +1082,7 @@ function renderCalendarTab(
         ).join("")}
         ${calCells.join("")}
       </div>
-      <p style="font-size:10px;color:var(--text-secondary);margin:6px 0 0;text-align:center;">日付タップで稼働ON/OFF</p>
+      <p style="font-size:10px;color:var(--text-secondary);margin:6px 0 0;text-align:center;">クリック→詳細 ／ ダブルクリック→稼働ON/OFF</p>
     </section>
 
     ${detailPanel}

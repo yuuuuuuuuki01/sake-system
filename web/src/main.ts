@@ -4144,32 +4144,30 @@ function bindEvents(root: HTMLElement): void {
     setTimeout(() => { w.print(); }, 300);
   });
 
-  // Production calendar: 日タップで稼働ON/OFF切替 → 人数自動最適化
+  // Production calendar: シングルクリック→詳細表示、ダブルクリック→稼働ON/OFF切替
   root.querySelectorAll<HTMLElement>("[data-action='cal-toggle-day']").forEach((el) => {
+    // シングルクリック: 詳細表示（選択/解除）
     el.addEventListener("click", () => {
       const date = el.dataset.date ?? "";
-      const shift = state.calendarShifts.find(s => s.date === date);
-      if (!shift) return;
+      state.calendarSelectedDate = state.calendarSelectedDate === date ? null : date;
+      renderApp();
+    });
 
-      if (state.calendarSelectedDate === date) {
-        // 既に選択中 → 選択解除のみ
-        state.calendarSelectedDate = null;
-      } else if (shift.confirmed) {
-        // 確定済みなら詳細表示のみ
-        state.calendarSelectedDate = date;
-      } else if (shift.partTimers > 0 || shift.employees > 0) {
-        // 稼働日 → 休日にする
+    // ダブルクリック: 稼働ON/OFF切替
+    el.addEventListener("dblclick", () => {
+      const date = el.dataset.date ?? "";
+      const shift = state.calendarShifts.find(s => s.date === date);
+      if (!shift || shift.confirmed) return;
+
+      if (shift.partTimers > 0 || shift.employees > 0) {
         shift.partTimers = 0;
         shift.employees = 0;
-        optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)), state.calendarCapacity);
-        state.calendarSelectedDate = date;
       } else {
-        // 休日 → 稼働日にする（仮で1,1を入れてoptimizeに任せる）
         shift.partTimers = 1;
         shift.employees = 0;
-        optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)), state.calendarCapacity);
-        state.calendarSelectedDate = date;
       }
+      optimizeShifts(state.calendarShifts, state.productionPlan.filter(r => !state.calendarLabelExcluded.has(r.productCode)), state.calendarCapacity);
+      state.calendarSelectedDate = date;
       renderApp();
     });
   });
