@@ -665,6 +665,7 @@ interface AppState {
   workforceTab: WorkforceTab;
   staffDeptFilter: string;
   workforceYearMonth: string;
+  shiftBottlingTarget: number;
   brewingProductDetail: import("./api").BrewingProductDetail[];
   brewingExcludedProducts: Set<string>;
   brewingCustomCategories: import("./api").BrewingCustomCategory[];
@@ -1014,6 +1015,7 @@ const state: AppState = {
   workforceTab: "staff" as WorkforceTab,
   staffDeptFilter: "",
   workforceYearMonth: new Date().toISOString().slice(0, 7),
+  shiftBottlingTarget: 0,
   brewingProductDetail: [] as import("./api").BrewingProductDetail[],
   brewingExcludedProducts: new Set<string>(),
   brewingCustomCategories: [] as import("./api").BrewingCustomCategory[],
@@ -2172,7 +2174,7 @@ function renderView(): string {
         state.staffDeptFilter,
         state.workforceYearMonth,
         state.brewingSchedule,
-        0,
+        state.shiftBottlingTarget,
         state.workforceMetrics,
         state.dailyShiftPlans
       );
@@ -8367,16 +8369,25 @@ function bindEvents(root: HTMLElement): void {
     navigate(state.currentPath); // loadRouteData 経由で再フェッチ
   });
 
+  // 詰口計画本数入力
+  root.querySelector<HTMLInputElement>("#shift-bottling-target")?.addEventListener("change", e => {
+    state.shiftBottlingTarget = parseInt((e.target as HTMLInputElement).value) || 0;
+  });
+
   // シフト自動生成
   root.querySelector<HTMLButtonElement>("[data-action='shift-auto-generate']")?.addEventListener("click", async () => {
     const btn = root.querySelector<HTMLButtonElement>("[data-action='shift-auto-generate']");
+    // 入力欄の最新値を読む（changeイベントより先にクリックされる場合があるため）
+    const bottlingInput = document.getElementById("shift-bottling-target") as HTMLInputElement | null;
+    if (bottlingInput) state.shiftBottlingTarget = parseInt(bottlingInput.value) || 0;
+
     if (btn) { btn.disabled = true; btn.textContent = "生成中…"; }
     try {
       const plans = generateAutoShifts(
         state.workforceYearMonth,
         state.staffMembers,
         state.brewingSchedule,
-        0,
+        state.shiftBottlingTarget,
         state.workforceMetrics
       );
       const ok = await saveDailyShiftPlans(state.workforceYearMonth, plans);
