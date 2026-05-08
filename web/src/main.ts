@@ -8383,12 +8383,21 @@ function bindEvents(root: HTMLElement): void {
 
     if (btn) { btn.disabled = true; btn.textContent = "生成中…"; }
     try {
+      // 需要・生産計画を取得（workforce月用）
+      const { fetchProductionPlan } = await import("./api");
+      const wfProdPlan = await fetchProductionPlan(state.workforceYearMonth).catch(() => []);
+
+      // calendarShifts は同月のものだけ渡す（需要計画カレンダーとの連動）
+      const wfCalShifts = state.calendarShifts.filter(s => s.date.startsWith(state.workforceYearMonth));
+
       const plans = generateAutoShifts(
         state.workforceYearMonth,
         state.staffMembers,
         state.brewingSchedule,
         state.shiftBottlingTarget,
-        state.workforceMetrics
+        state.workforceMetrics,
+        wfProdPlan,
+        wfCalShifts
       );
       const ok = await saveDailyShiftPlans(state.workforceYearMonth, plans);
       if (ok) {
@@ -8441,11 +8450,6 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // 自動生成ボタン
-  root.querySelector<HTMLButtonElement>("[data-action='shift-auto-generate']")?.addEventListener("click", () => {
-    showToast("醸造計画に基づく人員配置を反映しました", "success");
-    renderApp();
-  });
 }
 
 function renderApp(): void {

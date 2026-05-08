@@ -1,4 +1,4 @@
-import type { StaffMember, StaffDepartment, BrewingScheduleRow, MonthlyTask, WorkforceMetrics, DailyShiftPlan } from '../api';
+import type { StaffMember, StaffDepartment, BrewingScheduleRow, MonthlyTask, WorkforceMetrics, DailyShiftPlan, ProductionPlanRow } from '../api';
 import { DEPT_LABEL, MONTHLY_TASK_LABEL, SHIFT_PREF_LABEL } from '../api';
 
 export type WorkforceTab = 'staff' | 'shift' | 'cost';
@@ -366,7 +366,9 @@ export function generateAutoShifts(
   staff: StaffMember[],
   brewingSchedule: BrewingScheduleRow[],
   bottlingTargetQty: number,
-  metrics: WorkforceMetrics | null
+  metrics: WorkforceMetrics | null,
+  productionPlan: ProductionPlanRow[] = [],
+  calendarShifts: { date: string; partTimers: number; employees: number }[] = []
 ): DailyShiftPlan[] {
   const [y, m] = yearMonth.split('-').map(Number);
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -432,50 +434,93 @@ export function generateAutoShifts(
     : 0;
   const assignedDeliveryConts = deliveryConts.slice(0, contractorsNeeded);
 
-  // ── 詰口・貼場（需要・生産計画から個別算定）
-  // 詰口と貼場はスケジュールが独立する（詰口は先詰め可能、貼場は出荷直前）
-  // 算出根拠: 1.手動入力 2.前年同月実績本数（daily_sales_fact.total_quantity）
-  const demandQty =
-    bottlingTargetQty > 0                      ? bottlingTargetQty :
-    (metrics?.prevYearTotalQuantity ?? 0) > 0   ? metrics!.prevYearTotalQuantity :
-    (metrics?.currentTotalQuantity  ?? 0) > 0   ? metrics!.currentTotalQuantity  : 0;
+  // ── 詰口・貼場: 需要・生産計画から逆算（production_plan 連携）
+  // 考え方:
+  //   貼場 → 出荷見込み本数（demand_forecast の合計）から必要人日を逆算し月後半に集中配置
+  //   詰口 → 必要生産本数（required_production）を前半から均等先詰め
+  //   calendarShifts に今月データがあれば稼働日候補として優先使用（需要計画カレンダーと連動）
+
+  const LABELING_CAPACITY_PER_PERSON_DAY = 640; // 80本/時 × 8時間
+
+  // 需要計画から合計を集計
+  const planDemandTotal   = productionPlan.reduce((s, r) => s + r.demandForecast,    0);
+  const planRequiredTotal = productionPlan.reduce((s, r) => s + r.requiredProduction, 0)
+                          || productionPlan.reduce((s, r) => s + r.plannedQty,        0);
+
+  // 貼場の計画本数: 需要計画 > 前年実績 > 当月実績
+  const labelingTotal =
+    planDemandTotal > 0                        ? planDemandTotal :
+    (metrics?.prevYearTotalQuantity ?? 0) > 0  ? metrics!.prevYearTotalQuantity :
+    (metrics?.currentTotalQuantity  ?? 0) > 0  ? metrics!.currentTotalQuantity : 0;
+
+  // 詰口の計画本数: 手動入力 > 必要生産本数 > 貼場と同数
+  const bottlingTotal =
+    bottlingTargetQty > 0 ? bottlingTargetQty :
+    planRequiredTotal > 0 ? planRequiredTotal  :
+    labelingTotal;
 
   const bottlingBasis =
-    bottlingTargetQty > 0
-      ? `入力値 ${bottlingTargetQty.toLocaleString('ja-JP')}本`
-      : (metrics?.prevYearTotalQuantity ?? 0) > 0
-      ? `前年同月実績 ${metrics!.prevYearTotalQuantity.toLocaleString('ja-JP')}本`
-      : (metrics?.currentTotalQuantity ?? 0) > 0
-      ? `当月実績 ${metrics!.currentTotalQuantity.toLocaleString('ja-JP')}本`
-      : '実績データなし（本数を入力してください）';
+    bottlingTargetQty > 0  ? `入力値 ${bottlingTargetQty.toLocaleString('ja-JP')}本` :
+    planRequiredTotal > 0  ? `需要計画 必要生産 ${planRequiredTotal.toLocaleString('ja-JP')}本` :
+    (metrics?.prevYearTotalQuantity ?? 0) > 0 ? `前年同月実績 ${metrics!.prevYearTotalQuantity.toLocaleString('ja-JP')}本` :
+    (metrics?.currentTotalQuantity  ?? 0) > 0 ? `当月実績 ${metrics!.currentTotalQuantity.toLocaleString('ja-JP')}本` :
+    '実績データなし（本数を入力してください）';
 
-  // 詰口: 月全体に均等配置（先詰め可能のため前半から稼働）
-  const bottlingDaysNeeded = demandQty > 0
-    ? Math.min(18, Math.ceil(demandQty / LINE_MAX_DAILY)) : 0;
-  const bottlingCandidates = businessDays.filter(d => !inventorySet.has(d));
+  const labelingBasis =
+    planDemandTotal > 0 ? `需要計画 出荷見込み ${planDemandTotal.toLocaleString('ja-JP')}本` :
+    bottlingBasis;
+
+  // calendarShifts から今月の稼働日を抽出（需要計画カレンダーと連動）
+  const calMonthPrefix = `${y}-${pad(m)}`;
+  const calStaffedDays = calendarShifts
+    .filter(s => s.date.startsWith(calMonthPrefix) && (s.partTimers > 0 || s.employees > 0))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const hasCalData = calStaffedDays.length >= 5; // 5日以上データがあれば有効とみなす
+
+  // 棚卸除く稼働候補日（calendarShifts 優先、なければ業務日ベース）
+  const activeDayNums = hasCalData
+    ? calStaffedDays.map(s => parseInt(s.date.slice(-2))).filter(d => !inventorySet.has(d))
+    : businessDays.filter(d => !inventorySet.has(d));
+
+  const calDayMap = new Map(calStaffedDays.map(s => [parseInt(s.date.slice(-2)), s]));
+
+  // 詰口: 全体に均等配置（前詰め可能 → 前半から稼働）
+  const bottlingDaysNeeded = bottlingTotal > 0
+    ? Math.min(activeDayNums.length, Math.ceil(bottlingTotal / LINE_MAX_DAILY)) : 0;
   const bottlingDaySet = new Set<number>();
-  if (bottlingDaysNeeded > 0 && bottlingCandidates.length > 0) {
-    const step = bottlingCandidates.length / bottlingDaysNeeded;
-    for (let i = 0; i < bottlingDaysNeeded && i < bottlingCandidates.length; i++) {
-      bottlingDaySet.add(bottlingCandidates[Math.min(Math.round(i * step), bottlingCandidates.length - 1)]);
+  if (bottlingDaysNeeded > 0 && activeDayNums.length > 0) {
+    const step = activeDayNums.length / bottlingDaysNeeded;
+    for (let i = 0; i < bottlingDaysNeeded; i++) {
+      bottlingDaySet.add(activeDayNums[Math.min(Math.round(i * step), activeDayNums.length - 1)]);
     }
   }
 
-  // 貼場: 出荷に近い月後半に集中配置（詰口とは独立したスケジュール）
-  const labelingDaysNeeded = bottlingDaysNeeded; // 本数ベースは同じ
-  // 後半の営業日（月の折り返し以降、ただし棚卸週含む）
-  const labelingCandidates = businessDays.slice(Math.floor(businessDays.length / 2));
+  // 貼場: 月後半に集中配置（出荷直前）
+  const labelingPersonDaysNeeded = labelingTotal > 0
+    ? Math.ceil(labelingTotal / LABELING_CAPACITY_PER_PERSON_DAY) : 0;
+  const labelingAll = byDept('labeling');
+  const labelingHeadcount = Math.max(LABELING_MIN, Math.min(labelingAll.length || 1, 3));
+  // 後半の稼働候補日
+  const labelingCandidates = activeDayNums.slice(Math.floor(activeDayNums.length / 2));
+  const labelingDaysNeeded = labelingPersonDaysNeeded > 0
+    ? Math.min(labelingCandidates.length, Math.ceil(labelingPersonDaysNeeded / labelingHeadcount)) : 0;
   const labelingDaySet = new Set<number>();
   if (labelingDaysNeeded > 0 && labelingCandidates.length > 0) {
     const step = labelingCandidates.length / labelingDaysNeeded;
-    for (let i = 0; i < labelingDaysNeeded && i < labelingCandidates.length; i++) {
+    for (let i = 0; i < labelingDaysNeeded; i++) {
       labelingDaySet.add(labelingCandidates[Math.min(Math.round(i * step), labelingCandidates.length - 1)]);
     }
   }
 
+  // 日次の貼場必要人数（出荷本数 ÷ 稼働日数 ÷ 1人日生産性）
+  const dailyLabelingQty = labelingDaySet.size > 0 ? Math.ceil(labelingTotal / labelingDaySet.size) : 0;
+  const dailyLabelingHeadcount = Math.max(LABELING_MIN, Math.min(
+    labelingAll.length || 1,
+    Math.ceil(dailyLabelingQty / LABELING_CAPACITY_PER_PERSON_DAY)
+  ));
+
   // 詰口・貼場はパート含む（生産ラインはパートが主力）
   const bottlingAll = byDept('bottling');
-  const labelingAll = byDept('labeling');
 
   // ── 造り
   const brewingAll = byDept('brewing'); // 社員+パート両方
@@ -530,25 +575,33 @@ export function generateAutoShifts(
       plans.push({ planDate: dateStr, department: 'brewing', staffMemberIds: brewingAll.map(s => s.id), notes: '' });
     }
 
-    // ── 詰口（均等先詰め、パート含む全員）
+    // ── 詰口（均等先詰め、パート含む）
     if (isBottling) {
+      // calendarShifts に人数情報があれば参考に、なければ BOTTLING_LINE_SIZE を最低人数とする
+      const calShift = calDayMap.get(d);
+      const targetHeadcount = calShift
+        ? Math.max(BOTTLING_LINE_SIZE, calShift.partTimers + calShift.employees)
+        : BOTTLING_LINE_SIZE;
+      const assigned = bottlingAll.slice(0, Math.min(bottlingAll.length, targetHeadcount));
       plans.push({
         planDate: dateStr, department: 'bottling',
-        staffMemberIds: bottlingAll.map(s => s.id),
-        notes: bottlingAll.length < BOTTLING_LINE_SIZE
-          ? `要員不足 ${bottlingAll.length}/${BOTTLING_LINE_SIZE}名`
+        staffMemberIds: assigned.map(s => s.id),
+        notes: assigned.length < BOTTLING_LINE_SIZE
+          ? `要員不足 ${assigned.length}/${BOTTLING_LINE_SIZE}名`
           : bottlingBasis,
       });
     }
 
     // ── 貼場（出荷直前・月後半集中、詰口とは独立スケジュール）
     if (isLabeling) {
+      // 日次必要人数 = dailyLabelingHeadcount（出荷見込み本数から逆算）
+      const assigned = labelingAll.slice(0, dailyLabelingHeadcount);
       plans.push({
         planDate: dateStr, department: 'labeling',
-        staffMemberIds: labelingAll.map(s => s.id),
-        notes: labelingAll.length < LABELING_MIN
-          ? `要員不足 ${labelingAll.length}/${LABELING_MIN}名`
-          : `出荷前貼付 ${bottlingBasis}`,
+        staffMemberIds: assigned.map(s => s.id),
+        notes: assigned.length < LABELING_MIN
+          ? `要員不足 ${assigned.length}/${LABELING_MIN}名`
+          : `出荷前貼付 ${labelingBasis}`,
       });
     }
   }
