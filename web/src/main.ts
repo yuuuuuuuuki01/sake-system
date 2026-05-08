@@ -477,6 +477,7 @@ interface AppState {
   salesAnalytics: SalesAnalytics | null;
   customerAnalysis: CustomerAnalysisData | null;
   productABC: ProductABCData | null;
+  analysisTab: "customer" | "product";
   invoiceForm: InvoiceFormData;
   invoiceSaving: boolean;
   invoiceSavedDocNo: string | null;
@@ -772,6 +773,7 @@ const state: AppState = {
   salesAnalytics: null,
   customerAnalysis: null,
   productABC: null,
+  analysisTab: "customer" as "customer" | "product",
   invoiceForm: makeDefaultInvoiceForm(),
   invoiceSaving: false,
   invoiceSavedDocNo: null,
@@ -1429,6 +1431,8 @@ function navigate(path: RoutePath): void {
   state.route = path;
   state.currentCategory = inferCurrentCategory(path);
   state.sidebarOpen = false;
+  // /customer-analysis へのダイレクトナビは得意先タブにリセット
+  if (path === "/customer-analysis") state.analysisTab = "customer";
   closeGlobalSearch();
   void loadRouteData(path);
 }
@@ -1481,17 +1485,19 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         }
         break;
       case "/product-power":
-        if (state.productPower.length === 0) {
-          state.productPower = await fetchProductPower();
-        }
-        break;
+      case "/product-abc":
+        // 商品力分析は /customer-analysis の商品タブに統合
+        navigate("/customer-analysis");
+        state.analysisTab = "product"; // navigate内リセットを上書き
+        return;
       case "/customer-efficiency":
         state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear, state.customerEfficiencyGroupBy);
         break;
       case "/customer-analysis":
-        if (!state.customerAnalysis) {
-          state.customerAnalysis = await fetchCustomerAnalysis();
-        }
+        await Promise.all([
+          state.customerAnalysis ? Promise.resolve() : fetchCustomerAnalysis().then((d) => { state.customerAnalysis = d; }),
+          state.productABC        ? Promise.resolve() : fetchProductABC().then((d)        => { state.productABC = d; }),
+        ]);
         break;
       case "/demand-forecast":
         if (state.demandForecast.forecasts.length === 0) {
@@ -1986,7 +1992,7 @@ function renderView(): string {
       return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState, state.customerEfficiencyYear, state.customerEfficiencyGroupBy);
     case "/customer-analysis":
       return state.customerAnalysis
-        ? renderCustomerAnalysis(state.customerAnalysis)
+        ? renderCustomerAnalysis(state.customerAnalysis, state.productABC, state.analysisTab)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/demand-forecast":
       return renderDemandForecast(state.demandForecast);
@@ -2347,8 +2353,7 @@ function renderHome(): string {
       color: "#7e3af2",
       cards: [
         card("/analytics", "📊", "売上分析", "期間・商品・得意先別"),
-        card("/customer-analysis", "👥", "得意先分析", "ABC分析・ランク"),
-        card("/product-power", "📦", "商品力分析", "商品別販売力"),
+        card("/customer-analysis", "👥", "ABC分析", "得意先・商品 ABC分析"),
         card("/customer-efficiency", "⚡", "営業効率", "訪問効率・コスト"),
         card("/report", "📈", "集計帳票", "各種集計帳票"),
         card("/sales", "📋", "売上一覧", "売上明細一覧"),
@@ -5665,6 +5670,16 @@ function bindEvents(root: HTMLElement): void {
     showToast(`${converted}件を見込客に変換しました`);
     if (state.leadActiveListId) state.leadItems = await fetchLeadItems(state.leadActiveListId);
     renderApp();
+  });
+
+  // ── ABC分析タブ切り替え ──────────────────────────────
+  root.querySelectorAll<HTMLButtonElement>("[data-analysis-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.analysisTab as "customer" | "product";
+      if (state.analysisTab === tab) return;
+      state.analysisTab = tab;
+      renderApp();
+    });
   });
 
   // ── 取引先マップ (Leaflet) ──────────────────────────────
