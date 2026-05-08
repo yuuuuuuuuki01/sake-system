@@ -8334,58 +8334,58 @@ try {
   });
 })();
 
-// ── Leaflet マップ初期化 ──────────────────────────────────────────────
-let _leafletMap: unknown = null; // L.Map instance
+// ── Google Maps 初期化 ──────────────────────────────────────────────
+let _gmap: google.maps.Map | null = null;
+let _gmarkers: google.maps.marker.AdvancedMarkerElement[] = [];
+let _ginfoWindow: google.maps.InfoWindow | null = null;
 
 function initCustomerMap(container: HTMLElement): void {
-  type LeafletLib = {
-    map: (id: string, opts?: object) => unknown;
-    tileLayer: (url: string, opts?: object) => { addTo: (m: unknown) => unknown };
-    circle: (latlng: [number, number], opts?: object) => { addTo: (m: unknown) => unknown; bindPopup: (html: string) => unknown; remove: () => void };
-    latLngBounds: (arr: [number, number][]) => unknown;
-  };
-  const rawL = (window as unknown as Record<string, unknown>)["L"];
-  if (!rawL) {
-    console.warn("Leaflet not loaded yet");
-    return;
-  }
-  const L = rawL as LeafletLib;
+  const G = (window as unknown as { google?: { maps?: typeof google.maps } }).google?.maps;
+  if (!G) { console.warn("Google Maps not loaded"); return; }
 
   const mapEl = container.querySelector<HTMLElement>("#customer-map");
   const dataEl = container.querySelector<HTMLElement>("#map-data");
   if (!mapEl || !dataEl) return;
 
-  // 既存マップを破棄
-  if (_leafletMap) {
-    (_leafletMap as { remove: () => void }).remove();
-    _leafletMap = null;
-  }
-
   const customers: import("./api").MapCustomer[] = JSON.parse(decodeURIComponent(dataEl.dataset.customers ?? "[]"));
   const deliveries: { name: string; address: string; lat: number; lng: number; phone: string }[] =
     JSON.parse(decodeURIComponent(dataEl.dataset.deliveries ?? "[]"));
 
-  const map = L.map("customer-map", { zoomControl: true }) as { setView: (latlng: [number, number], z: number) => unknown; fitBounds: (b: unknown) => unknown };
-  _leafletMap = map;
-
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 18,
-  }).addTo(map);
-
-  type Marker = { addTo: (m: unknown) => unknown; bindPopup: (html: string) => unknown; remove: () => void };
-  const markers: Marker[] = [];
+  // マップ初期化（既存なら再利用）
+  if (!_gmap) {
+    _gmap = new G.Map(mapEl, {
+      center: { lat: 35.38, lng: 139.25 }, zoom: 10,
+      mapId: "customer-map-id",
+      gestureHandling: "greedy",
+      streetViewControl: false, mapTypeControl: false,
+    });
+    _ginfoWindow = new G.InfoWindow();
+  }
+  const map = _gmap;
+  const infoW = _ginfoWindow!;
 
   function customerColor(c: import("./api").MapCustomer): string {
     if (c.isAtRisk) return "#e53e3e";
     if (c.isDormant) return "#dd6b20";
-    if (c.amount12m > 0) return "#2196F3";
+    if (c.amount12m > 0) return "#2563eb";
     return "#aaa";
   }
 
+  function makePin(color: string, scale: number = 1.3): HTMLElement {
+    const el = document.createElement("div");
+    el.style.cssText = `width:${18 * scale}px;height:${18 * scale}px;border-radius:50%;background:${color};border:2.5px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35);cursor:pointer;`;
+    return el;
+  }
+
+  function clearMarkers(): void {
+    _gmarkers.forEach(m => (m.map = null));
+    _gmarkers = [];
+  }
+
   function buildMarkers(filterStatus: string, filterArea: string, filterBiz: string): void {
-    markers.forEach((m) => m.remove());
-    markers.length = 0;
+    clearMarkers();
+    const bounds = new G.LatLngBounds();
+    let hasPoints = false;
 
     const filtered = customers.filter((c) => {
       if (filterStatus === "at-risk"  && !c.isAtRisk) return false;
@@ -8397,52 +8397,54 @@ function initCustomerMap(container: HTMLElement): void {
       return true;
     });
 
-    const bounds: [number, number][] = [];
-
     filtered.forEach((c) => {
       if (!c.lat || !c.lng) return;
-      const color = customerColor(c);
-      const latlng: [number, number] = [c.lat, c.lng];
-      bounds.push(latlng);
-      const popup = `<strong>${c.name}</strong><br>${c.address1 ?? ""}<br>
-        エリア: ${c.areaCode ?? "―"} / ${c.businessTypeName ?? c.businessType ?? "―"}<br>
-        12ヶ月売上: ${c.amount12m?.toLocaleString() ?? 0}円`;
-      const m = L.circle(latlng, { color, fillColor: color, fillOpacity: 0.8, radius: 80, weight: 1 });
-      m.bindPopup(popup);
-      m.addTo(map);
-      markers.push(m);
+      const pos = { lat: c.lat, lng: c.lng };
+      bounds.extend(pos);
+      hasPoints = true;
+      const marker = new G.marker.AdvancedMarkerElement({
+        map, position: pos,
+        content: makePin(customerColor(c)),
+        title: c.name
+      });
+      marker.addListener("click", () => {
+        infoW.setContent(`<div style="font-size:13px;max-width:260px;">
+          <strong>${c.name}</strong><br>${c.address1 ?? ""}<br>
+          エリア: ${c.areaCode ?? "―"} / ${c.businessTypeName ?? c.businessType ?? "―"}<br>
+          12ヶ月売上: <strong>${c.amount12m?.toLocaleString() ?? 0}円</strong></div>`);
+        infoW.open({ anchor: marker, map });
+      });
+      _gmarkers.push(marker);
     });
 
     deliveries.forEach((d) => {
       if (!d.lat || !d.lng) return;
-      const latlng: [number, number] = [d.lat, d.lng];
-      bounds.push(latlng);
-      const popup = `<strong>📦 ${d.name}</strong><br>${d.address ?? ""}${d.phone ? `<br>${d.phone}` : ""}`;
-      const m = L.circle(latlng, { color: "#FF9800", fillColor: "#FF9800", fillOpacity: 0.9, radius: 60, weight: 1 });
-      m.bindPopup(popup);
-      m.addTo(map);
-      markers.push(m);
+      const pos = { lat: d.lat, lng: d.lng };
+      bounds.extend(pos);
+      hasPoints = true;
+      const marker = new G.marker.AdvancedMarkerElement({
+        map, position: pos,
+        content: makePin("#FF9800", 1.0),
+        title: d.name
+      });
+      marker.addListener("click", () => {
+        infoW.setContent(`<div style="font-size:13px;"><strong>${d.name}</strong><br>${d.address ?? ""}${d.phone ? `<br>${d.phone}` : ""}</div>`);
+        infoW.open({ anchor: marker, map });
+      });
+      _gmarkers.push(marker);
     });
 
-    if (bounds.length > 0) {
-      (map as unknown as { fitBounds: (b: unknown, opts?: object) => void }).fitBounds(
-        L.latLngBounds(bounds),
-        { padding: [40, 40], maxZoom: 14 }
-      );
-    } else {
-      (map as unknown as { setView: (latlng: [number, number], z: number) => void }).setView([35.6812, 139.7671], 10);
+    if (hasPoints) {
+      map.fitBounds(bounds, { top: 40, bottom: 40, left: 40, right: 40 });
     }
   }
 
-  // 初期描画
   buildMarkers(state.mapFilters.filterStatus, state.mapFilters.filterArea, state.mapFilters.filterBiz);
 
-  // フィルタボタン
   container.querySelectorAll<HTMLButtonElement>("[data-map-status]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const status = btn.dataset.mapStatus as typeof state.mapFilters.filterStatus;
       state.mapFilters = { ...state.mapFilters, filterStatus: status };
-      // ボタンのスタイルだけ更新（re-render不要）
       container.querySelectorAll<HTMLButtonElement>("[data-map-status]").forEach((b) => {
         b.className = b.className.replace(/\b(primary|secondary)\b/g, b === btn ? "primary" : "secondary");
       });
