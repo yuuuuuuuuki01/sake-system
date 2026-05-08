@@ -5359,7 +5359,6 @@ export interface MapCustomer {
 export async function fetchMapCustomers(): Promise<MapCustomer[]> {
   const rows = await supabaseQueryAll<LooseRow>("v_customer_map");
   return rows
-    .filter((r) => r["lat"] && r["lng"])
     .map((r) => ({
       customerCode: getString(r, ["customer_code"], ""),
       name: getString(r, ["name"], ""),
@@ -5375,6 +5374,93 @@ export async function fetchMapCustomers(): Promise<MapCustomer[]> {
       amount12m: getNumber(r, ["amount_12m"], 0),
       daysSinceOrder: r["days_since_order"] != null ? Number(r["days_since_order"]) : null
     }));
+}
+
+// ── ジオコーディング（Nominatim） ──────────────────────────────────────
+
+export interface GeocodePending {
+  id: string;
+  customerCode: string;
+  name: string;
+  address1: string;
+}
+
+/** lat/lng 未設定の得意先を取得 */
+export async function fetchCustomersWithoutGeo(): Promise<GeocodePending[]> {
+  const rows = await supabaseQueryAll<LooseRow>("customers", {
+    select: "id,legacy_customer_code,name,address1",
+    is_active: "eq.true",
+    lat: "is.null",
+    "address1": "not.is.null",
+    order: "name.asc"
+  });
+  return rows.map((r) => ({
+    id: getString(r, ["id"], ""),
+    customerCode: getString(r, ["legacy_customer_code"], ""),
+    name: getString(r, ["name"], ""),
+    address1: getString(r, ["address1"], ""),
+  }));
+}
+
+/** Nominatim で住所 → lat/lng */
+async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=jp&limit=1&q=${encodeURIComponent(address)}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "sake-system-crm/1.0" }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.length === 0) return null;
+    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  } catch {
+    return null;
+  }
+}
+
+/** バッチジオコーディング — 1件ずつ Nominatim に問い合わせて customers.lat/lng を更新 */
+export async function batchGeocode(
+  onProgress: (done: number, total: number, name: string) => void
+): Promise<{ success: number; failed: number }> {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import("./supabase");
+  const pending = await fetchCustomersWithoutGeo();
+  let success = 0, failed = 0;
+
+  for (let i = 0; i < pending.length; i++) {
+    const c = pending[i];
+    onProgress(i, pending.length, c.name);
+
+    const geo = await geocodeAddress(c.address1);
+    if (geo) {
+      // PATCH by id
+      try {
+        const url = new URL(`/rest/v1/customers?id=eq.${c.id}`, SUPABASE_URL);
+        await fetch(url.toString(), {
+          method: "PATCH",
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            "Content-Type": "application/json",
+            Prefer: "return=minimal"
+          },
+          body: JSON.stringify({ lat: geo.lat, lng: geo.lng })
+        });
+        success++;
+      } catch {
+        failed++;
+      }
+    } else {
+      failed++;
+    }
+
+    // Nominatim のレートリミット: 1req/sec
+    if (i < pending.length - 1) {
+      await new Promise((r) => setTimeout(r, 1100));
+    }
+  }
+
+  onProgress(pending.length, pending.length, "完了");
+  return { success, failed };
 }
 
 // ── 離反理由メモ ──────────────────────────────────────────

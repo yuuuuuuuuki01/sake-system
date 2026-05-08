@@ -8500,6 +8500,29 @@ function initCustomerMap(container: HTMLElement): void {
     state.mapFilters = { ...state.mapFilters, filterBiz: (e.target as HTMLSelectElement).value };
     buildMarkers(state.mapFilters.filterStatus, state.mapFilters.filterArea, state.mapFilters.filterBiz);
   });
+
+  // ── ジオコーディングボタン ──
+  container.querySelector<HTMLButtonElement>("#btn-geocode")?.addEventListener("click", async () => {
+    const btn = container.querySelector<HTMLButtonElement>("#btn-geocode");
+    const progress = container.querySelector<HTMLElement>("#geocode-progress");
+    const statusEl = container.querySelector<HTMLElement>("#geocode-status");
+    const bar = container.querySelector<HTMLElement>("#geocode-bar");
+    if (btn) btn.disabled = true;
+    if (progress) progress.style.display = "block";
+
+    try {
+      const { batchGeocode } = await import("./api");
+      const result = await batchGeocode((done, total, name) => {
+        if (statusEl) statusEl.textContent = `${done}/${total} — ${name}`;
+        if (bar) bar.style.width = `${Math.round((done / Math.max(total, 1)) * 100)}%`;
+      });
+      if (statusEl) statusEl.textContent = `完了: ${result.success}件成功 / ${result.failed}件失敗`;
+      if (bar) bar.style.width = "100%";
+      setTimeout(() => { window.location.reload(); }, 3000);
+    } catch (err) {
+      if (statusEl) statusEl.textContent = "エラーが発生しました: " + String(err);
+    }
+  });
 }
 
 void loadData();

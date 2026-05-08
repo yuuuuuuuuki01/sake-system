@@ -3,9 +3,14 @@ import type { ShipmentCalendarData, ShipmentDay, VolumeBreakdown } from "../api"
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 function fmtAmount(n: number): string {
-  return n >= 10000
-    ? `${Math.round(n / 1000)}千`
-    : `${n.toLocaleString()}円`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 10000) return `${Math.round(n / 1000)}千`;
+  return `${n.toLocaleString()}円`;
+}
+
+function totalBottles(day: ShipmentDay | undefined): number {
+  if (!day) return 0;
+  return day.totalVolumes.reduce((s, v) => s + v.bottles, 0);
 }
 
 function buildCalendarCells(yearMonth: string): { date?: string; outside?: boolean }[] {
@@ -22,6 +27,48 @@ function buildCalendarCells(yearMonth: string): { date?: string; outside?: boole
   return cells;
 }
 
+/** 曜日別の集計を計算 */
+function calcWeekdayStats(data: ShipmentCalendarData, yearMonth: string) {
+  const [y, mo] = yearMonth.split("-").map(Number);
+  const lastDay = new Date(y, mo, 0).getDate();
+  const stats = Array.from({ length: 7 }, () => ({ count: 0, amount: 0, bottles: 0, days: 0 }));
+
+  for (let d = 1; d <= lastDay; d++) {
+    const dt = `${yearMonth}-${String(d).padStart(2, "0")}`;
+    const wd = new Date(y, mo - 1, d).getDay();
+    stats[wd].days++;
+    const day = data[dt];
+    if (day) {
+      stats[wd].count += day.count;
+      stats[wd].amount += day.totalAmount;
+      stats[wd].bottles += totalBottles(day);
+    }
+  }
+  return stats;
+}
+
+/** 週ごとの集計を計算（カレンダー行ごと = 日曜始まり） */
+function calcWeeklyStats(data: ShipmentCalendarData, cells: { date?: string; outside?: boolean }[]) {
+  const weeks: { count: number; amount: number; bottles: number; days: number }[] = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    const row = cells.slice(i, i + 7);
+    let count = 0, amount = 0, bottles = 0, days = 0;
+    for (const cell of row) {
+      if (cell.date) {
+        days++;
+        const day = data[cell.date];
+        if (day) {
+          count += day.count;
+          amount += day.totalAmount;
+          bottles += totalBottles(day);
+        }
+      }
+    }
+    weeks.push({ count, amount, bottles, days });
+  }
+  return weeks;
+}
+
 export function renderShipmentCalendar(
   data: ShipmentCalendarData | null,
   yearMonth: string,
@@ -36,43 +83,93 @@ export function renderShipmentCalendar(
 
   const cells = buildCalendarCells(yearMonth);
 
-  const calendarHtml = cells.map((cell) => {
-    if (cell.outside) return `<div class="sc-cell sc-outside"></div>`;
+  // 曜日別集計
+  const wdStats = data ? calcWeekdayStats(data, yearMonth) : null;
+  // 週別集計
+  const weekStats = data ? calcWeeklyStats(data, cells) : null;
 
-    const date = cell.date!;
-    const day = Number(date.split("-")[2]);
-    const weekday = new Date(`${date}T00:00:00`).getDay();
-    const dayData = data?.[date];
-    const isToday = date === today;
-    const isSelected = date === selectedDate;
+  // カレンダーセルHTML生成（週ごとに週計セルを追加）
+  let calendarHtml = "";
+  if (data === null) {
+    calendarHtml = `<div class="sc-loading" style="grid-column:1/-1;"><div class="loading-spinner"></div><p>読み込み中…</p></div>`;
+  } else {
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      if (cell.outside) {
+        calendarHtml += `<div class="sc-cell sc-outside"></div>`;
+      } else {
+        const date = cell.date!;
+        const day = Number(date.split("-")[2]);
+        const weekday = new Date(`${date}T00:00:00`).getDay();
+        const dayData = data[date];
+        const isToday = date === today;
+        const isSelected = date === selectedDate;
 
-    let badge = "";
-    let cities = "";
-    if (dayData) {
-      badge = `<span class="sc-badge">${dayData.count}件</span>`;
-      cities = dayData.cityGroups
-        .slice(0, 3)
-        .map(
-          (g) =>
-            `<span class="sc-city-tag">${g.city}<em>${g.count}</em></span>`
-        )
-        .join("");
-      if (dayData.cityGroups.length > 3) {
-        cities += `<span class="sc-city-more">+${dayData.cityGroups.length - 3}</span>`;
+        let badge = "";
+        let cities = "";
+        if (dayData) {
+          badge = `<span class="sc-badge">${dayData.count}件</span>`;
+          cities = dayData.cityGroups
+            .slice(0, 3)
+            .map((g) => `<span class="sc-city-tag">${g.city}<em>${g.count}</em></span>`)
+            .join("");
+          if (dayData.cityGroups.length > 3) {
+            cities += `<span class="sc-city-more">+${dayData.cityGroups.length - 3}</span>`;
+          }
+        }
+
+        calendarHtml += `
+          <div class="sc-cell ${isToday ? "sc-today" : ""} ${isSelected ? "sc-selected" : ""} ${dayData ? "sc-has-data" : ""}"
+               data-sc-date="${date}">
+            <div class="sc-day-header">
+              <span class="sc-day-num ${weekday === 0 ? "sc-sun" : weekday === 6 ? "sc-sat" : ""}">${day}</span>
+              ${badge}
+            </div>
+            <div class="sc-cities">${cities}</div>
+          </div>`;
+      }
+
+      // 土曜（各行末）の後に週計セルを追加
+      if ((i + 1) % 7 === 0 && weekStats) {
+        const wk = weekStats[Math.floor(i / 7)];
+        const wkAvg = wk.days > 0 ? (wk.count / wk.days) : 0;
+        calendarHtml += `
+          <div class="sc-cell sc-week-total">
+            <div class="sc-wt-count">${wk.count}<small>件</small></div>
+            <div class="sc-wt-amount">${fmtAmount(wk.amount)}</div>
+            <div class="sc-wt-bottles">${wk.bottles}<small>本</small></div>
+            <div class="sc-wt-avg">⌀${wkAvg.toFixed(1)}<small>件/日</small></div>
+          </div>`;
       }
     }
+  }
 
-    return `
-      <div class="sc-cell ${isToday ? "sc-today" : ""} ${isSelected ? "sc-selected" : ""} ${dayData ? "sc-has-data" : ""}"
-           data-sc-date="${date}">
-        <div class="sc-day-header">
-          <span class="sc-day-num ${weekday === 0 ? "sc-sun" : weekday === 6 ? "sc-sat" : ""}">${day}</span>
-          ${badge}
-        </div>
-        <div class="sc-cities">${cities}</div>
-      </div>
-    `;
-  }).join("");
+  // 曜日別サマリー行（曜日ヘッダーの直下）
+  let wdSummaryHtml = "";
+  if (wdStats) {
+    wdSummaryHtml = wdStats.map((s, i) => {
+      const avg = s.days > 0 ? (s.count / s.days) : 0;
+      const cls = i === 0 ? "sc-sun" : i === 6 ? "sc-sat" : "";
+      return `<div class="sc-wd-summary ${cls}">
+        <span class="sc-wds-count">${s.count}<small>件</small></span>
+        <span class="sc-wds-amt">${fmtAmount(s.amount)}</span>
+        <span class="sc-wds-bottles">${s.bottles}<small>本</small></span>
+        <span class="sc-wds-avg">⌀${avg.toFixed(1)}</span>
+      </div>`;
+    }).join("");
+    // 月計（8列目）
+    const monthCount = wdStats.reduce((a, s) => a + s.count, 0);
+    const monthAmt = wdStats.reduce((a, s) => a + s.amount, 0);
+    const monthBtl = wdStats.reduce((a, s) => a + s.bottles, 0);
+    const monthDays = wdStats.reduce((a, s) => a + s.days, 0);
+    const monthAvg = monthDays > 0 ? (monthCount / monthDays) : 0;
+    wdSummaryHtml += `<div class="sc-wd-summary sc-wd-month-total">
+      <span class="sc-wds-count">${monthCount}<small>件</small></span>
+      <span class="sc-wds-amt">${fmtAmount(monthAmt)}</span>
+      <span class="sc-wds-bottles">${monthBtl}<small>本</small></span>
+      <span class="sc-wds-avg">⌀${monthAvg.toFixed(1)}</span>
+    </div>`;
+  }
 
   // 詳細パネル
   const detailHtml = selectedDate && data?.[selectedDate]
@@ -103,15 +200,20 @@ export function renderShipmentCalendar(
 
       <div class="sc-body">
         <div class="sc-calendar-col">
-          <div class="sc-weekdays">
+          <!-- 曜日ヘッダー 8列 -->
+          <div class="sc-weekdays-8">
             ${WEEKDAYS.map((w, i) =>
               `<div class="sc-weekday ${i === 0 ? "sc-sun" : i === 6 ? "sc-sat" : ""}">${w}</div>`
             ).join("")}
+            <div class="sc-weekday sc-wk-header">週計</div>
           </div>
-          <div class="sc-grid">
-            ${data === null
-              ? `<div class="sc-loading"><div class="loading-spinner"></div><p>読み込み中…</p></div>`
-              : calendarHtml}
+
+          <!-- 曜日別集計サマリー行 -->
+          ${wdSummaryHtml ? `<div class="sc-wd-summary-row">${wdSummaryHtml}</div>` : ""}
+
+          <!-- カレンダーグリッド 8列 -->
+          <div class="sc-grid-8">
+            ${calendarHtml}
           </div>
         </div>
 
@@ -137,19 +239,48 @@ export function renderShipmentCalendar(
       .sc-body { display: grid; grid-template-columns: 1fr 280px; min-height: 480px; }
       @media (max-width: 900px) { .sc-body { grid-template-columns: 1fr; } }
 
-      .sc-calendar-col { padding: 12px 16px; border-right: 1px solid var(--border, #e5e7eb); }
-      .sc-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 4px; }
+      .sc-calendar-col { padding: 12px 16px; border-right: 1px solid var(--border, #e5e7eb); overflow-x: auto; }
+
+      /* 8列ヘッダー */
+      .sc-weekdays-8 { display: grid; grid-template-columns: repeat(7, 1fr) 80px; margin-bottom: 0; }
       .sc-weekday { text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--text-muted, #6b7280); padding: 4px 0; }
       .sc-weekday.sc-sun { color: #ef4444; }
       .sc-weekday.sc-sat { color: #3b82f6; }
+      .sc-wk-header { background: #f0fdf4; color: #166534; font-weight: 700; border-radius: 4px 4px 0 0; }
 
-      .sc-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+      /* 曜日別集計サマリー行 */
+      .sc-wd-summary-row { display: grid; grid-template-columns: repeat(7, 1fr) 80px; margin-bottom: 4px; border-bottom: 2px solid var(--border, #d1d5db); padding-bottom: 6px; }
+      .sc-wd-summary { text-align: center; font-size: 0.65rem; line-height: 1.4; padding: 4px 2px; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+      .sc-wd-summary.sc-sun { color: #ef4444; }
+      .sc-wd-summary.sc-sat { color: #3b82f6; }
+      .sc-wd-summary.sc-wd-month-total { background: #f0fdf4; border-radius: 0 0 4px 4px; color: #166534; font-weight: 600; }
+      .sc-wds-count { font-weight: 700; font-size: 0.72rem; }
+      .sc-wds-amt { color: var(--text-muted, #6b7280); }
+      .sc-wds-bottles { color: #92400e; }
+      .sc-wds-avg { color: #0369a1; font-style: italic; }
+      .sc-wd-summary small { font-size: 0.55rem; opacity: 0.7; }
+
+      /* 8列グリッド */
+      .sc-grid-8 { display: grid; grid-template-columns: repeat(7, 1fr) 80px; gap: 2px; }
       .sc-cell { min-height: 72px; border: 1px solid var(--border, #e5e7eb); border-radius: 6px; padding: 4px 6px; cursor: pointer; transition: background 0.1s, border-color 0.1s; }
       .sc-cell.sc-outside { background: transparent; border-color: transparent; cursor: default; }
       .sc-cell:not(.sc-outside):hover { background: var(--bg-hover, #f9fafb); border-color: var(--primary, #0F5B8D); }
       .sc-cell.sc-today { background: #eff6ff; border-color: #3b82f6; }
       .sc-cell.sc-selected { background: #dbeafe; border-color: #2563eb; border-width: 2px; }
       .sc-cell.sc-has-data .sc-day-num { font-weight: 700; }
+
+      /* 週計セル */
+      .sc-cell.sc-week-total {
+        background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px;
+        padding: 4px 6px; cursor: default;
+        display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 2px;
+        font-size: 0.7rem; color: #166534;
+      }
+      .sc-wt-count { font-weight: 700; font-size: 0.8rem; }
+      .sc-wt-count small, .sc-wt-bottles small, .sc-wt-avg small { font-size: 0.55rem; opacity: 0.7; }
+      .sc-wt-amount { font-size: 0.68rem; color: #15803d; }
+      .sc-wt-bottles { color: #92400e; font-size: 0.68rem; }
+      .sc-wt-avg { color: #0369a1; font-size: 0.62rem; font-style: italic; }
 
       .sc-day-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
       .sc-day-num { font-size: 0.8rem; color: var(--text, #111); }
@@ -162,7 +293,7 @@ export function renderShipmentCalendar(
       .sc-city-tag em { font-style: normal; font-weight: 700; }
       .sc-city-more { font-size: 0.6rem; color: var(--text-muted, #6b7280); }
 
-      .sc-loading { grid-column: 1/-1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px; gap: 12px; color: var(--text-muted, #6b7280); }
+      .sc-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px; gap: 12px; color: var(--text-muted, #6b7280); }
 
       .sc-detail-col { padding: 16px; overflow-y: auto; max-height: 600px; }
       .sc-detail-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-muted, #6b7280); font-size: 0.9rem; text-align: center; padding: 40px 20px; }
@@ -183,7 +314,7 @@ export function renderShipmentCalendar(
       .sc-vol-tag { font-size: 0.8rem; color: #78350f; }
       .sc-vol-tag strong { margin-left: 2px; }
 
-      /* ── スマホ: 1画面レイアウト ── */
+      /* ── スマホ ── */
       @media (max-width: 640px) {
         .sc-header { padding: 10px 12px 8px; }
         .sc-title { font-size: 0.95rem; }
@@ -194,16 +325,17 @@ export function renderShipmentCalendar(
 
         .sc-body { grid-template-columns: 1fr; min-height: unset; }
         .sc-calendar-col { padding: 6px 8px; border-right: none; }
+        .sc-weekdays-8 { grid-template-columns: repeat(7, 1fr) 56px; }
+        .sc-wd-summary-row { grid-template-columns: repeat(7, 1fr) 56px; }
+        .sc-grid-8 { grid-template-columns: repeat(7, 1fr) 56px; }
         .sc-weekday { font-size: 0.7rem; padding: 2px 0; }
 
-        /* セルを低くして6行が画面に収まるように */
         .sc-cell { min-height: 44px; padding: 2px 3px; border-radius: 4px; }
         .sc-day-num { font-size: 0.75rem; }
         .sc-badge { font-size: 0.6rem; padding: 1px 4px; }
-        /* 都市タグはセル内に非表示 (タップで詳細表示するため) */
         .sc-cities { display: none; }
+        .sc-wd-summary-row { display: none; }
 
-        /* 詳細パネル: 下から出るボトムシート */
         .sc-detail-col { display: none; }
         .sc-detail-col.sc-detail-active {
           display: block;

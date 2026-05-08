@@ -30,6 +30,53 @@ export function renderCustomerMap(
 
   const deliveriesWithGeo = deliveries.filter((d) => d.lat && d.lng);
 
+  const hasGeoData = customers.some((c) => c.lat && c.lng);
+  const totalCustomers = customers.length;
+  const geoCustomers = customers.filter((c) => c.lat && c.lng).length;
+
+  // ジオコーディング未実行の場合の案内
+  const geocodeNotice = !hasGeoData
+    ? `<section class="panel" style="border-left:4px solid var(--color-warning);margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="flex:1;">
+            <strong>📍 位置情報がまだ登録されていません</strong>
+            <p style="margin:4px 0 0;font-size:0.85rem;color:var(--text-muted,#6b7280);">
+              「ジオコーディング実行」で住所から緯度経度を自動取得します（${totalCustomers}件）。<br>
+              Nominatim API を使用するため、1件/秒の速度で処理されます。
+            </p>
+          </div>
+          <button class="button primary" id="btn-geocode">📍 ジオコーディング実行</button>
+        </div>
+        <div id="geocode-progress" style="display:none;margin-top:12px;">
+          <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;">
+            <div class="loading-spinner" style="width:16px;height:16px;"></div>
+            <span id="geocode-status">準備中…</span>
+          </div>
+          <div style="margin-top:6px;background:#e5e7eb;border-radius:4px;height:6px;overflow:hidden;">
+            <div id="geocode-bar" style="height:100%;background:var(--primary,#0F5B8D);width:0%;transition:width 0.3s;"></div>
+          </div>
+        </div>
+      </section>`
+    : geoCustomers < totalCustomers
+      ? `<section class="panel" style="border-left:4px solid #3b82f6;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div style="flex:1;font-size:0.85rem;">
+              📍 位置情報: <strong>${geoCustomers}/${totalCustomers}件</strong> 取得済み
+              （未取得 ${totalCustomers - geoCustomers}件）
+            </div>
+            <button class="button secondary small" id="btn-geocode">未取得分をジオコーディング</button>
+          </div>
+          <div id="geocode-progress" style="display:none;margin-top:12px;">
+            <div style="display:flex;align-items:center;gap:8px;font-size:0.85rem;">
+              <div class="loading-spinner" style="width:16px;height:16px;"></div>
+              <span id="geocode-status">準備中…</span>
+            </div>
+            <div style="margin-top:6px;background:#e5e7eb;border-radius:4px;height:6px;overflow:hidden;">
+              <div id="geocode-bar" style="height:100%;background:var(--primary,#0F5B8D);width:0%;transition:width 0.3s;"></div>
+            </div>
+          </div>
+        </section>`
+      : "";
   return `
     <section class="page-head">
       <div>
@@ -38,6 +85,8 @@ export function renderCustomerMap(
         <p class="meta-note">OpenStreetMap で得意先の位置情報を可視化します。</p>
       </div>
     </section>
+
+    ${geocodeNotice}
 
     <section class="kpi-grid">
       <div class="kpi-card" style="border-top:3px solid var(--color-danger);">
@@ -95,4 +144,5 @@ export function renderCustomerMap(
     </section>
 
   `;
+  // NOTE: ジオコーディングボタンのイベントは main.ts 側で処理
 }
