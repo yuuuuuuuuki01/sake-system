@@ -196,8 +196,8 @@ import { renderDemandPlanning, buildDefaultShifts, optimizeShifts, DEFAULT_PART_
 import { renderBrewingPlan } from "./components/BrewingPlan";
 import { renderProcurement } from "./components/Procurement";
 import { renderBrewingProcess } from "./components/BrewingProcess";
-import { renderWorkforce, renderStaffModal, type WorkforceTab } from "./components/Workforce";
-import { fetchStaffMembers, upsertStaffMember, deleteStaffMember, fetchWorkforceMetrics, type StaffMember, type WorkforceMetrics } from "./api";
+import { renderWorkforce, renderStaffModal, generateAutoShifts, type WorkforceTab } from "./components/Workforce";
+import { fetchStaffMembers, upsertStaffMember, deleteStaffMember, fetchWorkforceMetrics, fetchDailyShiftPlans, saveDailyShiftPlans, type StaffMember, type WorkforceMetrics, type DailyShiftPlan } from "./api";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { CHURN_REASONS } from "./api";
 const CHURN_REASONS_MAP: Record<string, string> = Object.fromEntries(CHURN_REASONS.map((r) => [r.value, r.label]));
@@ -661,6 +661,7 @@ interface AppState {
   brewingSchedule: import("./api").BrewingScheduleRow[];
   staffMembers: StaffMember[];
   workforceMetrics: WorkforceMetrics | null;
+  dailyShiftPlans: DailyShiftPlan[];
   workforceTab: WorkforceTab;
   staffDeptFilter: string;
   workforceYearMonth: string;
@@ -1009,6 +1010,7 @@ const state: AppState = {
   brewingSchedule: [] as import("./api").BrewingScheduleRow[],
   staffMembers: [] as StaffMember[],
   workforceMetrics: null as WorkforceMetrics | null,
+  dailyShiftPlans: [] as DailyShiftPlan[],
   workforceTab: "staff" as WorkforceTab,
   staffDeptFilter: "",
   workforceYearMonth: new Date().toISOString().slice(0, 7),
@@ -1766,7 +1768,7 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       }
       case "/workforce": {
-        const [members, schedule, wfMetrics] = await Promise.all([
+        const [members, schedule, wfMetrics, plans] = await Promise.all([
           state.staffMembers.length > 0
             ? Promise.resolve(state.staffMembers)
             : fetchStaffMembers(),
@@ -1777,9 +1779,11 @@ async function loadRouteData(route: RoutePath): Promise<void> {
                 return fetchBrewingSchedule(state.brewingPlanFY).catch(() => []);
               })(),
           fetchWorkforceMetrics(state.workforceYearMonth),
+          fetchDailyShiftPlans(state.workforceYearMonth),
         ]);
-        state.staffMembers    = members;
+        state.staffMembers     = members;
         state.workforceMetrics = wfMetrics;
+        state.dailyShiftPlans  = plans;
         if (state.brewingSchedule.length === 0) state.brewingSchedule = schedule;
         break;
       }
@@ -2169,7 +2173,8 @@ function renderView(): string {
         state.workforceYearMonth,
         state.brewingSchedule,
         0,
-        state.workforceMetrics
+        state.workforceMetrics,
+        state.dailyShiftPlans
       );
     case "/jikomi":
       return state.jikomiView === "calendar"
@@ -8357,8 +8362,34 @@ function bindEvents(root: HTMLElement): void {
   });
   root.querySelector<HTMLSelectElement>("#shift-year-month")?.addEventListener("change", e => {
     state.workforceYearMonth = (e.target as HTMLSelectElement).value;
-    state.workforceMetrics = null; // 月変更時に再取得
-    navigate(state.currentPath);   // loadRouteData 経由で再フェッチ
+    state.workforceMetrics  = null;
+    state.dailyShiftPlans   = [];
+    navigate(state.currentPath); // loadRouteData 経由で再フェッチ
+  });
+
+  // シフト自動生成
+  root.querySelector<HTMLButtonElement>("[data-action='shift-auto-generate']")?.addEventListener("click", async () => {
+    const btn = root.querySelector<HTMLButtonElement>("[data-action='shift-auto-generate']");
+    if (btn) { btn.disabled = true; btn.textContent = "生成中…"; }
+    try {
+      const plans = generateAutoShifts(
+        state.workforceYearMonth,
+        state.staffMembers,
+        state.brewingSchedule,
+        0,
+        state.workforceMetrics
+      );
+      const ok = await saveDailyShiftPlans(state.workforceYearMonth, plans);
+      if (ok) {
+        state.dailyShiftPlans = plans;
+        showToast("シフトを自動生成しました", "success");
+        renderApp();
+      } else {
+        showToast("保存に失敗しました", "error");
+      }
+    } finally {
+      if (btn) { btn.disabled = false; }
+    }
   });
 
   // スタッフ追加ボタン

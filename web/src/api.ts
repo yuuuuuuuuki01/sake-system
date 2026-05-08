@@ -6786,15 +6786,31 @@ export interface WorkforceMetrics {
   routeSalesAmount: number;
   /** 稼働日数（月〜金カウント） */
   workingDays: number;
+  /** 前年同月: 処理伝票数 */
+  prevYearDocumentCount: number;
+  /** 前年同月: ルート売上金額 */
+  prevYearRouteSalesAmount: number;
+  /** 前年同月: ルート伝票件数 */
+  prevYearRouteDocCount: number;
+}
+
+export interface DailyShiftPlan {
+  id?: string;
+  planDate: string;           // YYYY-MM-DD
+  department: StaffDepartment;
+  staffMemberIds: string[];
+  notes: string;
 }
 
 export async function fetchWorkforceMetrics(yearMonth: string): Promise<WorkforceMetrics> {
   const [y, m] = yearMonth.split('-').map(Number);
   const pad = (n: number) => String(n).padStart(2, '0');
-  const startDate = `${y}-${pad(m)}-01`;
-  const nextM = m === 12 ? 1  : m + 1;
-  const nextY = m === 12 ? y + 1 : y;
-  const endDate   = `${nextY}-${pad(nextM)}-01`;
+
+  function monthRange(yr: number, mo: number) {
+    const nextM = mo === 12 ? 1 : mo + 1;
+    const nextY = mo === 12 ? yr + 1 : yr;
+    return { startDate: `${yr}-${pad(mo)}-01`, endDate: `${nextY}-${pad(nextM)}-01` };
+  }
 
   // 稼働日数（月〜金）
   let workingDays = 0;
@@ -6805,32 +6821,101 @@ export async function fetchWorkforceMetrics(yearMonth: string): Promise<Workforc
     cur.setDate(cur.getDate() + 1);
   }
 
-  const dateRange = `(sales_date.gte.${startDate},sales_date.lt.${endDate})`;
+  const { startDate, endDate }             = monthRange(y, m);
+  const { startDate: pyStart, endDate: pyEnd } = monthRange(y - 1, m);
+  const dateRange   = `(sales_date.gte.${startDate},sales_date.lt.${endDate})`;
+  const pyDateRange = `(sales_date.gte.${pyStart},sales_date.lt.${pyEnd})`;
 
-  const [factRows, directRows, allHeaderRows] = await Promise.all([
-    // 日次集計から伝票数を取得
-    supabaseQuery<LooseRow>('daily_sales_fact', {
-      select: 'document_count',
-      and: dateRange,
-    }),
-    // 上様（直売所）伝票
-    supabaseQuery<LooseRow>('sales_document_headers', {
-      select: 'total_amount',
-      and: dateRange,
-      customer_name: 'ilike.*上様*',
-    }),
-    // 全伝票（月額ルート売上算出用）
-    supabaseQuery<LooseRow>('sales_document_headers', {
-      select: 'total_amount',
-      and: dateRange,
-    }),
+  const [factRows, directRows, allHeaderRows, pyFactRows, pyAllHeaderRows, pyDirectRows] = await Promise.all([
+    supabaseQuery<LooseRow>('daily_sales_fact',       { select: 'document_count', and: dateRange }),
+    supabaseQuery<LooseRow>('sales_document_headers', { select: 'total_amount', and: dateRange, customer_name: 'ilike.*上様*' }),
+    supabaseQuery<LooseRow>('sales_document_headers', { select: 'total_amount', and: dateRange }),
+    // 前年同月
+    supabaseQuery<LooseRow>('daily_sales_fact',       { select: 'document_count', and: pyDateRange }),
+    supabaseQuery<LooseRow>('sales_document_headers', { select: 'total_amount', and: pyDateRange }),
+    supabaseQuery<LooseRow>('sales_document_headers', { select: 'total_amount', and: pyDateRange, customer_name: 'ilike.*上様*' }),
   ]);
 
-  const monthlyDocumentCount = factRows.reduce((s, r) => s + getNumber(r, ['document_count'], 0), 0);
-  const directSalesCount     = directRows.length;
-  const directSalesAmount    = directRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
-  const totalAmount          = allHeaderRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
-  const routeSalesAmount     = Math.max(0, totalAmount - directSalesAmount);
+  const monthlyDocumentCount     = factRows.reduce((s, r) => s + getNumber(r, ['document_count'], 0), 0);
+  const directSalesCount         = directRows.length;
+  const directSalesAmount        = directRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
+  const totalAmount              = allHeaderRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
+  const routeSalesAmount         = Math.max(0, totalAmount - directSalesAmount);
 
-  return { monthlyDocumentCount, directSalesCount, directSalesAmount, routeSalesAmount, workingDays };
+  const prevYearDocumentCount    = pyFactRows.reduce((s, r) => s + getNumber(r, ['document_count'], 0), 0);
+  const pyDirectAmount           = pyDirectRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
+  const pyTotalAmount            = pyAllHeaderRows.reduce((s, r) => s + getNumber(r, ['total_amount'], 0), 0);
+  const prevYearRouteSalesAmount = Math.max(0, pyTotalAmount - pyDirectAmount);
+  const prevYearRouteDocCount    = Math.max(0, pyAllHeaderRows.length - pyDirectRows.length);
+
+  return {
+    monthlyDocumentCount, directSalesCount, directSalesAmount, routeSalesAmount, workingDays,
+    prevYearDocumentCount, prevYearRouteSalesAmount, prevYearRouteDocCount,
+  };
+}
+
+export async function fetchDailyShiftPlans(yearMonth: string): Promise<DailyShiftPlan[]> {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const startDate = `${y}-${pad(m)}-01`;
+  const nextM = m === 12 ? 1 : m + 1;
+  const nextY = m === 12 ? y + 1 : y;
+  const endDate = `${nextY}-${pad(nextM)}-01`;
+
+  const rows = await supabaseQuery<LooseRow>('daily_shift_plans', {
+    select: 'id,plan_date,department,staff_member_ids,notes',
+    and:    `(plan_date.gte.${startDate},plan_date.lt.${endDate})`,
+    order:  'plan_date.asc,department.asc',
+  });
+
+  return rows.map(r => ({
+    id:             getString(r, ['id'], undefined),
+    planDate:       getString(r, ['plan_date'], ''),
+    department:     getString(r, ['department'], 'soumu') as StaffDepartment,
+    staffMemberIds: (r['staff_member_ids'] as string[]) ?? [],
+    notes:          getString(r, ['notes'], ''),
+  }));
+}
+
+export async function saveDailyShiftPlans(yearMonth: string, plans: DailyShiftPlan[]): Promise<boolean> {
+  if (!SUPABASE_ANON_KEY || !SUPABASE_URL) return false;
+  const [y, m] = yearMonth.split('-').map(Number);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const startDate = `${y}-${pad(m)}-01`;
+  const nextM = m === 12 ? 1 : m + 1;
+  const nextY = m === 12 ? y + 1 : y;
+  const endDate = `${nextY}-${pad(nextM)}-01`;
+
+  try {
+    const delUrl = new URL('/rest/v1/daily_shift_plans', SUPABASE_URL);
+    delUrl.searchParams.set('and', `(plan_date.gte.${startDate},plan_date.lt.${endDate})`);
+    await fetch(delUrl.toString(), {
+      method: 'DELETE',
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+    });
+
+    if (plans.length === 0) return true;
+
+    const body = plans.map(p => ({
+      plan_date:        p.planDate,
+      department:       p.department,
+      staff_member_ids: p.staffMemberIds,
+      notes:            p.notes || null,
+    }));
+    const insUrl = new URL('/rest/v1/daily_shift_plans', SUPABASE_URL);
+    const res = await fetch(insUrl.toString(), {
+      method: 'POST',
+      headers: {
+        apikey:           SUPABASE_ANON_KEY,
+        Authorization:    `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type':   'application/json',
+        Prefer:           'return=minimal',
+      },
+      body: JSON.stringify(body),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error('saveDailyShiftPlans failed', e);
+    return false;
+  }
 }
