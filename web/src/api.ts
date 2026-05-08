@@ -3386,57 +3386,177 @@ function buildAbcRanking<T extends { amount: number }>(
   });
 }
 
-export async function fetchCustomerAnalysis(): Promise<CustomerAnalysisData> {
-  const [abcRows, report] = await Promise.all([
-    supabaseQuery<LooseRow>("mv_customer_abc", { order: "amount.desc" }),
-    fetchSalesReport()
-  ]);
+// 期間文字列 "YYYY" or "YYYY-MM" → { dateFrom, dateTo }
+export function abcPeriodToDates(period: string): { dateFrom: string; dateTo: string } | null {
+  if (!period) return null;
+  if (/^\d{4}$/.test(period)) {
+    return { dateFrom: `${period}-01-01`, dateTo: `${period}-12-31` };
+  }
+  if (/^\d{4}-\d{2}$/.test(period)) {
+    const [y, m] = period.split("-").map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return { dateFrom: `${period}-01`, dateTo: `${period}-${String(lastDay).padStart(2, "0")}` };
+  }
+  return null;
+}
 
-  const ranking: CustomerRankRow[] = abcRows.map((r) => ({
+export async function fetchCustomerAnalysis(period = ""): Promise<CustomerAnalysisData> {
+  const dates = abcPeriodToDates(period);
+
+  // ABC ランキング: 期間指定あり→RPC, なし→全期間ビュー
+  const abcRowsP = dates
+    ? supabaseRpc<LooseRow[]>("get_abc_customer_by_period", {
+        p_date_from: dates.dateFrom,
+        p_date_to: dates.dateTo
+      }).then((r) => r ?? [])
+    : supabaseQuery<LooseRow>("mv_customer_abc", { order: "amount.desc" });
+
+  // 月次内訳: 直近12ヶ月または選択年の全月
+  const monthFrom = dates
+    ? dates.dateFrom.slice(0, 7)
+    : (() => {
+        const d = new Date();
+        d.setMonth(d.getMonth() - 11);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      })();
+  const monthTo = dates ? dates.dateTo.slice(0, 7) : new Date().toISOString().slice(0, 7);
+
+  const [abcRows, monthlyRows] = await Promise.all([
+    abcRowsP,
+    supabaseQuery<LooseRow>("mv_customer_monthly_sales", {
+      month: `gte.${monthFrom}`,
+      order: "month.asc",
+      limit: "10000"
+    })
+  ]);
+  // monthTo以降はクライアントサイドで除外
+  const filteredMonthlyRows = (monthlyRows as LooseRow[]).filter(
+    (r) => getString(r, ["month"], "") <= monthTo
+  );
+
+  const ranking: CustomerRankRow[] = (abcRows as LooseRow[]).map((r) => ({
     code: getString(r, ["code"], ""),
     name: getString(r, ["name"], ""),
     amount: getNumber(r, ["amount"], 0),
     documents: getNumber(r, ["documents"], 0),
     ratio: getNumber(r, ["ratio"], 0),
-    cumRatio: getNumber(r, ["cum_ratio"], 0),
-    abcRank: (getString(r, ["abc_rank"], "C") as "A" | "B" | "C")
+    cumRatio: getNumber(r, ["cum_ratio", "cumRatio"], 0),
+    abcRank: (getString(r, ["abc_rank", "abcRank"], "C") as "A" | "B" | "C")
+  }));
+
+  // 上位10得意先の月次マップ
+  const top10 = ranking.slice(0, 10);
+  const top10Codes = new Set(top10.map((r) => r.code));
+  const months = buildMonthRange(monthFrom, monthTo);
+
+  const custMonthMap = new Map<string, Map<string, number>>();
+  filteredMonthlyRows.forEach((r) => {
+    const code = getString(r, ["code"], "");
+    if (!top10Codes.has(code)) return;
+    const m = getString(r, ["month"], "");
+    if (!custMonthMap.has(code)) custMonthMap.set(code, new Map());
+    custMonthMap.get(code)!.set(m, getNumber(r, ["amount"], 0));
+  });
+
+  const monthlyByCustomer = top10.map((c) => ({
+    label: c.name,
+    values: months.map((m) => custMonthMap.get(c.code)?.get(m) ?? 0)
   }));
 
   return {
     generatedAt: new Date().toISOString(),
     ranking,
-    months: report.months,
-    monthlyByCustomer: report.salesByCustomer
+    months,
+    monthlyByCustomer
   };
 }
 
-export async function fetchProductABC(): Promise<ProductABCData> {
-  const [abcRows, report] = await Promise.all([
-    supabaseQuery<LooseRow>("mv_product_abc", { order: "amount.desc" }),
-    fetchSalesReport()
-  ]);
+export async function fetchProductABC(period = ""): Promise<ProductABCData> {
+  const dates = abcPeriodToDates(period);
 
-  const ranking: ProductRankRow[] = abcRows.map((r) => ({
+  const abcRowsP = dates
+    ? supabaseRpc<LooseRow[]>("get_abc_product_by_period", {
+        p_date_from: dates.dateFrom,
+        p_date_to: dates.dateTo
+      }).then((r) => r ?? [])
+    : supabaseQuery<LooseRow>("mv_product_abc", { order: "amount.desc" });
+
+  const monthFrom = dates
+    ? dates.dateFrom.slice(0, 7)
+    : (() => {
+        const d = new Date();
+        d.setMonth(d.getMonth() - 11);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      })();
+  const monthTo = dates ? dates.dateTo.slice(0, 7) : new Date().toISOString().slice(0, 7);
+
+  const [abcRows, monthlyRows] = await Promise.all([
+    abcRowsP,
+    supabaseQuery<LooseRow>("mv_product_monthly_shipments", {
+      month: `gte.${monthFrom}`,
+      order: "month.asc",
+      limit: "10000"
+    })
+  ]);
+  const filteredMonthlyRows = (monthlyRows as LooseRow[]).filter(
+    (r) => getString(r, ["month"], "") <= monthTo
+  );
+
+  const rawRows = (abcRows as LooseRow[]).map((r) => ({
     code: getString(r, ["code"], ""),
     name: getString(r, ["name"], ""),
     amount: getNumber(r, ["amount"], 0),
     quantity: getNumber(r, ["quantity"], 0),
+    documents: getNumber(r, ["documents"], 0),
     ratio: getNumber(r, ["ratio"], 0),
-    cumRatio: getNumber(r, ["cum_ratio"], 0),
-    abcRank: (getString(r, ["abc_rank"], "C") as "A" | "B" | "C")
+    cumRatio: getNumber(r, ["cum_ratio", "cumRatio"], 0),
+    abcRank: (getString(r, ["abc_rank", "abcRank"], "C") as "A" | "B" | "C")
   }));
 
+  const ranking: ProductRankRow[] = rawRows;
   const totalAmount = ranking.reduce((s, r) => s + r.amount, 0);
-  const aRankNames = new Set(ranking.filter((r) => r.abcRank === "A").map((r) => r.name));
-  const monthlyByProduct = report.salesByProduct.filter((p) => aRankNames.has(p.label));
+  const months = buildMonthRange(monthFrom, monthTo);
+
+  // Aランク上位10商品の月次マップ
+  const aRankCodes = new Set(ranking.filter((r) => r.abcRank === "A").slice(0, 10).map((r) => r.code));
+  const prodMonthMap = new Map<string, Map<string, number>>();
+  filteredMonthlyRows.forEach((r) => {
+    const code = getString(r, ["code"], "");
+    if (!aRankCodes.has(code)) return;
+    const m = getString(r, ["month"], "");
+    if (!prodMonthMap.has(code)) prodMonthMap.set(code, new Map());
+    prodMonthMap.get(code)!.set(m, getNumber(r, ["amount"], 0));
+  });
+
+  const monthlyByProduct = Array.from(aRankCodes).map((code) => {
+    const mmap = prodMonthMap.get(code);
+    return {
+      label: ranking.find((r) => r.code === code)?.name ?? code,
+      values: months.map((m) => mmap?.get(m) ?? 0)
+    };
+  });
 
   return {
     generatedAt: new Date().toISOString(),
     totalAmount,
     ranking,
-    months: report.months,
-    monthlyByProduct: monthlyByProduct.length > 0 ? monthlyByProduct : report.salesByProduct
+    months,
+    monthlyByProduct: monthlyByProduct.length > 0 ? monthlyByProduct : []
   };
+}
+
+function buildMonthRange(from: string, to: string): string[] {
+  const result: string[] = [];
+  const [fy, fm] = from.split("-").map(Number);
+  const [ty, tm] = to.split("-").map(Number);
+  let y = fy, m = fm;
+  while (y < ty || (y === ty && m <= tm)) {
+    result.push(`${y}-${String(m).padStart(2, "0")}`);
+    m++;
+    if (m > 12) { m = 1; y++; }
+    if (result.length > 60) break; // 安全装置
+  }
+  return result;
 }
 
 // ─── 蔵内管理 ────────────────────────────────────────────────────────────────

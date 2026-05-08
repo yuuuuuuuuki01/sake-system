@@ -478,6 +478,7 @@ interface AppState {
   customerAnalysis: CustomerAnalysisData | null;
   productABC: ProductABCData | null;
   analysisTab: "customer" | "product";
+  analysisPeriod: string;
   invoiceForm: InvoiceFormData;
   invoiceSaving: boolean;
   invoiceSavedDocNo: string | null;
@@ -774,6 +775,7 @@ const state: AppState = {
   customerAnalysis: null,
   productABC: null,
   analysisTab: "customer" as "customer" | "product",
+  analysisPeriod: "",
   invoiceForm: makeDefaultInvoiceForm(),
   invoiceSaving: false,
   invoiceSavedDocNo: null,
@@ -1495,8 +1497,8 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         break;
       case "/customer-analysis":
         await Promise.all([
-          state.customerAnalysis ? Promise.resolve() : fetchCustomerAnalysis().then((d) => { state.customerAnalysis = d; }),
-          state.productABC        ? Promise.resolve() : fetchProductABC().then((d)        => { state.productABC = d; }),
+          fetchCustomerAnalysis(state.analysisPeriod).then((d) => { state.customerAnalysis = d; }),
+          fetchProductABC(state.analysisPeriod).then((d) => { state.productABC = d; }),
         ]);
         break;
       case "/demand-forecast":
@@ -1992,7 +1994,7 @@ function renderView(): string {
       return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState, state.customerEfficiencyYear, state.customerEfficiencyGroupBy);
     case "/customer-analysis":
       return state.customerAnalysis
-        ? renderCustomerAnalysis(state.customerAnalysis, state.productABC, state.analysisTab)
+        ? renderCustomerAnalysis(state.customerAnalysis, state.productABC, state.analysisTab, state.analysisPeriod)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/demand-forecast":
       return renderDemandForecast(state.demandForecast);
@@ -5682,14 +5684,33 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // ── 取引先マップ (Leaflet) ──────────────────────────────
+  // ── ABC分析 期間セレクター ──────────────────────────────
+  root.querySelector<HTMLSelectElement>("#analysis-period-year")?.addEventListener("change", async (e) => {
+    const year = (e.target as HTMLSelectElement).value;
+    const month = root.querySelector<HTMLSelectElement>("#analysis-period-month")?.value ?? "";
+    state.analysisPeriod = year && month ? `${year}-${month}` : year;
+    state.customerAnalysis = null;
+    state.productABC = null;
+    await loadRouteData("/customer-analysis");
+    renderApp();
+  });
+  root.querySelector<HTMLSelectElement>("#analysis-period-month")?.addEventListener("change", async (e) => {
+    const month = (e.target as HTMLSelectElement).value;
+    const year = root.querySelector<HTMLSelectElement>("#analysis-period-year")?.value ?? "";
+    state.analysisPeriod = year && month ? `${year}-${month}` : year;
+    state.customerAnalysis = null;
+    state.productABC = null;
+    await loadRouteData("/customer-analysis");
+    renderApp();
+  });
+
+  // ── 取引先マップ (Google Maps) ──────────────────────────────
   if (root.querySelector("#customer-map")) {
-    // Leaflet は index.html で defer 読み込みなので、確実にロードされてから初期化
     const tryInit = () => {
-      if ((window as unknown as Record<string, unknown>)["L"]) {
+      if ((window as unknown as { google?: { maps?: unknown } }).google?.maps) {
         initCustomerMap(root);
       } else {
-        setTimeout(tryInit, 100);
+        setTimeout(tryInit, 200);
       }
     };
     tryInit();
