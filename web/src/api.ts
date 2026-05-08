@@ -1,4 +1,4 @@
-import { supabaseCount, supabaseInsert, supabaseQuery, supabaseQueryAll, supabaseRpc, supabaseUpdate, supabaseUpsert, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabase";
+import { supabaseCount, supabaseDelete, supabaseInsert, supabaseQuery, supabaseQueryAll, supabaseRpc, supabaseUpdate, supabaseUpsert, SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabase";
 import type { TourInquiry } from "./components/BreweryTour";
 export type { TourInquiry };
 
@@ -6666,4 +6666,82 @@ export async function unconfirmFeature(featureId: string): Promise<void> {
     confirmed_by: null,
     updated_at: new Date().toISOString(),
   }]);
+}
+
+// ── 人員マスタ ────────────────────────────────────────────────────────────────
+
+export type EmploymentType = 'employee' | 'part_time';
+export type StaffDepartment = 'soumu' | 'route_sales' | 'brewing' | 'bottling';
+
+export const DEPT_LABEL: Record<StaffDepartment, string> = {
+  soumu:       '総務',
+  route_sales: 'ルートセールス',
+  brewing:     '造り',
+  bottling:    '詰口・貼場',
+};
+
+export const DEPT_MONTHS: Record<StaffDepartment, number[] | null> = {
+  soumu:       null,   // 通年
+  route_sales: null,   // 通年
+  brewing:     [9,10,11,12,1,2,3,4],
+  bottling:    null,   // 通年（生産計画連動）
+};
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  kana: string;
+  employmentType: EmploymentType;
+  department: StaffDepartment;
+  hourlyRate: number | null;
+  monthlySalary: number | null;
+  workHoursPerDay: number;
+  workDaysPerMonth: number;
+  availableMonths: number[] | null;
+  notes: string;
+  isActive: boolean;
+}
+
+export async function fetchStaffMembers(): Promise<StaffMember[]> {
+  const rows = await supabaseQuery<LooseRow>('staff_members', {
+    order: 'department.asc,employment_type.asc,kana.asc',
+  });
+  return (rows ?? []).map(r => ({
+    id:               getString(r, ['id'], ''),
+    name:             getString(r, ['name'], ''),
+    kana:             getString(r, ['kana'], ''),
+    employmentType:   getString(r, ['employment_type'], 'part_time') as EmploymentType,
+    department:       getString(r, ['department'], 'bottling') as StaffDepartment,
+    hourlyRate:       r['hourly_rate'] != null ? Number(r['hourly_rate']) : null,
+    monthlySalary:    r['monthly_salary'] != null ? Number(r['monthly_salary']) : null,
+    workHoursPerDay:  getNumber(r, ['work_hours_per_day'], 8),
+    workDaysPerMonth: getNumber(r, ['work_days_per_month'], 22),
+    availableMonths:  Array.isArray(r['available_months']) ? (r['available_months'] as number[]) : null,
+    notes:            getString(r, ['notes'], ''),
+    isActive:         r['is_active'] !== false,
+  }));
+}
+
+export async function upsertStaffMember(data: Partial<StaffMember> & { name: string }): Promise<boolean> {
+  const payload: Record<string, unknown> = {
+    name:                data.name,
+    kana:                data.kana ?? null,
+    employment_type:     data.employmentType ?? 'part_time',
+    department:          data.department ?? 'bottling',
+    hourly_rate:         data.hourlyRate ?? null,
+    monthly_salary:      data.monthlySalary ?? null,
+    work_hours_per_day:  data.workHoursPerDay ?? 8,
+    work_days_per_month: data.workDaysPerMonth ?? 22,
+    available_months:    data.availableMonths ?? null,
+    notes:               data.notes ?? null,
+    is_active:           data.isActive ?? true,
+    updated_at:          new Date().toISOString(),
+  };
+  if (data.id) payload['id'] = data.id;
+  const result = await supabaseUpsert('staff_members', payload);
+  return !!result;
+}
+
+export async function deleteStaffMember(id: string): Promise<boolean> {
+  return supabaseDelete('staff_members', id);
 }

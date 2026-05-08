@@ -196,6 +196,8 @@ import { renderDemandPlanning, buildDefaultShifts, optimizeShifts, DEFAULT_PART_
 import { renderBrewingPlan } from "./components/BrewingPlan";
 import { renderProcurement } from "./components/Procurement";
 import { renderBrewingProcess } from "./components/BrewingProcess";
+import { renderWorkforce, renderStaffModal, type WorkforceTab } from "./components/Workforce";
+import { fetchStaffMembers, upsertStaffMember, deleteStaffMember, type StaffMember } from "./api";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { CHURN_REASONS } from "./api";
 const CHURN_REASONS_MAP: Record<string, string> = Object.fromEntries(CHURN_REASONS.map((r) => [r.value, r.label]));
@@ -272,6 +274,7 @@ type RoutePath =
   | "/brewing-plan"
   | "/procurement"
   | "/brewing-process"
+  | "/workforce"
   | "/changelog";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
@@ -348,6 +351,7 @@ const ALL_ROUTES: RoutePath[] = [
   "/brewing-plan",
   "/procurement",
   "/brewing-process",
+  "/workforce",
   "/changelog"
 ];
 
@@ -655,6 +659,10 @@ interface AppState {
   calendarLabelExcluded: Set<string>;
   calendarCapacity: CalendarCapacity;
   brewingSchedule: import("./api").BrewingScheduleRow[];
+  staffMembers: StaffMember[];
+  workforceTab: WorkforceTab;
+  staffDeptFilter: string;
+  workforceYearMonth: string;
   brewingProductDetail: import("./api").BrewingProductDetail[];
   brewingExcludedProducts: Set<string>;
   brewingCustomCategories: import("./api").BrewingCustomCategory[];
@@ -998,6 +1006,10 @@ const state: AppState = {
   calendarLabelExcluded: new Set<string>(),
   calendarCapacity: { partCapacity: DEFAULT_PART_CAPACITY, empCapacity: DEFAULT_EMP_CAPACITY } as CalendarCapacity,
   brewingSchedule: [] as import("./api").BrewingScheduleRow[],
+  staffMembers: [] as StaffMember[],
+  workforceTab: "staff" as WorkforceTab,
+  staffDeptFilter: "",
+  workforceYearMonth: new Date().toISOString().slice(0, 7),
   brewingProductDetail: [] as import("./api").BrewingProductDetail[],
   brewingExcludedProducts: new Set<string>(),
   brewingCustomCategories: [] as import("./api").BrewingCustomCategory[],
@@ -1751,6 +1763,22 @@ async function loadRouteData(route: RoutePath): Promise<void> {
         state.brewingCustomCategories = customCats;
         break;
       }
+      case "/workforce": {
+        if (state.staffMembers.length === 0) {
+          const [members, schedule] = await Promise.all([
+            fetchStaffMembers(),
+            state.brewingSchedule.length > 0
+              ? Promise.resolve(state.brewingSchedule)
+              : (async () => {
+                  const { fetchBrewingSchedule } = await import("./api");
+                  return fetchBrewingSchedule(state.brewingPlanFY).catch(() => []);
+                })()
+          ]);
+          state.staffMembers = members;
+          if (state.brewingSchedule.length === 0) state.brewingSchedule = schedule;
+        }
+        break;
+      }
       case "/jikomi":
         if (state.jikomiList.length === 0) {
           state.jikomiList = await fetchJikomiList();
@@ -2129,6 +2157,15 @@ function renderView(): string {
         tanks: state.bpTanks.map(t => ({ id: t.id, tankNo: t.tankNo, capacityL: t.capacityL, tankType: t.tankType, preferredCategories: t.preferredCategories, cleanupDays: t.cleanupDays }))
       });
     }
+    case "/workforce":
+      return renderWorkforce(
+        state.staffMembers,
+        state.workforceTab,
+        state.staffDeptFilter,
+        state.workforceYearMonth,
+        state.brewingSchedule,
+        0
+      );
     case "/jikomi":
       return state.jikomiView === "calendar"
         ? `${renderJikomi(state.jikomiList, state.jikomiView)}${renderJikomiCalendar(state.jikomiList)}`
@@ -2438,6 +2475,7 @@ function renderHome(): string {
         card("/brewing-plan", "🗓️", "醸造計画", "年間醸造スケジュール"),
         card("/procurement", "🌾", "調達計画", "原料米の調達・予算"),
         card("/brewing-process", "🍶", "醸造工程", "バッチ別の醸造工程管理"),
+        card("/workforce", "👥", "人員・シフト管理", "スタッフ管理・人件費"),
       ].join(""),
     },
     {
@@ -2507,6 +2545,7 @@ function renderSidebar(): string {
       { path: "/brewing-process", label: "醸造工程" },
       { path: "/tax",             label: "酒税申告" },
       { path: "/demand",          label: "需要・生産計画" },
+      { path: "/workforce",       label: "人員・シフト" },
     ]},
     { key: "master", icon: "🗂", label: "マスタ・帳票", items: [
       { path: "/master",    label: "マスタ管理" },
@@ -2773,6 +2812,63 @@ function collectEmailFormFromDom(root: HTMLElement): void {
   state.emailSubject =
     root.querySelector<HTMLInputElement>("#email-subject")?.value ?? state.emailSubject;
   state.emailBody = root.querySelector<HTMLTextAreaElement>("#email-body")?.value ?? state.emailBody;
+}
+
+function bindStaffModal(existing: StaffMember | null): void {
+  const form = document.getElementById("staff-form") as HTMLFormElement | null;
+  if (!form) return;
+
+  // 種別切替で時給/月給フィールドを表示切替
+  const empType = form.querySelector<HTMLSelectElement>("#sf-emp-type");
+  const hourlyRow = form.querySelector<HTMLElement>("#sf-hourly-row");
+  const salaryRow = form.querySelector<HTMLElement>("#sf-salary-row");
+  function toggleWage() {
+    const isEmp = empType?.value === "employee";
+    if (hourlyRow) hourlyRow.style.display = isEmp ? "none" : "";
+    if (salaryRow) salaryRow.style.display = isEmp ? "" : "none";
+  }
+  toggleWage();
+  empType?.addEventListener("change", toggleWage);
+
+  form.querySelector<HTMLButtonElement>("[data-action='close-staff-modal']")?.addEventListener("click", () => {
+    document.getElementById("staff-modal")?.remove();
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const result = form.querySelector<HTMLElement>("#staff-form-result");
+    const monthsStr = (form.querySelector<HTMLInputElement>("#sf-months")?.value ?? "").trim();
+    const availableMonths = monthsStr
+      ? monthsStr.split(",").map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= 12)
+      : null;
+
+    const data: Partial<StaffMember> & { name: string } = {
+      id:               form.querySelector<HTMLInputElement>("#sf-id")?.value || undefined,
+      name:             form.querySelector<HTMLInputElement>("#sf-name")?.value.trim() ?? "",
+      kana:             form.querySelector<HTMLInputElement>("#sf-kana")?.value.trim() || "",
+      employmentType:   (form.querySelector<HTMLSelectElement>("#sf-emp-type")?.value ?? "part_time") as "employee" | "part_time",
+      department:       (form.querySelector<HTMLSelectElement>("#sf-dept")?.value ?? "bottling") as import("./api").StaffDepartment,
+      hourlyRate:       parseFloat(form.querySelector<HTMLInputElement>("#sf-hourly")?.value ?? "") || null,
+      monthlySalary:    parseFloat(form.querySelector<HTMLInputElement>("#sf-salary")?.value ?? "") || null,
+      workHoursPerDay:  parseFloat(form.querySelector<HTMLInputElement>("#sf-hours")?.value ?? "8") || 8,
+      workDaysPerMonth: parseInt(form.querySelector<HTMLInputElement>("#sf-days")?.value ?? "22") || 22,
+      availableMonths,
+      notes:            form.querySelector<HTMLInputElement>("#sf-notes")?.value.trim() || "",
+      isActive:         form.querySelector<HTMLInputElement>("#sf-active")?.checked ?? true,
+    };
+
+    if (!data.name) { if (result) result.textContent = "氏名は必須です"; return; }
+
+    const ok = await upsertStaffMember(data);
+    if (ok) {
+      document.getElementById("staff-modal")?.remove();
+      state.staffMembers = await fetchStaffMembers();
+      showToast(existing ? "更新しました" : "登録しました", "success");
+      renderApp();
+    } else {
+      if (result) result.textContent = "保存に失敗しました";
+    }
+  });
 }
 
 function bindEvents(root: HTMLElement): void {
@@ -8204,6 +8300,78 @@ function bindEvents(root: HTMLElement): void {
       state.featureStatuses = await fetchFeatureStatuses();
       renderApp();
     });
+  });
+
+  // ── 人員管理 ──────────────────────────────────────────────────────────────
+
+  // タブ切替
+  root.querySelectorAll<HTMLButtonElement>("[data-workforce-tab]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.workforceTab = btn.dataset.workforceTab as WorkforceTab;
+      renderApp();
+    });
+  });
+
+  // 部門フィルタ
+  root.querySelectorAll<HTMLButtonElement>("[data-staff-dept-filter]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.staffDeptFilter = btn.dataset.staffDeptFilter ?? "";
+      renderApp();
+    });
+  });
+
+  // 人件費・シフト 年月切替
+  root.querySelector<HTMLSelectElement>("#cost-year-month")?.addEventListener("change", e => {
+    state.workforceYearMonth = (e.target as HTMLSelectElement).value;
+    renderApp();
+  });
+  root.querySelector<HTMLSelectElement>("#shift-year-month")?.addEventListener("change", e => {
+    state.workforceYearMonth = (e.target as HTMLSelectElement).value;
+    renderApp();
+  });
+
+  // スタッフ追加ボタン
+  root.querySelector<HTMLButtonElement>("[data-action='staff-new']")?.addEventListener("click", () => {
+    const modal = document.createElement("div");
+    modal.innerHTML = renderStaffModal();
+    document.body.appendChild(modal.firstElementChild!);
+    bindStaffModal(null);
+  });
+
+  // スタッフ編集ボタン
+  root.querySelectorAll<HTMLButtonElement>("[data-edit-staff]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.editStaff ?? "";
+      const s = state.staffMembers.find(m => m.id === id);
+      if (!s) return;
+      const modal = document.createElement("div");
+      modal.innerHTML = renderStaffModal(s);
+      document.body.appendChild(modal.firstElementChild!);
+      bindStaffModal(s);
+    });
+  });
+
+  // スタッフ削除ボタン
+  root.querySelectorAll<HTMLButtonElement>("[data-delete-staff]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.deleteStaff ?? "";
+      const name = btn.dataset.staffName ?? "";
+      if (!confirm(`${name} を削除しますか？`)) return;
+      const ok = await deleteStaffMember(id);
+      if (ok) {
+        state.staffMembers = state.staffMembers.filter(m => m.id !== id);
+        showToast("削除しました", "success");
+        renderApp();
+      } else {
+        showToast("削除に失敗しました", "error");
+      }
+    });
+  });
+
+  // 自動生成ボタン
+  root.querySelector<HTMLButtonElement>("[data-action='shift-auto-generate']")?.addEventListener("click", () => {
+    showToast("醸造計画に基づく人員配置を反映しました", "success");
+    renderApp();
   });
 }
 

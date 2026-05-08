@@ -596,11 +596,25 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
       <div style="display:flex;gap:12px;flex-wrap:wrap;padding:4px 0 8px;">${summaryCards}</div>
     </section>
 
+    ${shifts.length > 0 ? (() => {
+      const workDays = shifts.filter(s => s.partTimers > 0 || s.employees > 0);
+      const workDates = workDays.map(s => {
+        const d = parseInt(s.date.slice(8));
+        const dow = ["日","月","火","水","木","金","土"][new Date(s.date).getDay()];
+        return `<span style="font-size:10px;padding:2px 5px;border-radius:3px;background:#dbeafe;color:#1e40af;margin:1px;display:inline-block;">${d}(${dow})</span>`;
+      }).join("");
+      return `<div style="background:var(--surface-alt);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;">
+        <div style="margin-bottom:4px;"><strong>${yearMonth.replace("-", "年")}月 稼働日: ${workDays.length}日</strong>
+          <span style="color:var(--text-secondary);margin-left:8px;">翌月: ${nextYM.replace("-", "年")}月</span></div>
+        <div style="line-height:1.8;">${workDates}</div>
+      </div>`;
+    })() : ""}
+
     <section class="panel">
       <div class="panel-header">
         <div>
           <h2>生産計画 — ${yearMonth.replace("-", "年")}月</h2>
-          <p class="panel-caption">必要生産数 = 需要予測 + 安全在庫目標 − 期首在庫</p>
+          <p class="panel-caption">製造予定は稼働日（カレンダー）と連動 ・ <span style="background:#dbeafe;color:#1e40af;padding:1px 4px;border-radius:2px;font-size:10px;">当月</span> <span style="background:#fef3c7;color:#92400e;padding:1px 4px;border-radius:2px;font-size:10px;">翌月</span></p>
         </div>
         <div style="display:flex;gap:8px;">
           <button class="button secondary" type="button" data-action="plan-print">印刷</button>
