@@ -1498,8 +1498,10 @@ function buildPlanFromAnalysis(ym: string): import("./api").ProductionPlanRow[] 
 }
 
 async function loadRouteData(route: RoutePath, background = false): Promise<void> {
-  state.actionLoading = true;
-  renderApp();
+  if (!background) {
+    state.actionLoading = true;
+    renderApp();
+  }
   try {
     switch (route) {
       case "/quote":
@@ -1991,8 +1993,10 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
     console.error("Route data load error:", route, err);
     showToast(`データ読み込みエラー: ${(err as Error).message ?? "不明"}`, "error");
   } finally {
-    state.actionLoading = false;
-    renderApp();
+    if (!background) {
+      state.actionLoading = false;
+      renderApp();
+    }
   }
 }
 
