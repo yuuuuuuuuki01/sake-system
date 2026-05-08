@@ -1884,10 +1884,26 @@ function skipSunday(d: Date): Date {
 }
 
 // 工程の標準日数（営業日ベース）
+// 蒸米は麹用・酒母用・添/仲/留それぞれで必要
 const BREW_STEPS = [
-  { name: "洗米・浸漬", days: 1 }, { name: "蒸米", days: 1 }, { name: "製麹", days: 2 },
-  { name: "酒母", days: 14 }, { name: "仕込み(添/仲/留)", days: 4 }, { name: "醪管理", days: 25 },
-  { name: "上槽", days: 2 }, { name: "濾過・火入れ", days: 1 }, { name: "貯蔵", days: 30 }, { name: "瓶詰め", days: 1 }
+  { name: "洗米・浸漬（麹米）", days: 1 },
+  { name: "蒸米（麹米）", days: 1 },
+  { name: "製麹", days: 2 },
+  { name: "洗米・浸漬（酒母）", days: 1 },
+  { name: "蒸米→酒母仕込", days: 1 },
+  { name: "酒母育成", days: 14 },
+  { name: "洗米（添）", days: 1 },
+  { name: "蒸米→添仕込", days: 1 },
+  { name: "踊り", days: 1 },
+  { name: "洗米（仲）", days: 1 },
+  { name: "蒸米→仲仕込", days: 1 },
+  { name: "洗米（留）", days: 1 },
+  { name: "蒸米→留仕込", days: 1 },
+  { name: "醪管理", days: 25 },
+  { name: "上槽", days: 2 },
+  { name: "濾過・火入れ", days: 1 },
+  { name: "貯蔵", days: 30 },
+  { name: "瓶詰め", days: 1 },
 ];
 
 // 麹室制約（180kg）を考慮して製麹が重ならない開始日を自動算出
@@ -2001,7 +2017,7 @@ export async function deleteTank(id: string): Promise<boolean> {
 
 // タンク占有期間: 仕込み(step5)〜上槽(step7)+洗浄日数
 export function getTankOccupancy(steps: BrewingProcessStepRow[], cleanupDays: number): { start: string; end: string } | null {
-  const moromi = steps.find(s => s.stepName === "仕込み(添/仲/留)");
+  const moromi = steps.find(s => s.stepName === "蒸米→添仕込");
   const joso = steps.find(s => s.stepName === "上槽");
   if (!moromi?.plannedStart || !joso?.plannedEnd) return null;
   const end = new Date(joso.plannedEnd);
@@ -2150,7 +2166,7 @@ export async function autoScheduleAllBatches(
       // 制約3: タンク空き
       let assignedTank = "";
       if (availTanks.length > 0) {
-        const myMoromi = candidateSteps.find(s => s.stepName === "仕込み(添/仲/留)");
+        const myMoromi = candidateSteps.find(s => s.stepName === "蒸米→添仕込");
         const myJoso = candidateSteps.find(s => s.stepName === "上槽");
         if (myMoromi && myJoso) {
           // この仕込のタンク占有期間
@@ -2170,7 +2186,7 @@ export async function autoScheduleAllBatches(
               if (pid === batch.id) continue;
               const pb = batches.find(b => b.id === pid);
               if (pb?.tankNo !== tank.tankNo) continue;
-              const pM = pSteps.find(s => s.stepName === "仕込み(添/仲/留)");
+              const pM = pSteps.find(s => s.stepName === "蒸米→添仕込");
               const pJ = pSteps.find(s => s.stepName === "上槽");
               if (pM && pJ) {
                 const pEnd = addD(pJ.end, tank.cleanupDays);
@@ -2194,7 +2210,7 @@ export async function autoScheduleAllBatches(
     // 締切チェック: 仕込み(step5)が締切内に収まっているか
     const placedSteps = placed.get(batch.id);
     if (deadline && placedSteps) {
-      const moromi = placedSteps.find(s => s.stepName === "仕込み(添/仲/留)");
+      const moromi = placedSteps.find(s => s.stepName === "蒸米→添仕込");
       if (moromi && moromi.end <= deadline) break;
       if (!useSunday) { placed.delete(batch.id); continue; }
     } else {
@@ -2209,7 +2225,7 @@ export async function autoScheduleAllBatches(
     const assignedTankNo = (() => {
       // 最後に確定したタンク割当を取得
       if (availTanks.length === 0) return batch.tankNo;
-      const myM = finalSteps.find(s => s.stepName === "仕込み(添/仲/留)");
+      const myM = finalSteps.find(s => s.stepName === "蒸米→添仕込");
       const myJ = finalSteps.find(s => s.stepName === "上槽");
       if (!myM || !myJ) return batch.tankNo;
       const tStart = myM.start;
@@ -2222,7 +2238,7 @@ export async function autoScheduleAllBatches(
           if (pid === batch.id) continue;
           const pb = batches.find(b => b.id === pid);
           if (pb?.tankNo !== tank.tankNo) continue;
-          const pM = pSteps.find(s => s.stepName === "仕込み(添/仲/留)");
+          const pM = pSteps.find(s => s.stepName === "蒸米→添仕込");
           const pJ = pSteps.find(s => s.stepName === "上槽");
           if (pM && pJ && overlap(tStart, tEnd, pM.start, addD(pJ.end, tank.cleanupDays))) { busy = true; break; }
         }

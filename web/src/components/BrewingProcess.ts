@@ -31,7 +31,14 @@ function catColor(cat: string): string { return CATEGORY_COLORS[cat] ?? "#6366f1
 function daysBetween(a: string, b: string): number { return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000); }
 function addDays(base: string, days: number): string { const d = new Date(base); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); }
 function fmtMD(d: string): string { if (!d) return "―"; return d.slice(5).replace("-", "/"); }
-function abbrev(name: string): string { return name.length <= 3 ? name : name.slice(0, 3); }
+function abbrev(name: string): string {
+  // 短い名前はそのまま、長い名前は括弧の中身を使って短縮
+  if (name.length <= 4) return name;
+  const m = name.match(/[（(](.+?)[）)]/);
+  if (m) return m[1].slice(0, 3);
+  if (name.includes("→")) return name.split("→")[1]?.slice(0, 3) ?? name.slice(0, 3);
+  return name.slice(0, 3);
+}
 
 // ─── 1. Main Gantt Chart ─────────────────────────────────────────────────────
 
@@ -324,7 +331,7 @@ function renderTankSection(tanks: TankView[], batches: BrewingBatch[], stepsByBa
   for (const b of batches) {
     if (!b.tankNo || b.status === "completed") continue;
     const steps = stepsByBatch[b.id] ?? [];
-    const moromi = steps.find(s => s.stepName === "仕込み(添/仲/留)");
+    const moromi = steps.find(s => s.stepName === "蒸米→添仕込");
     const joso = steps.find(s => s.stepName === "上槽");
     if (moromi?.plannedStart && joso?.plannedEnd) {
       if (!tankOccupancy.has(b.tankNo)) tankOccupancy.set(b.tankNo, []);
