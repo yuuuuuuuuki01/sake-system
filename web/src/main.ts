@@ -2743,6 +2743,7 @@ function renderShell(): string {
         <div class="app-header-left">${leftHtml}</div>
         <div class="app-header-right">
           <button class="button secondary small" type="button" data-action="global-search-open">検索 <kbd>Ctrl+K</kbd></button>
+          <button class="button secondary small" type="button" data-action="hard-refresh" title="再読み込み" style="font-size:14px;padding:4px 8px;">↺</button>
           <button class="button secondary small" type="button" data-action="share-page" title="このページのURLを共有">🔗</button>
           ${userHtml}
         </div>
@@ -3086,6 +3087,11 @@ function bindEvents(root: HTMLElement): void {
 
   // アプデ通知のリロードボタン
   root.querySelector<HTMLButtonElement>("[data-action='reload-app']")?.addEventListener("click", () => {
+    location.reload();
+  });
+
+  // ヘッダー ハードリフレッシュボタン
+  root.querySelector<HTMLButtonElement>("[data-action='hard-refresh']")?.addEventListener("click", () => {
     location.reload();
   });
 
