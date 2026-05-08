@@ -588,6 +588,8 @@ interface AppState {
   quoteList: QuoteListItem[];
   quoteListLoading: boolean;
   quoteEditId: string | null;
+  quoteCustomerFilter: string;
+  quoteCustomerFilterName: string;
   quoteCompanySettings: QuoteCompanySettings;
   productPower: ProductPower[];
   productFilter: ProductViewFilter;
@@ -924,6 +926,8 @@ const state: AppState = {
   quoteList: [] as QuoteListItem[],
   quoteListLoading: false,
   quoteEditId: null as string | null,
+  quoteCustomerFilter: "",
+  quoteCustomerFilterName: "",
   quoteCompanySettings: loadQuoteSettings(),
   productPower: [],
   productFilter: "all" as ProductViewFilter,
@@ -1438,6 +1442,8 @@ function navigate(path: RoutePath): void {
   state.sidebarOpen = false;
   // /customer-analysis へのダイレクトナビは得意先タブにリセット
   if (path === "/customer-analysis") state.analysisTab = "customer";
+  // /quote 以外へ遷移した場合は取引先フィルタをリセット
+  if (path !== "/quote") { state.quoteCustomerFilter = ""; state.quoteCustomerFilterName = ""; }
   closeGlobalSearch();
   void loadRouteData(path);
 }
@@ -1991,7 +1997,7 @@ function renderView(): string {
       );
     case "/quote":
       if (state.quoteEditId === null) {
-        return renderQuoteList(state.quoteList, state.quoteListLoading);
+        return renderQuoteList(state.quoteList, state.quoteListLoading, state.quoteCustomerFilter, state.quoteCustomerFilterName);
       }
       return renderQuoteBuilder(
         state.quoteState,
@@ -3036,7 +3042,34 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 得意先の見積履歴を表示するボタン（マスタ画面）
+  root.querySelectorAll<HTMLButtonElement>("[data-view-customer-quotes]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const code = btn.dataset.viewCustomerQuotes ?? "";
+      const name = btn.dataset.customerName ?? "";
+      state.quoteCustomerFilter = code;
+      state.quoteCustomerFilterName = name;
+      state.quoteEditId = null;
+      if (state.quoteList.length === 0) {
+        state.quoteListLoading = true;
+        navigate("/quote");
+        state.quoteList = await fetchQuoteList();
+        state.quoteListLoading = false;
+      } else {
+        navigate("/quote");
+      }
+      renderApp();
+    });
+  });
+
   // ── 見積 ──────────────────────────────────────────────────────────────────
+
+  // 得意先フィルタ解除
+  root.querySelector<HTMLButtonElement>("[data-action='quote-clear-filter']")?.addEventListener("click", () => {
+    state.quoteCustomerFilter = "";
+    state.quoteCustomerFilterName = "";
+    renderApp();
+  });
 
   // 新規作成ボタン（一覧画面）
   root.querySelector<HTMLButtonElement>("[data-action='quote-new']")?.addEventListener("click", () => {

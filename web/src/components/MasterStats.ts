@@ -299,7 +299,10 @@ function renderCustomerRows(customers: MasterCustomer[]): string {
           <td>${customer.customerGroup1 || ""}</td>
           <td>${customer.customerGroup2 || ""}</td>
           <td><span class="status-pill ${customer.isActive ? "success" : "neutral"}">${customer.isActive ? "有効" : "停止"}</span></td>
-          <td><button class="button secondary small" data-edit-customer="${customer.id}">編集</button></td>
+          <td style="white-space:nowrap;">
+            <button class="button secondary small" data-edit-customer="${customer.id}">編集</button>
+            <button class="button secondary small" data-view-customer-quotes="${customer.code}" data-customer-name="${customer.name}" style="margin-left:4px;">見積</button>
+          </td>
         </tr>
       `
     )

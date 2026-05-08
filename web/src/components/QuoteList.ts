@@ -12,12 +12,22 @@ const STATUS_LABEL: Record<string, string> = { draft: "下書き", sent: "送付
 const STATUS_CLASS: Record<string, string> = { draft: "badge-gray", sent: "badge-blue", accepted: "badge-green", rejected: "badge-red" };
 const TPL_LABEL: Record<string, string> = { sake: "酒販用", standard: "通常" };
 
-export function renderQuoteList(quotes: QuoteListItem[], loading: boolean): string {
+export function renderQuoteList(
+  quotes: QuoteListItem[],
+  loading: boolean,
+  customerFilter: string = "",
+  customerFilterName: string = ""
+): string {
+  const filtered = customerFilter
+    ? quotes.filter(q => q.legacy_customer_code === customerFilter)
+    : quotes;
+
+  const colSpan = 8;
   const rows = loading
-    ? `<tr><td colspan="8" class="empty-row">読み込み中…</td></tr>`
-    : quotes.length === 0
-    ? `<tr><td colspan="8" class="empty-row">見積書がありません</td></tr>`
-    : quotes.map(q => `
+    ? `<tr><td colspan="${colSpan}" class="empty-row">読み込み中…</td></tr>`
+    : filtered.length === 0
+    ? `<tr><td colspan="${colSpan}" class="empty-row">見積書がありません</td></tr>`
+    : filtered.map(q => `
       <tr>
         <td class="mono">${q.quote_no}</td>
         <td>${fmtDate(q.quote_date)}</td>
@@ -33,6 +43,13 @@ export function renderQuoteList(quotes: QuoteListItem[], loading: boolean): stri
       </tr>
     `).join("");
 
+  const filterBanner = customerFilter
+    ? `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--primary-bg,#eff6ff);border-radius:6px;margin-bottom:12px;border:1px solid var(--primary,#3b82f6);">
+        <span style="font-size:13px;color:var(--primary,#3b82f6);font-weight:600;">🔍 ${customerFilterName || customerFilter} の見積のみ表示中</span>
+        <button class="button secondary small" data-action="quote-clear-filter" style="margin-left:auto;">全件表示に戻す</button>
+      </div>`
+    : "";
+
   return `
     <section class="page-head">
       <div><p class="eyebrow">見積書</p><h1>見積一覧</h1></div>
@@ -43,6 +60,7 @@ export function renderQuoteList(quotes: QuoteListItem[], loading: boolean): stri
     </section>
 
     <section class="panel">
+      ${filterBanner}
       <div class="table-wrap">
         <table>
           <thead>

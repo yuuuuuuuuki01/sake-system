@@ -6558,6 +6558,7 @@ export interface QuoteListItem {
   quote_no: string;
   quote_date: string;
   valid_until: string | null;
+  legacy_customer_code: string | null;
   customer_name: string;
   subject: string;
   total_amount: number;
@@ -6583,7 +6584,7 @@ export interface QuoteLineRecord {
 
 export async function fetchQuoteList(): Promise<QuoteListItem[]> {
   return supabaseQuery<QuoteListItem>("quotes", {
-    select: "id,quote_no,quote_date,valid_until,customer_name,subject,total_amount,template_type,status,created_at",
+    select: "id,quote_no,quote_date,valid_until,legacy_customer_code,customer_name,subject,total_amount,template_type,status,created_at",
     order: "quote_date.desc,created_at.desc",
     limit: "200"
   });
