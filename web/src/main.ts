@@ -1442,6 +1442,31 @@ function navigate(path: RoutePath): void {
   void loadRouteData(path);
 }
 
+// 需要実績から生産計画を自動生成するヘルパー
+function buildPlanFromAnalysis(ym: string): import("./api").ProductionPlanRow[] {
+  const analysis = state.demandAnalysis;
+  const ssParams = state.safetyStockParams;
+  if (!analysis || ssParams.length === 0) return [];
+  const [yStr, mStr] = ym.split("-");
+  const lastYearMonth = `${parseInt(yStr) - 1}-${mStr}`;
+  const recentMonths = analysis.months.filter((m) => m < ym).slice(-3);
+  return ssParams.map((p) => {
+    const isMTO = (p as any).productionType === "make_to_order";
+    const lastYearQty = analysis.matrix[p.productCode]?.[lastYearMonth] ?? 0;
+    const recentQtys = recentMonths.map((m) => analysis.matrix[p.productCode]?.[m] ?? 0);
+    const recentAvg = recentQtys.length > 0 ? recentQtys.reduce((s, v) => s + v, 0) / recentQtys.length : p.avgMonthlyDemand;
+    const forecast = isMTO ? 0 : lastYearQty > 0 ? Math.ceil(lastYearQty) : Math.ceil(recentAvg);
+    const ss = isMTO ? 0 : Math.ceil(p.safetyStockQty);
+    const required = Math.max(0, forecast + ss);
+    return {
+      id: "", yearMonth: ym, productCode: p.productCode, productName: p.productName,
+      demandForecast: forecast, safetyStockTarget: ss, openingStock: 0,
+      requiredProduction: required, plannedQty: isMTO ? 0 : required, actualQty: 0,
+      status: "draft" as const, productionType: (p as any).productionType ?? "monthly", notes: ""
+    };
+  });
+}
+
 async function loadRouteData(route: RoutePath): Promise<void> {
   state.actionLoading = true;
   renderApp();
@@ -3834,51 +3859,7 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // Demand planning: 需要実績から生産計画を自動生成するヘルパー
-  function buildPlanFromAnalysis(ym: string): import("./api").ProductionPlanRow[] {
-    const analysis = state.demandAnalysis;
-    const ssParams = state.safetyStockParams;
-    if (!analysis || ssParams.length === 0) return [];
-
-    // 昨対ベース: 前年同月を第一優先、なければ直近3ヶ月平均にフォールバック
-    const [yStr, mStr] = ym.split("-");
-    const lastYearMonth = `${parseInt(yStr) - 1}-${mStr}`;
-    const recentMonths = analysis.months.filter((m) => m < ym).slice(-3);
-
-    return ssParams.map((p) => {
-        const isMTO = (p as any).productionType === "make_to_order";
-
-        // 前年同月の実績
-        const lastYearQty = analysis.matrix[p.productCode]?.[lastYearMonth] ?? 0;
-        // 直近3ヶ月平均（フォールバック用）
-        const recentQtys = recentMonths.map((m) => analysis.matrix[p.productCode]?.[m] ?? 0);
-        const recentAvg = recentQtys.length > 0
-          ? recentQtys.reduce((s, v) => s + v, 0) / recentQtys.length
-          : p.avgMonthlyDemand;
-
-        const forecast = isMTO ? 0
-          : lastYearQty > 0 ? Math.ceil(lastYearQty)
-          : Math.ceil(recentAvg);
-
-        const ss = isMTO ? 0 : Math.ceil(p.safetyStockQty);
-        const required = Math.max(0, forecast + ss);
-        return {
-          id: "",
-          yearMonth: ym,
-          productCode: p.productCode,
-          productName: p.productName,
-          demandForecast: forecast,
-          safetyStockTarget: ss,
-          openingStock: 0,
-          requiredProduction: required,
-          plannedQty: isMTO ? 0 : required,
-          actualQty: 0,
-          status: "draft" as const,
-          productionType: (p as any).productionType ?? "monthly",
-          notes: ""
-        };
-      });
-  }
+  // buildPlanFromAnalysis はモジュールレベルに移動済み
 
   // Demand planning: 対象期間（年数）変更 → 分析データを再取得
   root.querySelector<HTMLSelectElement>("[data-action='demand-years-back']")?.addEventListener("change", async (e) => {
