@@ -445,7 +445,13 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
             data-action="plan-qty" data-code="${row.productCode}"
             style="width:80px;text-align:right;" />
         </td>
-        <td class="numeric">${row.actualQty > 0 ? fmtQty(row.actualQty) : "—"}</td>
+        <td class="numeric">
+          <input class="input-sm" type="number" min="0"
+            value="${row.actualQty || ""}"
+            data-action="plan-actual-qty" data-code="${row.productCode}"
+            placeholder="0"
+            style="width:70px;text-align:right;" />
+        </td>
         <td class="numeric ${varClass}">
           ${variance !== null ? `${variance >= 0 ? "+" : ""}${variance.toFixed(1)}%` : "—"}
         </td>
@@ -569,6 +575,7 @@ function renderPlanTab(plan: ProductionPlanRow[], yearMonth: string, typeFilter:
           <p class="panel-caption">必要生産数 = 需要予測 + 安全在庫目標 − 期首在庫</p>
         </div>
         <div style="display:flex;gap:8px;">
+          <button class="button secondary" type="button" data-action="plan-print">印刷</button>
           <button class="button secondary" type="button" data-action="plan-csv-export">CSV出力</button>
           <button class="button primary" type="button" data-action="plan-save">計画を保存</button>
         </div>

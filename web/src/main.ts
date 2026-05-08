@@ -4095,18 +4095,53 @@ function bindEvents(root: HTMLElement): void {
   // Demand planning: 計画を保存ボタン（全行一括）
   root.querySelector<HTMLButtonElement>("[data-action='plan-save']")?.addEventListener("click", async () => {
     if (state.productionPlan.length === 0) return;
-    // 画面上の入力値を state に反映してから保存
+    // 画面上の計画数・実績数を state に反映してから保存
     root.querySelectorAll<HTMLInputElement>("[data-action='plan-qty']").forEach((input) => {
       const code = input.dataset.code ?? "";
       const row = state.productionPlan.find((r) => r.productCode === code);
       if (row) row.plannedQty = parseFloat(input.value) || 0;
     });
+    root.querySelectorAll<HTMLInputElement>("[data-action='plan-actual-qty']").forEach((input) => {
+      const code = input.dataset.code ?? "";
+      const row = state.productionPlan.find((r) => r.productCode === code);
+      if (row) {
+        row.actualQty = parseFloat(input.value) || 0;
+        if (row.actualQty > 0) row.status = "actual";
+      }
+    });
     const { saveProductionPlan } = await import("./api");
     await Promise.all(state.productionPlan.map((r) => saveProductionPlan(r)));
-    // 保存後 state.productionPlan の id を DB から再取得して同期
     const { fetchProductionPlan } = await import("./api");
     state.productionPlan = await fetchProductionPlan(state.demandPlanYearMonth);
+    showToast("保存しました");
     renderApp();
+  });
+
+  // Demand planning: 印刷（生産計画+カレンダー）
+  root.querySelector<HTMLButtonElement>("[data-action='plan-print']")?.addEventListener("click", () => {
+    const planPanel = root.querySelector<HTMLElement>("[data-action='plan-save']")?.closest("section.panel");
+    const calPanel = root.querySelector<HTMLElement>("[data-action='cal-toggle-day']")?.closest("section.panel");
+    const content = (planPanel?.outerHTML ?? "") + (calPanel?.outerHTML ?? "");
+    const ym = state.demandPlanYearMonth.replace("-", "年") + "月";
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">
+      <title>生産計画 ${ym}</title>
+      <style>
+        body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:11px; padding:10mm; color:#1a1a2e; }
+        table { width:100%; border-collapse:collapse; font-size:10px; }
+        th, td { border:1px solid #ccc; padding:3px 6px; }
+        th { background:#f0f0f0; }
+        .numeric { text-align:right; }
+        .input-sm, select, input { border:none; background:none; font-size:inherit; }
+        button, .button, .status-pill { display:none; }
+        .panel { break-inside:avoid; margin-bottom:16px; }
+        .panel-header h2 { font-size:14px; }
+        @media print { body { padding:5mm; } }
+      </style>
+    </head><body><h1 style="font-size:16px;margin-bottom:12px;">生産計画 — ${ym}</h1>${content}</body></html>`);
+    w.document.close();
+    setTimeout(() => { w.print(); }, 300);
   });
 
   // Production calendar: 日タップで稼働ON/OFF切替 → 人数自動最適化
@@ -4116,9 +4151,12 @@ function bindEvents(root: HTMLElement): void {
       const shift = state.calendarShifts.find(s => s.date === date);
       if (!shift) return;
 
-      if (shift.confirmed) {
+      if (state.calendarSelectedDate === date) {
+        // 既に選択中 → 選択解除のみ
+        state.calendarSelectedDate = null;
+      } else if (shift.confirmed) {
         // 確定済みなら詳細表示のみ
-        state.calendarSelectedDate = state.calendarSelectedDate === date ? null : date;
+        state.calendarSelectedDate = date;
       } else if (shift.partTimers > 0 || shift.employees > 0) {
         // 稼働日 → 休日にする
         shift.partTimers = 0;
