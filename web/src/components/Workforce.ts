@@ -453,7 +453,7 @@ function renderShiftTab(
       <label style="font-weight:600;">対象月</label>
       <select id="shift-year-month" class="form-input" style="width:160px;">${monthOptions}</select>
       <button class="button secondary small" data-action="shift-auto-generate" style="margin-left:auto;">
-        ⚡ 醸造計画から自動生成
+        ⚡ 自動生成
       </button>
     </div>
 
