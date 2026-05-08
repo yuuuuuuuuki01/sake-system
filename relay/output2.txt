@@ -1,0 +1,13 @@
+SKIDO: rec=447, slots=115900
+SKSYO商品マスタ: 584 件
+SHSYO商品マスタ: 318 件
+
+=== SKIDO スキャン中 ===
+Traceback (most recent call last):
+  File "C:\sake-system\sake-system\relay\skido_decoder.py", line 310, in <module>
+    info = extract_record(si, sig_pos, mk_pos, ry, mo, bytes(rec))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\sake-system\sake-system\relay\skido_decoder.py", line 238, in extract_record
+    p = products_sh.get(norm, {})
+                        ^^^^
+UnboundLocalError: cannot access local variable 'norm' where it is not associated with a value

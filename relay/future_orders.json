@@ -1,0 +1,842 @@
+[
+  {
+    "slot": 4012,
+    "delivery_date": "2026-04",
+    "cust_ref": 15445,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 124,
+    "unit_price": -129.0,
+    "total": 15996.0
+  },
+  {
+    "slot": 5084,
+    "delivery_date": "2026-05",
+    "cust_ref": 7264,
+    "product_code": "400",
+    "product_name": "割水",
+    "qty": 3,
+    "unit_price": 54.0,
+    "total": 162.0
+  },
+  {
+    "slot": 6385,
+    "delivery_date": "2026-06",
+    "cust_ref": 23650,
+    "product_code": "220",
+    "product_name": "蔵内戻",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 8823,
+    "delivery_date": "2026-08",
+    "cust_ref": 19543,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 36,
+    "unit_price": -359.0,
+    "total": 12924.0
+  },
+  {
+    "slot": 9881,
+    "delivery_date": "2026-09",
+    "cust_ref": 3155,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 117,
+    "unit_price": 354.0,
+    "total": 41418.0
+  },
+  {
+    "slot": 11118,
+    "delivery_date": "2026-10",
+    "cust_ref": 3155,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 132,
+    "unit_price": 244.0,
+    "total": 32208.0
+  },
+  {
+    "slot": 12222,
+    "delivery_date": "2026-11",
+    "cust_ref": 27733,
+    "product_code": "120",
+    "product_name": "ろ過�",
+    "qty": 38,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 1973,
+    "delivery_date": "2027-02",
+    "cust_ref": 7252,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 131,
+    "unit_price": 533.0,
+    "total": 69823.0
+  },
+  {
+    "slot": 6413,
+    "delivery_date": "2027-06",
+    "cust_ref": 11363,
+    "product_code": "220",
+    "product_name": "蔵内戻",
+    "qty": 38,
+    "unit_price": 233.72,
+    "total": 8881.0
+  },
+  {
+    "slot": 7714,
+    "delivery_date": "2027-07",
+    "cust_ref": 15459,
+    "product_code": "161",
+    "product_name": "蔵内受入",
+    "qty": 117,
+    "unit_price": 359.0,
+    "total": 42003.0
+  },
+  {
+    "slot": 8850,
+    "delivery_date": "2027-08",
+    "cust_ref": 7256,
+    "product_code": "160",
+    "product_name": "売場払出",
+    "qty": 131,
+    "unit_price": -177.0,
+    "total": 23187.0
+  },
+  {
+    "slot": 12231,
+    "delivery_date": "2027-11",
+    "cust_ref": 15446,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 13336,
+    "delivery_date": "2027-12",
+    "cust_ref": 31830,
+    "product_code": "410",
+    "product_name": "詰口",
+    "qty": 117,
+    "unit_price": -639.18,
+    "total": 74784.0
+  },
+  {
+    "slot": 1002,
+    "delivery_date": "2028-01",
+    "cust_ref": 15443,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 2,
+    "unit_price": 43.2,
+    "total": 86.0
+  },
+  {
+    "slot": 1978,
+    "delivery_date": "2028-02",
+    "cust_ref": 31828,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 2,
+    "unit_price": 51.6,
+    "total": 103.0
+  },
+  {
+    "slot": 5093,
+    "delivery_date": "2028-05",
+    "cust_ref": 35936,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 38,
+    "unit_price": -263.0,
+    "total": 9994.0
+  },
+  {
+    "slot": 7718,
+    "delivery_date": "2028-07",
+    "cust_ref": 0,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 13340,
+    "delivery_date": "2028-12",
+    "cust_ref": 15447,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 0,
+    "unit_price": 10.2,
+    "total": 0.0
+  },
+  {
+    "slot": 1011,
+    "delivery_date": "2029-01",
+    "cust_ref": 3156,
+    "product_code": "161",
+    "product_name": "蔵内受入",
+    "qty": 4,
+    "unit_price": 72.0,
+    "total": 288.0
+  },
+  {
+    "slot": 2001,
+    "delivery_date": "2029-02",
+    "cust_ref": 19541,
+    "product_code": "161",
+    "product_name": "蔵内受入",
+    "qty": 4,
+    "unit_price": 65.6,
+    "total": 262.0
+  },
+  {
+    "slot": 3004,
+    "delivery_date": "2029-03",
+    "cust_ref": 7253,
+    "product_code": "410",
+    "product_name": "詰口",
+    "qty": 0,
+    "unit_price": -79.92,
+    "total": 0.0
+  },
+  {
+    "slot": 6449,
+    "delivery_date": "2029-06",
+    "cust_ref": 3172,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 7723,
+    "delivery_date": "2029-07",
+    "cust_ref": 23652,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 61,
+    "unit_price": -887.0,
+    "total": 54107.0
+  },
+  {
+    "slot": 8859,
+    "delivery_date": "2029-08",
+    "cust_ref": 31832,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 9886,
+    "delivery_date": "2029-09",
+    "cust_ref": 3156,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 117,
+    "unit_price": 154.0,
+    "total": 18018.0
+  },
+  {
+    "slot": 11123,
+    "delivery_date": "2029-10",
+    "cust_ref": 27731,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 61,
+    "unit_price": 163.0,
+    "total": 9943.0
+  },
+  {
+    "slot": 12236,
+    "delivery_date": "2029-11",
+    "cust_ref": 3159,
+    "product_code": "410",
+    "product_name": "詰口",
+    "qty": 131,
+    "unit_price": -472.02,
+    "total": 61835.0
+  },
+  {
+    "slot": 13349,
+    "delivery_date": "2029-12",
+    "cust_ref": 7256,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 2005,
+    "delivery_date": "2030-02",
+    "cust_ref": 3158,
+    "product_code": "160",
+    "product_name": "売場払出",
+    "qty": 131,
+    "unit_price": -533.0,
+    "total": 69823.0
+  },
+  {
+    "slot": 4021,
+    "delivery_date": "2030-04",
+    "cust_ref": 3158,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 0,
+    "unit_price": -19.44,
+    "total": 0.0
+  },
+  {
+    "slot": 5098,
+    "delivery_date": "2030-05",
+    "cust_ref": 19553,
+    "product_code": "400",
+    "product_name": "割水",
+    "qty": 117,
+    "unit_price": 40.0,
+    "total": 4680.0
+  },
+  {
+    "slot": 7728,
+    "delivery_date": "2030-07",
+    "cust_ref": 7269,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 117,
+    "unit_price": 160.0,
+    "total": 18720.0
+  },
+  {
+    "slot": 9899,
+    "delivery_date": "2030-09",
+    "cust_ref": 31828,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 11127,
+    "delivery_date": "2030-10",
+    "cust_ref": 11348,
+    "product_code": "100",
+    "product_name": "製成",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 12245,
+    "delivery_date": "2030-11",
+    "cust_ref": 27735,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 0,
+    "unit_price": 16.0,
+    "total": 0.0
+  },
+  {
+    "slot": 2010,
+    "delivery_date": "2031-02",
+    "cust_ref": 27734,
+    "product_code": "161",
+    "product_name": "蔵内受入",
+    "qty": 117,
+    "unit_price": 491.0,
+    "total": 57447.0
+  },
+  {
+    "slot": 5107,
+    "delivery_date": "2031-05",
+    "cust_ref": 7266,
+    "product_code": "410",
+    "product_name": "詰口",
+    "qty": 117,
+    "unit_price": -298.98,
+    "total": 34981.0
+  },
+  {
+    "slot": 6495,
+    "delivery_date": "2031-06",
+    "cust_ref": 11365,
+    "product_code": "410",
+    "product_name": "詰口",
+    "qty": 61,
+    "unit_price": -853.2,
+    "total": 52045.0
+  },
+  {
+    "slot": 7732,
+    "delivery_date": "2031-07",
+    "cust_ref": 3174,
+    "product_code": "121",
+    "product_name": "ろ過受入",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 8878,
+    "delivery_date": "2031-08",
+    "cust_ref": 15449,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 57,
+    "unit_price": -1008.0,
+    "total": 57456.0
+  },
+  {
+    "slot": 11141,
+    "delivery_date": "2031-10",
+    "cust_ref": 40020,
+    "product_code": "410",
+    "product_name": "詰口",
+    "qty": 0,
+    "unit_price": -36.0,
+    "total": 0.0
+  },
+  {
+    "slot": 1020,
+    "delivery_date": "2032-01",
+    "cust_ref": 27732,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 1,
+    "unit_price": 17.7,
+    "total": 18.0
+  },
+  {
+    "slot": 2014,
+    "delivery_date": "2032-02",
+    "cust_ref": 11351,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 3009,
+    "delivery_date": "2032-03",
+    "cust_ref": 31829,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 61,
+    "unit_price": 424.0,
+    "total": 25864.0
+  },
+  {
+    "slot": 4026,
+    "delivery_date": "2032-04",
+    "cust_ref": 27734,
+    "product_code": "400",
+    "product_name": "割水",
+    "qty": 1,
+    "unit_price": 19.44,
+    "total": 19.0
+  },
+  {
+    "slot": 7737,
+    "delivery_date": "2032-07",
+    "cust_ref": 35942,
+    "product_code": "161",
+    "product_name": "蔵内受入",
+    "qty": 117,
+    "unit_price": 326.0,
+    "total": 38142.0
+  },
+  {
+    "slot": 12250,
+    "delivery_date": "2032-11",
+    "cust_ref": 19544,
+    "product_code": "220",
+    "product_name": "蔵内戻",
+    "qty": 0,
+    "unit_price": 18.0,
+    "total": 0.0
+  },
+  {
+    "slot": 3013,
+    "delivery_date": "2033-03",
+    "cust_ref": 23638,
+    "product_code": "161",
+    "product_name": "蔵内受入",
+    "qty": 61,
+    "unit_price": 877.0,
+    "total": 53497.0
+  },
+  {
+    "slot": 6504,
+    "delivery_date": "2033-06",
+    "cust_ref": 31845,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 7741,
+    "delivery_date": "2033-07",
+    "cust_ref": 19559,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 9904,
+    "delivery_date": "2033-09",
+    "cust_ref": 15445,
+    "product_code": "400",
+    "product_name": "割水",
+    "qty": 117,
+    "unit_price": 128.0,
+    "total": 14976.0
+  },
+  {
+    "slot": 12263,
+    "delivery_date": "2033-11",
+    "cust_ref": 0,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 13368,
+    "delivery_date": "2033-12",
+    "cust_ref": 19545,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 140,
+    "unit_price": -169.0,
+    "total": 23660.0
+  },
+  {
+    "slot": 1025,
+    "delivery_date": "2034-01",
+    "cust_ref": 15445,
+    "product_code": "410",
+    "product_name": "詰口",
+    "qty": 0,
+    "unit_price": -18.0,
+    "total": 0.0
+  },
+  {
+    "slot": 2028,
+    "delivery_date": "2034-02",
+    "cust_ref": 40023,
+    "product_code": "160",
+    "product_name": "売場払出",
+    "qty": 0,
+    "unit_price": -60.4,
+    "total": 0.0
+  },
+  {
+    "slot": 3018,
+    "delivery_date": "2034-03",
+    "cust_ref": 7255,
+    "product_code": "400",
+    "product_name": "割水",
+    "qty": 117,
+    "unit_price": 139.0,
+    "total": 16263.0
+  },
+  {
+    "slot": 4035,
+    "delivery_date": "2034-04",
+    "cust_ref": 15447,
+    "product_code": "400",
+    "product_name": "割水",
+    "qty": 61,
+    "unit_price": 180.0,
+    "total": 10980.0
+  },
+  {
+    "slot": 5116,
+    "delivery_date": "2034-05",
+    "cust_ref": 19555,
+    "product_code": "200",
+    "product_name": "未納税移入",
+    "qty": 117,
+    "unit_price": 128.0,
+    "total": 14976.0
+  },
+  {
+    "slot": 7751,
+    "delivery_date": "2034-07",
+    "cust_ref": 7272,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 117,
+    "unit_price": 224.0,
+    "total": 26208.0
+  },
+  {
+    "slot": 11146,
+    "delivery_date": "2034-10",
+    "cust_ref": 27733,
+    "product_code": "161",
+    "product_name": "蔵内受入",
+    "qty": 2,
+    "unit_price": 36.0,
+    "total": 72.0
+  },
+  {
+    "slot": 1029,
+    "delivery_date": "2035-01",
+    "cust_ref": 3158,
+    "product_code": "",
+    "product_name": "",
+    "qty": 61,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 3027,
+    "delivery_date": "2035-03",
+    "cust_ref": 31831,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 131,
+    "unit_price": 279.0,
+    "total": 36549.0
+  },
+  {
+    "slot": 5121,
+    "delivery_date": "2035-05",
+    "cust_ref": 7268,
+    "product_code": "161",
+    "product_name": "蔵内受入",
+    "qty": 1,
+    "unit_price": 36.0,
+    "total": 36.0
+  },
+  {
+    "slot": 8887,
+    "delivery_date": "2035-08",
+    "cust_ref": 40025,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 58,
+    "unit_price": -483.0,
+    "total": 28014.0
+  },
+  {
+    "slot": 9913,
+    "delivery_date": "2035-09",
+    "cust_ref": 19543,
+    "product_code": "160",
+    "product_name": "売場払出",
+    "qty": 61,
+    "unit_price": -1995.0,
+    "total": 121695.0
+  },
+  {
+    "slot": 11155,
+    "delivery_date": "2035-10",
+    "cust_ref": 15446,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 131,
+    "unit_price": -375.0,
+    "total": 49125.0
+  },
+  {
+    "slot": 4049,
+    "delivery_date": "2036-04",
+    "cust_ref": 3160,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 140,
+    "unit_price": -132.6,
+    "total": 18564.0
+  },
+  {
+    "slot": 5130,
+    "delivery_date": "2036-05",
+    "cust_ref": 40036,
+    "product_code": "160",
+    "product_name": "売場払出",
+    "qty": 0,
+    "unit_price": -18.0,
+    "total": 0.0
+  },
+  {
+    "slot": 9927,
+    "delivery_date": "2036-09",
+    "cust_ref": 11352,
+    "product_code": "160",
+    "product_name": "売場払出",
+    "qty": 93,
+    "unit_price": -479.0,
+    "total": 44547.0
+  },
+  {
+    "slot": 12273,
+    "delivery_date": "2036-11",
+    "cust_ref": 40025,
+    "product_code": "161",
+    "product_name": "蔵内受入",
+    "qty": 3,
+    "unit_price": 50.4,
+    "total": 151.0
+  },
+  {
+    "slot": 13377,
+    "delivery_date": "2036-12",
+    "cust_ref": 3168,
+    "product_code": "120",
+    "product_name": "ろ過払出",
+    "qty": 132,
+    "unit_price": -502.0,
+    "total": 66264.0
+  },
+  {
+    "slot": 1034,
+    "delivery_date": "2037-01",
+    "cust_ref": 27734,
+    "product_code": "121",
+    "product_name": "ろ過受入",
+    "qty": 132,
+    "unit_price": 77.4,
+    "total": 10217.0
+  },
+  {
+    "slot": 2033,
+    "delivery_date": "2037-02",
+    "cust_ref": 35928,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 38,
+    "unit_price": -417.0,
+    "total": 15846.0
+  },
+  {
+    "slot": 3031,
+    "delivery_date": "2037-03",
+    "cust_ref": 19544,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 7769,
+    "delivery_date": "2037-07",
+    "cust_ref": 31848,
+    "product_code": "151",
+    "product_name": "移動受入",
+    "qty": 117,
+    "unit_price": 19.3,
+    "total": 2258.0
+  },
+  {
+    "slot": 8891,
+    "delivery_date": "2037-08",
+    "cust_ref": 27744,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 11159,
+    "delivery_date": "2037-10",
+    "cust_ref": 40022,
+    "product_code": "",
+    "product_name": "",
+    "qty": 117,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 3041,
+    "delivery_date": "2038-03",
+    "cust_ref": 3161,
+    "product_code": "400",
+    "product_name": "割水",
+    "qty": 117,
+    "unit_price": 70.0,
+    "total": 8190.0
+  },
+  {
+    "slot": 5134,
+    "delivery_date": "2038-05",
+    "cust_ref": 23653,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 6523,
+    "delivery_date": "2038-06",
+    "cust_ref": 19559,
+    "product_code": "160",
+    "product_name": "売場払出",
+    "qty": 0,
+    "unit_price": -36.0,
+    "total": 0.0
+  },
+  {
+    "slot": 8896,
+    "delivery_date": "2038-08",
+    "cust_ref": 11361,
+    "product_code": "161",
+    "product_name": "蔵内受入",
+    "qty": 61,
+    "unit_price": 687.0,
+    "total": 41907.0
+  },
+  {
+    "slot": 11173,
+    "delivery_date": "2038-10",
+    "cust_ref": 31831,
+    "product_code": "410",
+    "product_name": "詰口",
+    "qty": 117,
+    "unit_price": -390.6,
+    "total": 45700.0
+  },
+  {
+    "slot": 12277,
+    "delivery_date": "2038-11",
+    "cust_ref": 31840,
+    "product_code": "150",
+    "product_name": "移動払出",
+    "qty": 58,
+    "unit_price": 0.0,
+    "total": 0.0
+  },
+  {
+    "slot": 13381,
+    "delivery_date": "2038-12",
+    "cust_ref": 27744,
+    "product_code": "",
+    "product_name": "",
+    "qty": 0,
+    "unit_price": 0.0,
+    "total": 0.0
+  }
+]

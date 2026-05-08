@@ -141,7 +141,7 @@ export function renderChangelog(
           </td>
           <td class="feature-label">
             <a href="#" data-link="${feat.route}" class="feature-link">${feat.label}</a>
-            ${isNew ? `<span class="badge-new-small">NEW</span>` : ""}
+            ${isNew ? `<span class="badge-new-small">使用可能</span>` : ""}
           </td>
           <td class="feature-desc">${feat.desc}</td>
           <td class="feature-version mono">v${feat.addedVersion}</td>
@@ -209,7 +209,7 @@ export function renderChangelog(
     </section>
 
     <div class="changelog-hint">
-      チェックを入れると「確認済み」として記録されます。HOME画面のカードには30日以内に確認された機能に <span class="badge-new-small">NEW</span> バッジが表示されます。
+      チェックを入れると「使用可能」として記録されます。HOME画面のカードには確認済みの機能に <span class="badge-new-small">使用可能</span> タグが表示されます。
     </div>
 
     ${sections}

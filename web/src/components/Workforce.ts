@@ -1,5 +1,5 @@
-import type { StaffMember, StaffDepartment, BrewingScheduleRow } from '../api';
-import { DEPT_LABEL } from '../api';
+import type { StaffMember, StaffDepartment, BrewingScheduleRow, MonthlyTask } from '../api';
+import { DEPT_LABEL, MONTHLY_TASK_LABEL, SHIFT_PREF_LABEL } from '../api';
 
 export type WorkforceTab = 'staff' | 'shift' | 'cost';
 
@@ -58,14 +58,25 @@ function renderStaffTab(staff: StaffMember[], deptFilter: string): string {
 
   function wageLabel(s: StaffMember): string {
     if (s.employmentType === 'employee')   return `月給 ${fmtYen(s.monthlySalary)}`;
-    if (s.employmentType === 'contractor') return `委託 ${fmtYen(s.contractFee)}/月`;
-    return `時給 ${fmtYen(s.hourlyRate)}（呼び出し型）`;
+    if (s.employmentType === 'contractor') return `委託 ${fmtYen(s.contractFee)}/日`;
+    const pref = s.shiftPreference ? SHIFT_PREF_LABEL[s.shiftPreference] : '';
+    return `時給 ${fmtYen(s.hourlyRate)}${pref ? `・${pref}` : ''}`;
+  }
+
+  function taskBadges(s: StaffMember): string {
+    if (!s.monthlyTasks.length) return '';
+    return s.monthlyTasks.map(t =>
+      `<span style="display:inline-block;font-size:10px;padding:0 5px;border-radius:8px;background:#7c3aed20;color:#7c3aed;border:1px solid #7c3aed40;margin-left:3px;">${MONTHLY_TASK_LABEL[t]}</span>`
+    ).join('');
   }
 
   function row(s: StaffMember): string {
     const months = s.availableMonths ? s.availableMonths.map(monthName).join('・') : '通年';
     return `<tr class="${s.isActive ? '' : 'row-inactive'}">
-      <td>${s.name}${s.kana ? `<br><span style="font-size:11px;color:var(--text-secondary);">${s.kana}</span>` : ''}</td>
+      <td>
+        ${s.name}${s.kana ? `<br><span style="font-size:11px;color:var(--text-secondary);">${s.kana}</span>` : ''}
+        ${taskBadges(s)}
+      </td>
       <td>${deptBadge(s.department)}${crossBadges(s)}</td>
       <td><span class="status-pill" style="background:${EMP_TYPE_COLOR[s.employmentType]}20;color:${EMP_TYPE_COLOR[s.employmentType]};border:1px solid ${EMP_TYPE_COLOR[s.employmentType]}40;">${EMP_TYPE_LABEL[s.employmentType]}</span></td>
       <td style="font-size:13px;">${wageLabel(s)}</td>
@@ -175,8 +186,32 @@ export function renderStaffModal(s?: StaffMember): string {
 
             <!-- 業務委託用 -->
             <div class="form-row" id="sf-contract-row" style="grid-column:1/-1;">
-              <label>月額委託費（円）</label>
+              <label>日額委託費（円/日）</label>
               <input type="number" id="sf-contract-fee" value="${s?.contractFee ?? ''}" min="0" />
+            </div>
+
+            <!-- パート用：シフト区分 -->
+            <div class="form-row" id="sf-shift-pref-row" style="grid-column:1/-1;">
+              <label>シフト区分</label>
+              <div style="display:flex;gap:12px;padding:4px 0;">
+                ${(['morning','afternoon','both'] as const).map(v => `
+                  <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
+                    <input type="radio" name="sf-shift-pref" value="${v}" ${(s?.shiftPreference ?? 'both') === v ? 'checked' : ''} />
+                    ${SHIFT_PREF_LABEL[v]}
+                  </label>`).join('')}
+              </div>
+            </div>
+
+            <!-- 月次業務（全員対象） -->
+            <div class="form-row" style="grid-column:1/-1;">
+              <label>月次業務担当</label>
+              <div style="display:flex;gap:14px;padding:4px 0;">
+                ${(['billing','inventory'] as MonthlyTask[]).map(t => `
+                  <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;">
+                    <input type="checkbox" name="sf-task" value="${t}" ${s?.monthlyTasks?.includes(t) ? 'checked' : ''} />
+                    ${MONTHLY_TASK_LABEL[t]}
+                  </label>`).join('')}
+              </div>
             </div>
 
             <div class="form-row" style="grid-column:1/-1;">
@@ -216,9 +251,8 @@ export function renderStaffModal(s?: StaffMember): string {
 function calcMonthlyCost(s: StaffMember, month: number): number {
   if (!s.isActive) return 0;
   if (s.availableMonths && !s.availableMonths.includes(month)) return 0;
-  if (s.employmentType === 'employee')   return s.monthlySalary ?? 0;
-  if (s.employmentType === 'contractor') return s.contractFee ?? 0;
-  // パートは時給×時間のみ（日数は呼び出し次第のため概算表示しない）
+  if (s.employmentType === 'employee') return s.monthlySalary ?? 0;
+  // 業務委託は日額単価のため月次集計は実績ベース、パートも同様
   return 0;
 }
 
@@ -246,11 +280,12 @@ function renderCostTab(staff: StaffMember[], yearMonth: string): string {
       const wageDesc  = s.employmentType === 'employee'
         ? `月給 ${fmtYen(s.monthlySalary)}`
         : s.employmentType === 'contractor'
-        ? `委託 ${fmtYen(s.contractFee)}/月`
+        ? `委託 ${fmtYen(s.contractFee)}/日`
         : `時給 ${fmtYen(s.hourlyRate)} × ${s.workHoursPerDay}h（呼び出し）`;
       const costCell  = isOut ? '<span style="color:var(--text-secondary);font-size:11px;">稼働外</span>'
-        : s.employmentType === 'part_time' ? '<span style="color:var(--text-secondary);font-size:11px;">実績で集計</span>'
-        : fmtYen(cost);
+        : s.employmentType === 'part_time' || s.employmentType === 'contractor'
+          ? '<span style="color:var(--text-secondary);font-size:11px;">実績で集計</span>'
+          : fmtYen(cost);
 
       return `<tr style="${isOut ? 'opacity:0.45;' : ''}">
         <td style="padding-left:20px;">${s.name}</td>
@@ -300,7 +335,7 @@ function renderCostTab(staff: StaffMember[], yearMonth: string): string {
       </table>
     </div>
     <p style="font-size:11px;color:var(--text-secondary);margin-top:8px;">
-      ※ 社員は月給固定。業務委託は月額委託費。パートは「実績で集計」（呼び出し型のため事前算出なし）。造りスタッフは稼働月のみカウント。
+      ※ 社員は月給固定。業務委託・パートは「実績で集計」（業務委託は日額単価×稼働日数）。造りスタッフは稼働月のみカウント。
     </p>
   `;
 }

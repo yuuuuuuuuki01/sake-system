@@ -2412,7 +2412,7 @@ function renderHome(): string {
     const isNew = isNewRoute(path, statuses);
     return `<a href="${href}" data-link="${path}" class="home-card">
       <span class="home-card-icon">${icon}</span>
-      <span class="home-card-label">${label}${isNew ? ' <span class="badge-new">NEW</span>' : ""}</span>
+      <span class="home-card-label">${label}${isNew ? ' <span class="badge-new">使用可能</span>' : ""}</span>
       <span class="home-card-desc">${desc}</span>
     </a>`;
   }
@@ -2819,18 +2819,20 @@ function bindStaffModal(existing: StaffMember | null): void {
   if (!form) return;
 
   // 雇用形態切替でフィールド表示を制御
-  const empType     = form.querySelector<HTMLSelectElement>("#sf-emp-type");
-  const hourlyRow   = form.querySelector<HTMLElement>("#sf-hourly-row");
-  const hoursRow    = form.querySelector<HTMLElement>("#sf-hours-row");
-  const salaryRow   = form.querySelector<HTMLElement>("#sf-salary-row");
-  const contractRow = form.querySelector<HTMLElement>("#sf-contract-row");
+  const empType        = form.querySelector<HTMLSelectElement>("#sf-emp-type");
+  const hourlyRow      = form.querySelector<HTMLElement>("#sf-hourly-row");
+  const hoursRow       = form.querySelector<HTMLElement>("#sf-hours-row");
+  const salaryRow      = form.querySelector<HTMLElement>("#sf-salary-row");
+  const contractRow    = form.querySelector<HTMLElement>("#sf-contract-row");
+  const shiftPrefRow   = form.querySelector<HTMLElement>("#sf-shift-pref-row");
 
   function toggleWage() {
     const v = empType?.value ?? "part_time";
-    if (hourlyRow)   hourlyRow.style.display   = v === "part_time"  ? "" : "none";
-    if (hoursRow)    hoursRow.style.display     = v === "part_time"  ? "" : "none";
-    if (salaryRow)   salaryRow.style.display    = v === "employee"   ? "" : "none";
-    if (contractRow) contractRow.style.display  = v === "contractor" ? "" : "none";
+    if (hourlyRow)    hourlyRow.style.display    = v === "part_time"  ? "" : "none";
+    if (hoursRow)     hoursRow.style.display      = v === "part_time"  ? "" : "none";
+    if (salaryRow)    salaryRow.style.display     = v === "employee"   ? "" : "none";
+    if (contractRow)  contractRow.style.display   = v === "contractor" ? "" : "none";
+    if (shiftPrefRow) shiftPrefRow.style.display  = v === "part_time"  ? "" : "none";
   }
   toggleWage();
   empType?.addEventListener("change", toggleWage);
@@ -2854,6 +2856,14 @@ function bindStaffModal(existing: StaffMember | null): void {
 
     const empVal = (form.querySelector<HTMLSelectElement>("#sf-emp-type")?.value ?? "part_time") as import("./api").EmploymentType;
 
+    const shiftPref = empVal === "part_time"
+      ? ((form.querySelector<HTMLInputElement>("input[name='sf-shift-pref']:checked")?.value ?? "both") as import("./api").ShiftPreference)
+      : null;
+
+    const monthlyTasks = Array.from(
+      form.querySelectorAll<HTMLInputElement>("input[name='sf-task']:checked")
+    ).map(el => el.value as import("./api").MonthlyTask);
+
     const data: Partial<StaffMember> & { name: string } = {
       id:               form.querySelector<HTMLInputElement>("#sf-id")?.value || undefined,
       name:             form.querySelector<HTMLInputElement>("#sf-name")?.value.trim() ?? "",
@@ -2864,6 +2874,8 @@ function bindStaffModal(existing: StaffMember | null): void {
       monthlySalary:    parseFloat(form.querySelector<HTMLInputElement>("#sf-salary")?.value ?? "") || null,
       contractFee:      parseFloat(form.querySelector<HTMLInputElement>("#sf-contract-fee")?.value ?? "") || null,
       workHoursPerDay:  parseFloat(form.querySelector<HTMLInputElement>("#sf-hours")?.value ?? "8") || 8,
+      shiftPreference:  shiftPref,
+      monthlyTasks,
       availableMonths,
       crossDepartments,
       notes:            form.querySelector<HTMLInputElement>("#sf-notes")?.value.trim() || "",

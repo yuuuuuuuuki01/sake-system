@@ -6651,21 +6651,21 @@ export async function fetchFeatureStatuses(): Promise<Record<string, FeatureStat
 }
 
 export async function confirmFeature(featureId: string, confirmedBy: string): Promise<void> {
-  await supabaseUpsert("app_feature_status", "feature_id", [{
+  await supabaseUpsert("app_feature_status", {
     feature_id: featureId,
     confirmed_at: new Date().toISOString(),
     confirmed_by: confirmedBy,
     updated_at: new Date().toISOString(),
-  }]);
+  });
 }
 
 export async function unconfirmFeature(featureId: string): Promise<void> {
-  await supabaseUpsert("app_feature_status", "feature_id", [{
+  await supabaseUpsert("app_feature_status", {
     feature_id: featureId,
     confirmed_at: null,
     confirmed_by: null,
     updated_at: new Date().toISOString(),
-  }]);
+  });
 }
 
 // ── 人員マスタ ────────────────────────────────────────────────────────────────
@@ -6691,6 +6691,20 @@ export const DEPT_MONTHS: Record<StaffDepartment, number[] | null> = {
   delivery:    null,
 };
 
+export type ShiftPreference = 'morning' | 'afternoon' | 'both';
+export type MonthlyTask = 'billing' | 'inventory';
+
+export const MONTHLY_TASK_LABEL: Record<MonthlyTask, string> = {
+  billing:   '請求業務',
+  inventory: '棚卸',
+};
+
+export const SHIFT_PREF_LABEL: Record<ShiftPreference, string> = {
+  morning:   '午前',
+  afternoon: '午後',
+  both:      '終日',
+};
+
 export interface StaffMember {
   id: string;
   name: string;
@@ -6699,10 +6713,12 @@ export interface StaffMember {
   department: StaffDepartment;
   hourlyRate: number | null;
   monthlySalary: number | null;
-  contractFee: number | null;     // 業務委託月額
+  contractFee: number | null;    // 業務委託: 1日あたり単価
   workHoursPerDay: number;
+  shiftPreference: ShiftPreference | null;  // パート: 午前/午後/終日
+  monthlyTasks: MonthlyTask[];              // 月次業務（請求・棚卸）
   availableMonths: number[] | null;
-  crossDepartments: StaffDepartment[];  // 兼務可能部門
+  crossDepartments: StaffDepartment[];
   notes: string;
   isActive: boolean;
 }
@@ -6721,6 +6737,8 @@ export async function fetchStaffMembers(): Promise<StaffMember[]> {
     monthlySalary:    r['monthly_salary'] != null ? Number(r['monthly_salary']) : null,
     contractFee:      r['contract_fee'] != null ? Number(r['contract_fee']) : null,
     workHoursPerDay:  getNumber(r, ['work_hours_per_day'], 8),
+    shiftPreference:  (r['shift_preference'] as ShiftPreference | null) ?? null,
+    monthlyTasks:     Array.isArray(r['monthly_tasks']) ? (r['monthly_tasks'] as MonthlyTask[]) : [],
     availableMonths:  Array.isArray(r['available_months']) ? (r['available_months'] as number[]) : null,
     crossDepartments: Array.isArray(r['cross_departments']) ? (r['cross_departments'] as StaffDepartment[]) : [],
     notes:            getString(r, ['notes'], ''),
@@ -6738,6 +6756,8 @@ export async function upsertStaffMember(data: Partial<StaffMember> & { name: str
     monthly_salary:      data.monthlySalary ?? null,
     contract_fee:        data.contractFee ?? null,
     work_hours_per_day:  data.workHoursPerDay ?? 8,
+    shift_preference:    data.shiftPreference ?? null,
+    monthly_tasks:       data.monthlyTasks ?? [],
     available_months:    data.availableMonths ?? null,
     cross_departments:   data.crossDepartments ?? [],
     notes:               data.notes ?? null,
