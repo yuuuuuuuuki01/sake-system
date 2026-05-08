@@ -3859,36 +3859,105 @@ export async function deleteTankMovement(id: string): Promise<boolean> {
 export interface KenteiRecord {
   id: string;
   kenteiNo: string;
-  jikomiNo: string;
+  batchCode: string;
   productName: string;
   kenteiDate: string;
   alcoholDegree: number;
   extractDegree: number;
   sakaMeterValue: number;
+  acidity: number;
+  aminoAcid: number;
+  riceType: string;
+  polishRate: number;
+  productionTypeName: string;
   volume: number;
   taxCategory: string;
+  tankNo: string;
   status: "pending" | "submitted" | "approved";
 }
 
-
 export async function fetchKenteiList(): Promise<KenteiRecord[]> {
   const rows = await supabaseQuery<LooseRow>("kentei_records", { order: "kentei_date.desc" });
-  if (rows.length > 0) {
-    return rows.map((row) => ({
-      id: getString(row, ["id"], ""),
-      kenteiNo: getString(row, ["kentei_no"], ""),
-      jikomiNo: getString(row, ["batch_id"], ""),
-      productName: getString(row, ["product_code"], ""),
-      kenteiDate: getDateString(row, ["kentei_date"], ""),
-      alcoholDegree: getNumber(row, ["alcohol_degree"], 0),
-      extractDegree: getNumber(row, ["extract_degree"], 0),
-      sakaMeterValue: getNumber(row, ["sakemeter_value"], 0),
-      volume: getNumber(row, ["volume_l"], 0),
-      taxCategory: getString(row, ["tax_category_code"], ""),
-      status: (getString(row, ["status"], "pending") as KenteiRecord["status"])
-    }));
-  }
-  return [];
+  return rows.map((row) => ({
+    id: getString(row, ["id"], ""),
+    kenteiNo: getString(row, ["kentei_no"], ""),
+    batchCode: getString(row, ["batch_code"], ""),
+    productName: getString(row, ["product_name", "product_code"], ""),
+    kenteiDate: getDateString(row, ["kentei_date"], ""),
+    alcoholDegree: getNumber(row, ["alcohol_degree"], 0),
+    extractDegree: getNumber(row, ["extract_degree"], 0),
+    sakaMeterValue: getNumber(row, ["sakemeter_value"], 0),
+    acidity: getNumber(row, ["acidity"], 0),
+    aminoAcid: getNumber(row, ["amino_acid"], 0),
+    riceType: getString(row, ["rice_type"], ""),
+    polishRate: getNumber(row, ["polish_rate"], 0),
+    productionTypeName: getString(row, ["production_type_name"], ""),
+    volume: getNumber(row, ["volume_l"], 0),
+    taxCategory: getString(row, ["tax_category_code"], ""),
+    tankNo: getString(row, ["tank_no"], ""),
+    status: (getString(row, ["status"], "pending") as KenteiRecord["status"])
+  }));
+}
+
+export async function saveKenteiRecord(r: Omit<KenteiRecord, "id" | "status"> & { id?: string }): Promise<boolean> {
+  const body: Record<string, unknown> = {
+    kentei_no: r.kenteiNo, batch_code: r.batchCode, product_name: r.productName,
+    kentei_date: r.kenteiDate, alcohol_degree: r.alcoholDegree, extract_degree: r.extractDegree,
+    sakemeter_value: r.sakaMeterValue, acidity: r.acidity, amino_acid: r.aminoAcid,
+    rice_type: r.riceType, polish_rate: r.polishRate, production_type_name: r.productionTypeName,
+    volume_l: r.volume, tax_category_code: r.taxCategory
+  };
+  if (r.id) return supabaseUpdate("kentei_records", r.id, body);
+  return (await supabaseInsert("kentei_records", { ...body, status: "pending" })) !== null;
+}
+
+// ─── 現在酒（検定完了→登録） ─────────────────────────────────────────────────
+
+export interface Genzaishu {
+  id: string;
+  batchCode: string;
+  productName: string;
+  kenteiDate: string;
+  tankNo: string;
+  volumeL: number;
+  alcoholDegree: number | null;
+  sakeMeterValue: number | null;
+  acidity: number | null;
+  aminoAcid: number | null;
+  riceType: string;
+  polishRate: number | null;
+  productionTypeName: string;
+  notes: string;
+}
+
+export async function fetchGenzaishu(): Promise<Genzaishu[]> {
+  const rows = await supabaseQuery<LooseRow>("genzaishu", { order: "registered_at.desc" });
+  return rows.map(r => ({
+    id: getString(r, ["id"], ""),
+    batchCode: getString(r, ["batch_code"], ""),
+    productName: getString(r, ["product_name"], ""),
+    kenteiDate: getString(r, ["kentei_date"], ""),
+    tankNo: getString(r, ["tank_no"], ""),
+    volumeL: getNumber(r, ["volume_l"], 0),
+    alcoholDegree: r["alcohol_degree"] != null ? getNumber(r, ["alcohol_degree"], 0) : null,
+    sakeMeterValue: r["sake_meter_value"] != null ? getNumber(r, ["sake_meter_value"], 0) : null,
+    acidity: r["acidity"] != null ? getNumber(r, ["acidity"], 0) : null,
+    aminoAcid: r["amino_acid"] != null ? getNumber(r, ["amino_acid"], 0) : null,
+    riceType: getString(r, ["rice_type"], ""),
+    polishRate: r["polish_rate"] != null ? getNumber(r, ["polish_rate"], 0) : null,
+    productionTypeName: getString(r, ["production_type_name"], ""),
+    notes: getString(r, ["notes"], "")
+  }));
+}
+
+export async function registerGenzaishu(g: Omit<Genzaishu, "id">): Promise<boolean> {
+  return (await supabaseUpsert("genzaishu", {
+    batch_code: g.batchCode, product_name: g.productName, kentei_date: g.kenteiDate,
+    tank_no: g.tankNo, volume_l: g.volumeL, alcohol_degree: g.alcoholDegree,
+    sake_meter_value: g.sakeMeterValue, acidity: g.acidity, amino_acid: g.aminoAcid,
+    rice_type: g.riceType, polish_rate: g.polishRate, production_type_name: g.productionTypeName,
+    notes: g.notes
+  })) !== null;
 }
 
 export interface MaterialRecord {

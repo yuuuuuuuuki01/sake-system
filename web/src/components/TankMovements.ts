@@ -1,4 +1,4 @@
-import type { TankMovement, TankRecord } from "../api";
+import type { TankMovement, TankRecord, Genzaishu } from "../api";
 
 function fmtNum(n: number): string { return n.toLocaleString("ja-JP"); }
 
@@ -11,7 +11,7 @@ const TYPE_COLORS: Record<TankMovement["movementType"], string> = {
   blend: "#7c3aed", discard: "#ef4444", adjust: "#6b7280"
 };
 
-export function renderTankMovements(movements: TankMovement[], tanks: TankRecord[], filterTank: string = ""): string {
+export function renderTankMovements(movements: TankMovement[], tanks: TankRecord[], filterTank: string = "", genzaishu: Genzaishu[] = []): string {
   const filtered = filterTank
     ? movements.filter(m => m.fromTankNo === filterTank || m.toTankNo === filterTank)
     : movements;
@@ -75,7 +75,10 @@ export function renderTankMovements(movements: TankMovement[], tanks: TankRecord
         <label>移動元<br><select id="tm-from" style="padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;"><option value="">（なし）</option>${tankOptions}</select></label>
         <label>移動先<br><select id="tm-to" style="padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;"><option value="">（なし）</option>${tankOptions}</select></label>
         <label>数量(L)<br><input id="tm-vol" type="number" step="1" placeholder="0" style="width:70px;padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
-        <label>銘柄<br><input id="tm-product" type="text" placeholder="" style="width:100px;padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <label>銘柄<br><select id="tm-product" style="padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;max-width:140px;">
+          <option value="">選択/直接入力</option>
+          ${genzaishu.map(g => `<option value="${g.productName}" data-batch="${g.batchCode}" data-alc="${g.alcoholDegree ?? ""}">${g.productName}（${g.batchCode}）</option>`).join("")}
+        </select></label>
         <label>仕込番号<br><input id="tm-batch" type="text" placeholder="" style="width:80px;padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
         <label>度数<br><input id="tm-alc" type="number" step="0.1" placeholder="%" style="width:50px;padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
         <label>温度<br><input id="tm-temp" type="number" step="0.1" placeholder="℃" style="width:50px;padding:5px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>

@@ -1,106 +1,108 @@
-import type { KenteiRecord } from "../api";
+import type { KenteiRecord, Genzaishu } from "../api";
 
-export function renderKentei(records: KenteiRecord[]): string {
-  const statusLabel: Record<KenteiRecord["status"], string> = {
-    pending: "未実施",
-    submitted: "申請中",
-    approved: "承認済"
-  };
+function fmtNum(n: number): string { return n.toLocaleString("ja-JP"); }
 
-  const statusClass: Record<KenteiRecord["status"], string> = {
-    pending: "neutral",
-    submitted: "warning",
-    approved: "success"
-  };
+const PRODUCTION_TYPES = ["純米大吟醸酒", "大吟醸酒", "純米吟醸酒", "吟醸酒", "特別純米酒", "純米酒", "特別本醸造酒", "本醸造酒", "普通酒"];
 
-  const rows = records
-    .map(
-      (r) => `
-      <tr>
-        <td class="mono">${r.kenteiNo}</td>
-        <td class="mono">${r.jikomiNo}</td>
-        <td>${r.productName}</td>
-        <td>${r.kenteiDate}</td>
-        <td class="numeric">${r.alcoholDegree > 0 ? r.alcoholDegree.toFixed(1) + "度" : "―"}</td>
-        <td class="numeric">${r.extractDegree > 0 ? r.extractDegree.toFixed(1) : "―"}</td>
-        <td class="numeric">${r.sakaMeterValue !== 0 ? r.sakaMeterValue.toFixed(1) : "―"}</td>
-        <td class="numeric">${r.volume > 0 ? r.volume.toLocaleString("ja-JP") + " L" : "―"}</td>
-        <td>${r.taxCategory}</td>
-        <td>
-          <span class="status-pill ${statusClass[r.status]}">${statusLabel[r.status]}</span>
-        </td>
-        <td>
-          <button class="button-sm secondary" data-action="kentei-edit" data-id="${r.id}">
-            ${r.status === "pending" ? "入力" : "詳細"}
-          </button>
-        </td>
-      </tr>
-    `
-    )
-    .join("");
+export function renderKentei(records: KenteiRecord[], genzaishu: Genzaishu[] = [], showForm: boolean = false, editRecord?: KenteiRecord): string {
+  const statusLabel: Record<KenteiRecord["status"], string> = { pending: "検定待ち", submitted: "検定済", approved: "現在酒登録済" };
+  const statusClass: Record<KenteiRecord["status"], string> = { pending: "neutral", submitted: "warning", approved: "success" };
 
-  const approvedCount = records.filter((r) => r.status === "approved").length;
-  const submittedCount = records.filter((r) => r.status === "submitted").length;
-  const pendingCount = records.filter((r) => r.status === "pending").length;
-  const totalVolume = records.filter((r) => r.status === "approved").reduce((s, r) => s + r.volume, 0);
+  const rows = records.map(r => `
+    <tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:6px 8px;font-size:12px;font-weight:600;">${r.batchCode || r.kenteiNo}</td>
+      <td style="padding:6px 8px;font-size:12px;">${r.productName || "―"}</td>
+      <td style="padding:6px 8px;font-size:12px;">${r.kenteiDate || "―"}</td>
+      <td style="padding:6px 8px;font-size:12px;">${r.productionTypeName || "―"}</td>
+      <td style="padding:6px 8px;font-size:12px;text-align:right;">${r.alcoholDegree || "―"}%</td>
+      <td style="padding:6px 8px;font-size:12px;text-align:right;">${r.sakaMeterValue || "―"}</td>
+      <td style="padding:6px 8px;font-size:12px;text-align:right;">${r.acidity || "―"}</td>
+      <td style="padding:6px 8px;font-size:12px;text-align:right;">${r.aminoAcid || "―"}</td>
+      <td style="padding:6px 8px;font-size:12px;">${r.riceType || "―"}</td>
+      <td style="padding:6px 8px;font-size:12px;text-align:right;">${r.polishRate ? (r.polishRate * 100).toFixed(0) + "%" : "―"}</td>
+      <td style="padding:6px 8px;font-size:12px;text-align:right;">${r.volume > 0 ? fmtNum(r.volume) + "L" : "―"}</td>
+      <td style="padding:6px 8px;"><span class="status-pill ${statusClass[r.status]}">${statusLabel[r.status]}</span></td>
+      <td style="padding:6px 4px;white-space:nowrap;">
+        <button class="button-sm secondary" data-action="kentei-edit" data-id="${r.id}" style="margin-right:4px;">編集</button>
+        ${r.status !== "approved" ? `<button class="button-sm primary" data-action="kentei-register" data-id="${r.id}">現在酒登録</button>` : ""}
+      </td>
+    </tr>`).join("");
+
+  const ptOptions = PRODUCTION_TYPES.map(t => `<option value="${t}" ${editRecord?.productionTypeName === t ? "selected" : ""}>${t}</option>`).join("");
+  const today = new Date().toISOString().slice(0, 10);
+
+  const formHtml = showForm ? `
+    <section class="panel" style="margin-bottom:16px;border:2px solid #2563eb;">
+      <div class="panel-header"><h2>${editRecord ? "検定記録編集" : "検定記録登録"}</h2></div>
+      <input type="hidden" id="kentei-edit-id" value="${editRecord?.id ?? ""}">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;padding:8px 0;font-size:12px;">
+        <label>仕込番号<br><input id="kf-batch" type="text" value="${editRecord?.batchCode ?? ""}" style="width:90px;padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <label>銘柄名<br><input id="kf-name" type="text" value="${editRecord?.productName ?? ""}" style="width:120px;padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <label>検定日<br><input id="kf-date" type="date" value="${editRecord?.kenteiDate ?? today}" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <label>特定名称<br><select id="kf-type" style="padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"><option value="">選択</option>${ptOptions}</select></label>
+        <label>度数<br><input id="kf-alc" type="number" step="0.1" value="${editRecord?.alcoholDegree ?? ""}" placeholder="%" style="width:50px;padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <label>日本酒度<br><input id="kf-sake" type="number" step="0.1" value="${editRecord?.sakaMeterValue ?? ""}" style="width:55px;padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <label>酸度<br><input id="kf-acid" type="number" step="0.01" value="${editRecord?.acidity ?? ""}" style="width:50px;padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <label>アミノ酸度<br><input id="kf-amino" type="number" step="0.01" value="${editRecord?.aminoAcid ?? ""}" style="width:55px;padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <label>使用米<br><input id="kf-rice" type="text" value="${editRecord?.riceType ?? ""}" style="width:80px;padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <label>精米歩合<br><input id="kf-polish" type="number" step="0.01" value="${editRecord?.polishRate ?? ""}" placeholder="0.60" style="width:55px;padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <label>数量(L)<br><input id="kf-vol" type="number" step="1" value="${editRecord?.volume ?? ""}" style="width:60px;padding:4px;border:1px solid var(--border);border-radius:4px;font-size:12px;"></label>
+        <button class="button primary" data-action="kentei-save" style="font-size:12px;padding:5px 14px;">保存</button>
+        <button class="button secondary" data-action="kentei-cancel" style="font-size:12px;padding:5px 10px;">閉じる</button>
+      </div>
+    </section>` : "";
+
+  // 現在酒一覧
+  const gzRows = genzaishu.map(g => `
+    <tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:5px 8px;font-size:12px;font-weight:600;">${g.batchCode}</td>
+      <td style="padding:5px 8px;font-size:12px;">${g.productName}</td>
+      <td style="padding:5px 8px;font-size:12px;">${g.productionTypeName || "―"}</td>
+      <td style="padding:5px 8px;font-size:12px;">${g.tankNo || "―"}</td>
+      <td style="padding:5px 8px;font-size:12px;text-align:right;">${fmtNum(g.volumeL)}L</td>
+      <td style="padding:5px 8px;font-size:12px;text-align:right;">${g.alcoholDegree ?? "―"}%</td>
+      <td style="padding:5px 8px;font-size:12px;text-align:right;">${g.sakeMeterValue ?? "―"}</td>
+      <td style="padding:5px 8px;font-size:12px;">${g.riceType || "―"}</td>
+      <td style="padding:5px 8px;font-size:12px;">${g.kenteiDate || "―"}</td>
+    </tr>`).join("");
 
   return `
     <section class="page-head">
-      <div>
-        <p class="eyebrow">蔵内管理</p>
-        <h1>検定管理</h1>
-      </div>
-      <div class="meta-stack">
-        <button class="button secondary" data-action="kentei-new">＋ 新規検定</button>
-      </div>
+      <div><p class="eyebrow">蔵内管理</p><h1>検定管理・現在酒</h1></div>
+      <button class="button primary" data-action="kentei-show-form">＋ 検定記録</button>
     </section>
 
-    <section class="kpi-grid compact">
-      <article class="panel kpi-card">
-        <p class="panel-title">承認済容量</p>
-        <p class="kpi-value">${totalVolume.toLocaleString("ja-JP")} L</p>
-        <p class="kpi-sub">酒税対象</p>
-      </article>
-      <article class="panel kpi-card">
-        <p class="panel-title">申請中</p>
-        <p class="kpi-value">${submittedCount} 件</p>
-        <p class="kpi-sub">税務署確認待ち</p>
-      </article>
-      <article class="panel kpi-card">
-        <p class="panel-title">未実施</p>
-        <p class="kpi-value">${pendingCount} 件</p>
-        <p class="kpi-sub">要対応</p>
-      </article>
-    </section>
+    ${formHtml}
 
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>検定一覧</h2>
-          <p class="panel-caption">承認済 ${approvedCount} 件 / 合計 ${records.length} 件</p>
-        </div>
-        <button class="button secondary" type="button" data-action="csv-export">CSV出力</button>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>検定番号</th>
-              <th>仕込番号</th>
-              <th>銘柄</th>
-              <th>検定日</th>
-              <th class="numeric">アルコール度数</th>
-              <th class="numeric">エキス分</th>
-              <th class="numeric">酒度</th>
-              <th class="numeric">容量</th>
-              <th>酒類区分</th>
-              <th>状態</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>${rows || `<tr><td colspan="11" class="empty-row">検定データがありません。</td></tr>`}</tbody>
+    <section class="panel" style="margin-bottom:16px;">
+      <div class="panel-header"><h2>検定記録</h2><p class="panel-caption">${records.length}件</p></div>
+      <div class="table-wrap" style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="border-bottom:2px solid var(--border);font-size:10px;color:#6b7280;text-align:left;">
+            <th style="padding:4px 8px;">仕込番号</th><th style="padding:4px 8px;">銘柄</th><th style="padding:4px 8px;">検定日</th>
+            <th style="padding:4px 8px;">特定名称</th><th style="padding:4px 8px;text-align:right;">度数</th>
+            <th style="padding:4px 8px;text-align:right;">日本酒度</th><th style="padding:4px 8px;text-align:right;">酸度</th>
+            <th style="padding:4px 8px;text-align:right;">ｱﾐﾉ酸度</th><th style="padding:4px 8px;">使用米</th>
+            <th style="padding:4px 8px;text-align:right;">精米歩合</th><th style="padding:4px 8px;text-align:right;">数量</th>
+            <th style="padding:4px 8px;">状態</th><th></th>
+          </tr></thead>
+          <tbody>${rows || `<tr><td colspan="13" style="padding:20px;text-align:center;color:#9ca3af;">検定記録がありません</td></tr>`}</tbody>
         </table>
       </div>
     </section>
-  `;
+
+    <section class="panel">
+      <div class="panel-header"><h2>現在酒一覧</h2><p class="panel-caption">検定完了→登録された酒（移動簿の銘柄に連動）</p></div>
+      <div class="table-wrap" style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="border-bottom:2px solid var(--border);font-size:10px;color:#6b7280;text-align:left;">
+            <th style="padding:4px 8px;">仕込番号</th><th style="padding:4px 8px;">銘柄</th><th style="padding:4px 8px;">特定名称</th>
+            <th style="padding:4px 8px;">タンク</th><th style="padding:4px 8px;text-align:right;">数量</th>
+            <th style="padding:4px 8px;text-align:right;">度数</th><th style="padding:4px 8px;text-align:right;">日本酒度</th>
+            <th style="padding:4px 8px;">使用米</th><th style="padding:4px 8px;">検定日</th>
+          </tr></thead>
+          <tbody>${gzRows || `<tr><td colspan="9" style="padding:20px;text-align:center;color:#9ca3af;">現在酒がありません</td></tr>`}</tbody>
+        </table>
+      </div>
+    </section>`;
 }

@@ -833,6 +833,9 @@ const state: AppState = {
   jikomiView: "list",
   tankList: [],
   kenteiList: [],
+  genzaishuList: [] as import("./api").Genzaishu[],
+  kenteiShowForm: false,
+  kenteiEditRecord: undefined as import("./api").KenteiRecord | undefined,
   materialList: [],
   purchaseList: [],
   payableList: [],
@@ -1863,19 +1866,21 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
         }
         break;
       case "/tank-movements": {
-        const { fetchTankMovements, fetchTankList: ftl } = await import("./api");
-        const [movements, tankList] = await Promise.all([
+        const { fetchTankMovements, fetchTankList: ftl, fetchGenzaishu: fgz } = await import("./api");
+        const [movements, tankList, gzList] = await Promise.all([
           fetchTankMovements().catch(() => []),
-          ftl().catch(() => [])
+          ftl().catch(() => []),
+          fgz().catch(() => [])
         ]);
         state.tankMovements = movements;
         state.tankList = tankList;
+        state.genzaishuList = gzList;
         break;
       }
       case "/kentei":
-        if (state.kenteiList.length === 0) {
-          state.kenteiList = await fetchKenteiList();
-        }
+        const { fetchKenteiList: fkl, fetchGenzaishu } = await import("./api");
+        state.kenteiList = await fkl().catch(() => []);
+        state.genzaishuList = await fetchGenzaishu().catch(() => []);
         break;
       case "/materials":
         if (state.materialList.length === 0) {
@@ -2265,9 +2270,9 @@ function renderView(): string {
     case "/tanks":
       return renderTankList(state.tankList);
     case "/tank-movements":
-      return renderTankMovements(state.tankMovements, state.tankList, state.tankMovementFilter);
+      return renderTankMovements(state.tankMovements, state.tankList, state.tankMovementFilter, state.genzaishuList);
     case "/kentei":
-      return renderKentei(state.kenteiList);
+      return renderKentei(state.kenteiList, state.genzaishuList, state.kenteiShowForm, state.kenteiEditRecord);
     case "/materials":
       return renderMaterials(state.materialList) + renderMaterialEditModal(state.materialEditing, state.materialEditingIsNew);
     case "/purchase":
@@ -8119,7 +8124,76 @@ function bindEvents(root: HTMLElement): void {
     showToast("新規請求書の作成は伝票入力から行ってください", "info");
   });
 
+  // ── 検定・現在酒 ──────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='kentei-show-form']")?.addEventListener("click", () => {
+    state.kenteiShowForm = true; state.kenteiEditRecord = undefined; renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='kentei-cancel']")?.addEventListener("click", () => {
+    state.kenteiShowForm = false; state.kenteiEditRecord = undefined; renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='kentei-edit']").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id ?? "";
+      state.kenteiEditRecord = state.kenteiList.find(r => r.id === id);
+      state.kenteiShowForm = true; renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='kentei-save']")?.addEventListener("click", async () => {
+    const id = (root.querySelector<HTMLInputElement>("#kentei-edit-id") as HTMLInputElement)?.value ?? "";
+    const { saveKenteiRecord, fetchKenteiList: fkl } = await import("./api");
+    await saveKenteiRecord({
+      id: id || undefined,
+      kenteiNo: "", batchCode: (root.querySelector<HTMLInputElement>("#kf-batch") as HTMLInputElement)?.value ?? "",
+      productName: (root.querySelector<HTMLInputElement>("#kf-name") as HTMLInputElement)?.value ?? "",
+      kenteiDate: (root.querySelector<HTMLInputElement>("#kf-date") as HTMLInputElement)?.value ?? "",
+      productionTypeName: (root.querySelector<HTMLSelectElement>("#kf-type") as HTMLSelectElement)?.value ?? "",
+      alcoholDegree: parseFloat((root.querySelector<HTMLInputElement>("#kf-alc") as HTMLInputElement)?.value) || 0,
+      sakaMeterValue: parseFloat((root.querySelector<HTMLInputElement>("#kf-sake") as HTMLInputElement)?.value) || 0,
+      acidity: parseFloat((root.querySelector<HTMLInputElement>("#kf-acid") as HTMLInputElement)?.value) || 0,
+      aminoAcid: parseFloat((root.querySelector<HTMLInputElement>("#kf-amino") as HTMLInputElement)?.value) || 0,
+      riceType: (root.querySelector<HTMLInputElement>("#kf-rice") as HTMLInputElement)?.value ?? "",
+      polishRate: parseFloat((root.querySelector<HTMLInputElement>("#kf-polish") as HTMLInputElement)?.value) || 0,
+      volume: parseFloat((root.querySelector<HTMLInputElement>("#kf-vol") as HTMLInputElement)?.value) || 0,
+      taxCategory: "", tankNo: ""
+    });
+    state.kenteiList = await fkl(); state.kenteiShowForm = false; state.kenteiEditRecord = undefined;
+    showToast("保存しました"); renderApp();
+  });
+  // 現在酒登録
+  root.querySelectorAll<HTMLButtonElement>("[data-action='kentei-register']").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      const rec = state.kenteiList.find(r => r.id === id);
+      if (!rec) return;
+      const { registerGenzaishu, fetchGenzaishu, fetchKenteiList: fkl } = await import("./api");
+      await registerGenzaishu({
+        batchCode: rec.batchCode, productName: rec.productName, kenteiDate: rec.kenteiDate,
+        tankNo: rec.tankNo, volumeL: rec.volume, alcoholDegree: rec.alcoholDegree || null,
+        sakeMeterValue: rec.sakaMeterValue || null, acidity: rec.acidity || null,
+        aminoAcid: rec.aminoAcid || null, riceType: rec.riceType,
+        polishRate: rec.polishRate || null, productionTypeName: rec.productionTypeName, notes: ""
+      });
+      // ステータスをapprovedに更新
+      const { supabaseUpdate } = await import("./supabase");
+      await supabaseUpdate("kentei_records", id, { status: "approved" });
+      state.kenteiList = await fkl(); state.genzaishuList = await fetchGenzaishu();
+      showToast("現在酒に登録しました"); renderApp();
+    });
+  });
+
   // ── 移動簿 ──────────────────────────────────────────
+  // 移動簿: 銘柄選択→仕込番号・度数を自動入力
+  root.querySelector<HTMLSelectElement>("#tm-product")?.addEventListener("change", (e) => {
+    const sel = e.target as HTMLSelectElement;
+    const opt = sel.selectedOptions[0];
+    if (opt?.dataset.batch) {
+      const batchEl = root.querySelector<HTMLInputElement>("#tm-batch");
+      const alcEl = root.querySelector<HTMLInputElement>("#tm-alc");
+      if (batchEl) batchEl.value = opt.dataset.batch;
+      if (alcEl && opt.dataset.alc) alcEl.value = opt.dataset.alc;
+    }
+  });
+
   root.querySelector<HTMLButtonElement>("[data-action='tm-add']")?.addEventListener("click", async () => {
     const date = (root.querySelector<HTMLInputElement>("#tm-date") as HTMLInputElement)?.value ?? "";
     const type = (root.querySelector<HTMLSelectElement>("#tm-type") as HTMLSelectElement)?.value ?? "transfer";
@@ -8131,7 +8205,7 @@ function bindEvents(root: HTMLElement): void {
     const { saveTankMovement, fetchTankMovements } = await import("./api");
     await saveTankMovement({
       movementDate: date, fromTankNo: from, toTankNo: to, volumeL: vol,
-      productName: (root.querySelector<HTMLInputElement>("#tm-product") as HTMLInputElement)?.value ?? "",
+      productName: (root.querySelector<HTMLSelectElement>("#tm-product") as HTMLSelectElement)?.value ?? "",
       batchCode: (root.querySelector<HTMLInputElement>("#tm-batch") as HTMLInputElement)?.value ?? "",
       alcoholDegree: parseFloat((root.querySelector<HTMLInputElement>("#tm-alc") as HTMLInputElement)?.value) || null,
       temperature: parseFloat((root.querySelector<HTMLInputElement>("#tm-temp") as HTMLInputElement)?.value) || null,
