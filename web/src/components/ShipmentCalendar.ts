@@ -4,8 +4,8 @@ const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 function fmtAmount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 10000) return `${Math.round(n / 1000)}千`;
-  return `${n.toLocaleString()}円`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
+  return `¥${n.toLocaleString()}`;
 }
 
 function totalBottles(day: ShipmentDay | undefined): number {
@@ -196,6 +196,7 @@ export function renderShipmentCalendar(
           <span class="sc-month-label">${year}年${month}月</span>
           <button class="sc-nav-btn" data-sc-ym="${nextYM}">▶</button>
         </div>
+        <div class="sc-unit-note">K=¥1,000 / M=¥1,000,000</div>
       </div>
 
       <div class="sc-body">
@@ -232,6 +233,7 @@ export function renderShipmentCalendar(
       .sc-month-summary { font-size: 0.85rem; color: var(--text-muted, #6b7280); }
       .sc-month-summary strong { color: var(--text, #111); }
       .sc-nav { display: flex; align-items: center; gap: 12px; }
+      .sc-unit-note { font-size: 0.7rem; color: var(--text-muted, #9ca3af); margin-top: 4px; }
       .sc-nav-btn { background: var(--bg-subtle, #f3f4f6); border: 1px solid var(--border, #e5e7eb); border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 0.9rem; }
       .sc-nav-btn:hover { background: var(--bg-hover, #e5e7eb); }
       .sc-month-label { font-size: 1rem; font-weight: 600; min-width: 100px; text-align: center; }
