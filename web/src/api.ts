@@ -2650,9 +2650,11 @@ export interface NewInvoiceLine {
 export interface InvoiceFormData {
   invoiceType: InvoiceType;
   invoiceDate: string;
+  deliveryDate: string;
   customerCode: string;
   customerName: string;
-  staffCode: string;
+  staffCode: string;          // 営業担当（得意先紐付き）
+  registeredBy: string;       // 伝票登録者
   lines: NewInvoiceLine[];
   note: string;
 }
@@ -2672,8 +2674,10 @@ export async function saveInvoice(form: InvoiceFormData): Promise<SavedInvoice> 
     legacy_document_no: docNo,
     legacy_customer_code: form.customerCode,
     sales_date: form.invoiceDate,
+    delivery_date: form.deliveryDate || form.invoiceDate,
     document_type: form.invoiceType,
     staff_code: form.staffCode,
+    registered_by: form.registeredBy || null,
     total_amount: totalAmount,
     status: "confirmed"
   });
@@ -2684,6 +2688,112 @@ export async function saveInvoice(form: InvoiceFormData): Promise<SavedInvoice> 
     status: "confirmed",
     createdAt: new Date().toISOString()
   };
+}
+
+// ─── 担当者管理 ──────────────────────────────────────────────────────────────
+
+export interface StaffMember {
+  code: string;
+  name: string;
+  department: string;
+  isActive: boolean;
+}
+
+export async function fetchStaffList(): Promise<StaffMember[]> {
+  const rows = await supabaseQueryAll<LooseRow>("staff", {
+    select: "legacy_staff_code,name,department,is_active",
+    is_active: "eq.true",
+    order: "name.asc"
+  });
+  return rows.map((r) => ({
+    code: getString(r, ["legacy_staff_code"], ""),
+    name: getString(r, ["name"], ""),
+    department: getString(r, ["department"], ""),
+    isActive: getBoolean(r, ["is_active"], true)
+  }));
+}
+
+export async function createStaff(code: string, name: string): Promise<StaffMember | null> {
+  const { supabaseInsert } = await import("./supabase");
+  const row = await supabaseInsert<LooseRow>("staff", {
+    legacy_staff_code: code,
+    name,
+    is_active: true
+  });
+  if (!row) return null;
+  return { code, name, department: "", isActive: true };
+}
+
+// ─── よく使う得意先/商品 ─────────────────────────────────────────────────────
+
+export interface FrequentItem {
+  code: string;
+  name: string;
+  count: number;
+}
+
+/** 直近6ヶ月の伝票数上位の得意先 */
+export async function fetchFrequentCustomers(limit = 10): Promise<FrequentItem[]> {
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  const since = sixMonthsAgo.toISOString().slice(0, 10);
+
+  const rows = await supabaseQueryAll<LooseRow>("sales_document_headers", {
+    select: "legacy_customer_code,customer_name",
+    "sales_date": `gte.${since}`,
+    order: "sales_date.desc"
+  });
+
+  const counts: Record<string, { name: string; count: number }> = {};
+  for (const r of rows) {
+    const code = getString(r, ["legacy_customer_code"], "");
+    if (!code) continue;
+    if (!counts[code]) counts[code] = { name: getString(r, ["customer_name"], ""), count: 0 };
+    counts[code].count++;
+  }
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, limit)
+    .map(([code, v]) => ({ code, name: v.name, count: v.count }));
+}
+
+/** 直近6ヶ月の出荷回数上位の商品 */
+export async function fetchFrequentProducts(limit = 10): Promise<FrequentItem[]> {
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  const since = sixMonthsAgo.toISOString().slice(0, 10);
+
+  // ヘッダーから最近の伝票番号を取得して明細を集計
+  const headers = await supabaseQueryAll<LooseRow>("sales_document_headers", {
+    select: "document_no",
+    "sales_date": `gte.${since}`
+  });
+  if (headers.length === 0) return [];
+
+  const lines = await supabaseQueryAll<LooseRow>("sales_document_lines", {
+    select: "legacy_product_code"
+  });
+
+  const counts: Record<string, number> = {};
+  for (const ln of lines) {
+    const code = getString(ln, ["legacy_product_code"], "");
+    if (code) counts[code] = (counts[code] || 0) + 1;
+  }
+
+  // 商品名をマスタから引く
+  const products = await supabaseQueryAll<LooseRow>("products", {
+    select: "legacy_product_code,name"
+  });
+  const nameMap: Record<string, string> = {};
+  for (const p of products) {
+    nameMap[getString(p, ["legacy_product_code"], "")] = getString(p, ["name"], "");
+  }
+
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([code, count]) => ({ code, name: nameMap[code] || code, count }));
 }
 
 // ─── 納品書 ──────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import type { MasterProduct } from "../api";
+import type { MasterProduct, FrequentItem } from "../api";
 import { renderSearchModal } from "./SearchModal";
 
 function escapeHtml(value: string): string {
@@ -14,17 +14,34 @@ function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export function renderProductPicker(products: MasterProduct[], query: string): string {
+export function renderProductPicker(
+  products: MasterProduct[],
+  query: string,
+  frequentProducts: FrequentItem[] = []
+): string {
   const normalizedQuery = normalize(query);
   const filtered = products.filter((product) => {
     if (!normalizedQuery) return true;
-    return [product.code, product.name, product.janCode]
+    return [product.code, product.name, product.kanaName, product.janCode, product.category]
       .map(normalize)
       .some((field) => field.includes(normalizedQuery));
   });
 
+  // よく使う商品セクション
+  const freqHtml = !normalizedQuery && frequentProducts.length > 0
+    ? `<div style="padding:8px 12px;border-bottom:2px solid var(--border,#e5e7eb);">
+        <div style="font-size:0.75rem;font-weight:600;color:var(--text-muted,#6b7280);margin-bottom:6px;">よく使う商品</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          ${frequentProducts.map((p) =>
+            `<button class="freq-chip" type="button" data-action="picker-select" data-code="${escapeHtml(p.code)}" data-name="${escapeHtml(p.name)}">${escapeHtml(p.name)} <small style="opacity:0.6">${p.count}回</small></button>`
+          ).join("")}
+        </div>
+      </div>`
+    : "";
+
   const resultsHtml = filtered.length
     ? `
+        ${freqHtml}
         <div class="table-wrap">
           <table>
             <thead>
@@ -58,12 +75,12 @@ export function renderProductPicker(products: MasterProduct[], query: string): s
           </table>
         </div>
       `
-    : "";
+    : freqHtml;
 
   return renderSearchModal({
     title: "商品検索",
     searchQuery: query,
-    placeholder: "コード・名前・JANで検索",
+    placeholder: "コード・名前・カナ・カテゴリで検索",
     resultsHtml,
     emptyMessage: "該当する商品が見つかりません。"
   });

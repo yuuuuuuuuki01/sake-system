@@ -209,6 +209,7 @@ import { renderTankList, renderTankForm } from "./components/TankList";
 import { renderTankMovements } from "./components/TankMovements";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { isNewRoute, renderChangelog } from "./components/Changelog";
+import { initChatWidget } from "./components/ChatWidget";
 import { showToast } from "./components/Toast";
 import { showConfirm } from "./components/ConfirmModal";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "./supabase";
@@ -438,9 +439,11 @@ function makeDefaultInvoiceForm(): InvoiceFormData {
   return {
     invoiceType: "sales",
     invoiceDate: new Date().toISOString().slice(0, 10),
+    deliveryDate: "",
     customerCode: "",
     customerName: "",
     staffCode: "",
+    registeredBy: "",
     lines: [],
     note: ""
   };
@@ -490,6 +493,9 @@ interface AppState {
   invoiceSaving: boolean;
   invoiceSavedDocNo: string | null;
   invoicePriceGroup: string;
+  staffList: import("./api").StaffMember[];
+  frequentCustomers: import("./api").FrequentItem[];
+  frequentProducts: import("./api").FrequentItem[];
   pickerMode: "customer" | "product" | null;
   pickerQuery: string;
   pickerTargetLine: number | null;
@@ -811,6 +817,9 @@ const state: AppState = {
   invoiceSaving: false,
   invoiceSavedDocNo: null,
   invoicePriceGroup: "",
+  staffList: [],
+  frequentCustomers: [],
+  frequentProducts: [],
   pickerMode: null,
   pickerQuery: "",
   pickerTargetLine: null,
@@ -1161,24 +1170,40 @@ function copyPastInvoice(): void {
   state.invoiceErrors = {};
 }
 
-function tryAutofillCustomerByCode(code: string): boolean {
-  const customer = state.masterStats?.customers.find(
-    (item) => item.code.toLowerCase() === code.trim().toLowerCase()
-  );
-  if (!customer) return false;
+function setCustomerOnForm(customer: { code: string; name: string; priceGroup?: string; staffCode?: string }): void {
   state.invoiceForm.customerCode = customer.code;
   state.invoiceForm.customerName = customer.name;
   state.invoicePriceGroup = customer.priceGroup || "";
-  return true;
+  state.invoiceForm.staffCode = customer.staffCode || "";
+}
+
+function tryAutofillCustomerByCode(code: string): boolean {
+  const q = code.trim().toLowerCase();
+  if (!q) return false;
+  // コード完全一致
+  const byCode = state.masterStats?.customers.find(
+    (item) => item.code.toLowerCase() === q
+  );
+  if (byCode) { setCustomerOnForm(byCode); return true; }
+  // 名前・カナ部分一致（1件のみの場合は自動セット）
+  const byName = state.masterStats?.customers.filter(
+    (item) => item.name.toLowerCase().includes(q) || (item.kanaName || "").toLowerCase().includes(q)
+  );
+  if (byName && byName.length === 1) { setCustomerOnForm(byName[0]); return true; }
+  return false;
 }
 
 function tryAutofillCustomerByName(name: string): boolean {
-  const customer = state.masterStats?.customers.find((item) => item.name === name.trim());
-  if (!customer) return false;
-  state.invoiceForm.customerCode = customer.code;
-  state.invoiceForm.customerName = customer.name;
-  state.invoicePriceGroup = customer.priceGroup || "";
-  return true;
+  const q = name.trim().toLowerCase();
+  if (!q) return false;
+  // 完全一致 → 部分一致（1件のみ）の順で検索
+  const exact = state.masterStats?.customers.find((item) => item.name === name.trim());
+  if (exact) { setCustomerOnForm(exact); return true; }
+  const partial = state.masterStats?.customers.filter(
+    (item) => item.name.toLowerCase().includes(q) || (item.kanaName || "").toLowerCase().includes(q)
+  );
+  if (partial && partial.length === 1) { setCustomerOnForm(partial[0]); return true; }
+  return false;
 }
 
 function persistInvoice(root: HTMLElement): void {
@@ -1529,6 +1554,19 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
         if (state.prospects.length === 0) {
           const { fetchProspects } = await import("./api");
           state.prospects = await fetchProspects();
+        }
+        break;
+      case "/invoice-entry":
+        if (state.staffList.length === 0) {
+          const { fetchStaffList, fetchFrequentCustomers, fetchFrequentProducts } = await import("./api");
+          const [staff, freqC, freqP] = await Promise.all([
+            fetchStaffList(),
+            fetchFrequentCustomers(10),
+            fetchFrequentProducts(10)
+          ]);
+          state.staffList = staff;
+          state.frequentCustomers = freqC;
+          state.frequentProducts = freqP;
         }
         break;
       case "/invoice":
@@ -2068,7 +2106,10 @@ function renderView(): string {
         state.invoiceForm,
         state.invoiceSavedDocNo,
         state.invoiceSaving,
-        state.invoiceErrors
+        state.invoiceErrors,
+        state.staffList,
+        state.frequentCustomers,
+        state.frequentProducts
       );
     case "/quote":
       if (state.quoteEditId === null) {
@@ -2736,8 +2777,8 @@ function renderShell(): string {
   const pickerHtml =
     state.pickerMode && state.masterStats
       ? state.pickerMode === "customer"
-        ? renderCustomerPicker(state.masterStats.customers, state.pickerQuery)
-        : renderProductPicker(state.masterStats.products, state.pickerQuery)
+        ? renderCustomerPicker(state.masterStats.customers, state.pickerQuery, state.frequentCustomers)
+        : renderProductPicker(state.masterStats.products, state.pickerQuery, state.frequentProducts)
       : "";
 
   const globalSearchHtml = state.globalSearchOpen
@@ -2823,14 +2864,17 @@ function collectInvoiceFormFromDom(root: HTMLElement): void {
       state.invoiceForm.invoiceType,
     invoiceDate:
       root.querySelector<HTMLInputElement>("#inv-date")?.value ?? state.invoiceForm.invoiceDate,
+    deliveryDate:
+      root.querySelector<HTMLInputElement>("#inv-delivery-date")?.value ?? state.invoiceForm.deliveryDate,
     customerCode:
       root.querySelector<HTMLInputElement>("#inv-customer-code")?.value ??
       state.invoiceForm.customerCode,
     customerName:
       root.querySelector<HTMLInputElement>("#inv-customer-name")?.value ??
       state.invoiceForm.customerName,
-    staffCode:
-      root.querySelector<HTMLInputElement>("#inv-staff")?.value ?? state.invoiceForm.staffCode,
+    staffCode: state.invoiceForm.staffCode,
+    registeredBy:
+      root.querySelector<HTMLSelectElement>("#inv-registered-by")?.value ?? state.invoiceForm.registeredBy,
     lines: state.invoiceForm.lines.map((line, i) => {
       const qty =
         parseFloat(
@@ -5153,12 +5197,9 @@ function bindEvents(root: HTMLElement): void {
       const name = row.dataset.name ?? "";
 
       if (state.pickerMode === "customer") {
-        state.invoiceForm.customerCode = code;
-        state.invoiceForm.customerName = name;
-        delete state.invoiceErrors.customerCode;
-        // 得意先の単価グループを取得
         const customer = state.masterStats?.customers.find((c) => c.code === code);
-        state.invoicePriceGroup = customer?.priceGroup || "";
+        setCustomerOnForm({ code, name, priceGroup: customer?.priceGroup, staffCode: customer?.staffCode });
+        delete state.invoiceErrors.customerCode;
         if (!state.invoicePriceGroup && code) {
           state.invoicePriceGroup = await fetchCustomerPriceGroup(code);
         }
@@ -5202,6 +5243,60 @@ function bindEvents(root: HTMLElement): void {
 
   root.querySelector<HTMLButtonElement>("[data-action='invoice-save']")?.addEventListener("click", () => {
     persistInvoice(root);
+  });
+
+  // よく使う得意先チップ
+  root.querySelectorAll<HTMLButtonElement>("[data-action='select-freq-customer']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const code = btn.dataset.code ?? "";
+      const name = btn.dataset.name ?? "";
+      const customer = state.masterStats?.customers.find((c) => c.code === code);
+      setCustomerOnForm({ code, name, priceGroup: customer?.priceGroup, staffCode: customer?.staffCode });
+      if (!state.invoicePriceGroup && code) {
+        state.invoicePriceGroup = await fetchCustomerPriceGroup(code);
+      }
+      delete state.invoiceErrors.customerCode;
+      renderApp();
+    });
+  });
+
+  // よく使う商品チップ（最後の明細行にセット、なければ行追加）
+  root.querySelectorAll<HTMLButtonElement>("[data-action='select-freq-product']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      collectInvoiceFormFromDom(root);
+      const code = btn.dataset.code ?? "";
+      const name = btn.dataset.name ?? "";
+      // 空行があればそこにセット、なければ新規行追加
+      let targetIdx = state.invoiceForm.lines.findIndex((l) => !l.productCode);
+      if (targetIdx < 0) {
+        state.invoiceForm.lines.push({ productCode: "", productName: "", quantity: 1, unitPrice: 0, unit: "本", amount: 0 });
+        targetIdx = state.invoiceForm.lines.length - 1;
+      }
+      const line = state.invoiceForm.lines[targetIdx];
+      line.productCode = code;
+      line.productName = name;
+      const price = await fetchProductPrice(state.invoicePriceGroup, code);
+      if (price > 0) line.unitPrice = price;
+      line.amount = line.quantity * line.unitPrice;
+      renderApp();
+    });
+  });
+
+  // 新規担当者登録
+  root.querySelector<HTMLButtonElement>("[data-action='open-new-staff']")?.addEventListener("click", async () => {
+    const name = prompt("新規担当者の名前を入力してください:");
+    if (!name?.trim()) return;
+    const code = `S${String(Date.now()).slice(-4)}`;
+    const { createStaff } = await import("./api");
+    const staff = await createStaff(code, name.trim());
+    if (staff) {
+      state.staffList.push(staff);
+      state.invoiceForm.registeredBy = staff.code;
+      showToast(`担当者「${staff.name}」を登録しました`, "success");
+      renderApp();
+    } else {
+      showToast("担当者の登録に失敗しました", "error");
+    }
   });
 
   root.querySelector<HTMLInputElement>("#inv-customer-code")?.addEventListener("blur", async () => {
@@ -8730,6 +8825,9 @@ function renderApp(): void {
   const isLocked = state.sidebarOpen || state.pickerMode !== null || state.globalSearchOpen;
   document.body.style.overflow = isLocked ? "hidden" : "";
   document.body.style.touchAction = isLocked ? "none" : "";
+
+  // チャットウィジェット（ログイン済みユーザーのみ表示）
+  initChatWidget();
 }
 
 const CACHE_KEY = "sake-cloud-cache";

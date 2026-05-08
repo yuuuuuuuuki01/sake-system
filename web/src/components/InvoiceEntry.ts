@@ -1,5 +1,6 @@
-import type { InvoiceFormData, InvoiceType } from "../api";
+import type { InvoiceFormData, InvoiceType, StaffMember } from "../api";
 import { INVOICE_TYPE_LABELS } from "../api";
+import type { FrequentItem } from "../api";
 
 function toDateInputValue(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -26,7 +27,10 @@ export function renderInvoiceEntry(
   form: InvoiceFormData,
   savedDocNo: string | null,
   saving: boolean,
-  errors: Record<string, string>
+  errors: Record<string, string>,
+  staffList: StaffMember[],
+  frequentCustomers: FrequentItem[],
+  frequentProducts: FrequentItem[]
 ): string {
   const typeOptions = (Object.keys(INVOICE_TYPE_LABELS) as InvoiceType[])
     .map(
@@ -35,19 +39,55 @@ export function renderInvoiceEntry(
     )
     .join("");
 
+  // 担当者ドロップダウン
+  const staffOptions = staffList
+    .map(
+      (s) =>
+        `<option value="${escapeHtml(s.code)}" ${form.registeredBy === s.code ? "selected" : ""}>${escapeHtml(s.name)}（${escapeHtml(s.code)}）</option>`
+    )
+    .join("");
+
+  // 営業担当表示（得意先紐付き）
+  const salesStaffDisplay = form.staffCode
+    ? (() => {
+        const staff = staffList.find((s) => s.code === form.staffCode);
+        return staff ? `${staff.name}（${staff.code}）` : form.staffCode;
+      })()
+    : "—";
+
+  // よく使う得意先チップ
+  const freqCustomerChips = frequentCustomers.length > 0
+    ? `<div class="freq-chips">
+        <span class="freq-label">よく使う:</span>
+        ${frequentCustomers.map((c) =>
+          `<button class="freq-chip" type="button" data-action="select-freq-customer" data-code="${escapeHtml(c.code)}" data-name="${escapeHtml(c.name)}" title="${c.count}件">${escapeHtml(c.name)}</button>`
+        ).join("")}
+      </div>`
+    : "";
+
+  // よく使う商品チップ
+  const freqProductChips = frequentProducts.length > 0
+    ? `<div class="freq-chips">
+        <span class="freq-label">よく使う:</span>
+        ${frequentProducts.map((p) =>
+          `<button class="freq-chip" type="button" data-action="select-freq-product" data-code="${escapeHtml(p.code)}" data-name="${escapeHtml(p.name)}" title="${p.count}回">${escapeHtml(p.name)}</button>`
+        ).join("")}
+      </div>`
+    : "";
+
   const lineRows = form.lines
     .map(
       (line, i) => `
       <tr>
         <td>
           <div class="input-group">
-            <input class="${inputClass(errors, `lines.${i}.productCode`, "input-cell")}" type="text" data-line="${i}" data-field="productCode" value="${escapeHtml(line.productCode)}" placeholder="P00001" />
+            <input class="${inputClass(errors, `lines.${i}.productCode`, "input-cell")}" type="text" data-line="${i}" data-field="productCode" value="${escapeHtml(line.productCode)}" placeholder="商品コード" />
             <button class="picker-btn" type="button" data-action="open-product-picker" data-line="${i}" aria-label="商品検索">🔍</button>
           </div>
           ${fieldError(errors, `lines.${i}.productCode`)}
         </td>
         <td>
-          <input class="${inputClass(errors, `lines.${i}.productName`, "input-cell")}" type="text" data-line="${i}" data-field="productName" value="${escapeHtml(line.productName)}" placeholder="商品名" />
+          <input class="${inputClass(errors, `lines.${i}.productName`, "input-cell")}" type="text" data-line="${i}" data-field="productName" value="${escapeHtml(line.productName)}" placeholder="商品名" data-autofill="product-name" />
           ${fieldError(errors, `lines.${i}.productName`)}
         </td>
         <td>
@@ -103,19 +143,27 @@ export function renderInvoiceEntry(
           ${fieldError(errors, "invoiceDate")}
         </label>
         <label class="field">
-          <span>得意先コード</span>
+          <span>納品日</span>
+          <input id="inv-delivery-date" type="date" value="${form.deliveryDate || form.invoiceDate || toDateInputValue(new Date())}" />
+          <div class="form-hint">空欄の場合は伝票日付と同じ</div>
+        </label>
+      </div>
+
+      <div class="filter-grid filter-grid--wide" style="margin-top:12px;">
+        <label class="field">
+          <span>得意先</span>
           <div class="input-group">
             <input
               class="${inputClass(errors, "customerCode")}"
               id="inv-customer-code"
               data-autofill="customer"
               type="text"
-              placeholder="C0011"
+              placeholder="コードまたは名前で検索"
               value="${escapeHtml(form.customerCode)}"
             />
             <button class="picker-btn" type="button" data-action="open-customer-picker" aria-label="得意先検索">🔍</button>
           </div>
-          <div class="form-hint">得意先コードを入力すると名前が自動補完されます</div>
+          <div class="form-hint">コード・名前・カナで検索できます</div>
           ${fieldError(errors, "customerCode")}
         </label>
         <label class="field">
@@ -124,13 +172,29 @@ export function renderInvoiceEntry(
             id="inv-customer-name"
             data-autofill="customer-name"
             type="text"
-            placeholder="青葉商事"
+            placeholder="名前で検索"
             value="${escapeHtml(form.customerName)}"
           />
         </label>
+        <div class="field">
+          <span>営業担当</span>
+          <div class="staff-display" id="inv-sales-staff">${escapeHtml(salesStaffDisplay)}</div>
+          <div class="form-hint">得意先に紐づく営業担当（自動セット）</div>
+        </div>
+      </div>
+
+      ${freqCustomerChips}
+
+      <div class="filter-grid filter-grid--wide" style="margin-top:12px;">
         <label class="field">
-          <span>担当者コード</span>
-          <input id="inv-staff" type="text" placeholder="S001" value="${escapeHtml(form.staffCode)}" />
+          <span>伝票登録者</span>
+          <div class="input-group">
+            <select id="inv-registered-by">
+              <option value="">選択してください</option>
+              ${staffOptions}
+            </select>
+            <button class="button secondary small" type="button" data-action="open-new-staff" title="担当者を新規登録">＋</button>
+          </div>
         </label>
       </div>
       ${fieldError(errors, "lines")}
@@ -144,6 +208,7 @@ export function renderInvoiceEntry(
         </div>
         <button class="button secondary" data-action="add-line">＋ 行追加</button>
       </div>
+      ${freqProductChips}
       <div class="table-wrap">
         <table class="entry-table">
           <thead>
@@ -190,5 +255,47 @@ export function renderInvoiceEntry(
         ${saving ? "保存中…" : "保存する"}
       </button>
     </div>
+
+    <style>
+      .staff-display {
+        padding: 8px 12px;
+        background: var(--bg-subtle, #f3f4f6);
+        border: 1px solid var(--border, #e5e7eb);
+        border-radius: 6px;
+        font-size: 0.9rem;
+        color: var(--text, #111);
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+      }
+      .freq-chips {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+        padding: 8px 0;
+      }
+      .freq-label {
+        font-size: 0.75rem;
+        color: var(--text-muted, #6b7280);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .freq-chip {
+        font-size: 0.75rem;
+        padding: 3px 10px;
+        border-radius: 12px;
+        border: 1px solid #dbeafe;
+        background: #eff6ff;
+        color: #1d4ed8;
+        cursor: pointer;
+        transition: background 0.1s, border-color 0.1s;
+        white-space: nowrap;
+      }
+      .freq-chip:hover {
+        background: #dbeafe;
+        border-color: #93c5fd;
+      }
+    </style>
   `;
 }
