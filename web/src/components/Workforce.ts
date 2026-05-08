@@ -402,11 +402,13 @@ export function generateAutoShifts(
     }
   }
 
-  function availableIds(dept: StaffDepartment): string[] {
+  // 社員・業務委託のみベース配置（パートは呼び出し型のため自動生成に含めない）
+  function availableIds(dept: StaffDepartment, includePartTime = false): string[] {
     return staff.filter(s =>
       s.isActive &&
       (s.department === dept || s.crossDepartments.includes(dept)) &&
-      (!s.availableMonths || s.availableMonths.includes(m))
+      (!s.availableMonths || s.availableMonths.includes(m)) &&
+      (includePartTime || s.employmentType !== 'part_time')
     ).map(s => s.id);
   }
 
