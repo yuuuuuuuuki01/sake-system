@@ -666,6 +666,7 @@ interface AppState {
   staffDeptFilter: string;
   workforceYearMonth: string;
   shiftBottlingTarget: number;
+  workforceSelectedDay: string | null;
   brewingProductDetail: import("./api").BrewingProductDetail[];
   brewingExcludedProducts: Set<string>;
   brewingCustomCategories: import("./api").BrewingCustomCategory[];
@@ -1016,6 +1017,7 @@ const state: AppState = {
   staffDeptFilter: "",
   workforceYearMonth: new Date().toISOString().slice(0, 7),
   shiftBottlingTarget: 0,
+  workforceSelectedDay: null as string | null,
   brewingProductDetail: [] as import("./api").BrewingProductDetail[],
   brewingExcludedProducts: new Set<string>(),
   brewingCustomCategories: [] as import("./api").BrewingCustomCategory[],
@@ -2176,7 +2178,8 @@ function renderView(): string {
         state.brewingSchedule,
         state.shiftBottlingTarget,
         state.workforceMetrics,
-        state.dailyShiftPlans
+        state.dailyShiftPlans,
+        state.workforceSelectedDay
       );
     case "/jikomi":
       return state.jikomiView === "calendar"
@@ -2876,6 +2879,10 @@ function bindStaffModal(existing: StaffMember | null): void {
       form.querySelectorAll<HTMLInputElement>("input[name='sf-task']:checked")
     ).map(el => el.value as import("./api").MonthlyTask);
 
+    const fixedDaysOff = Array.from(
+      form.querySelectorAll<HTMLInputElement>("input[name='sf-day-off']:checked")
+    ).map(el => parseInt(el.value));
+
     const data: Partial<StaffMember> & { name: string } = {
       id:               form.querySelector<HTMLInputElement>("#sf-id")?.value || undefined,
       name:             form.querySelector<HTMLInputElement>("#sf-name")?.value.trim() ?? "",
@@ -2890,6 +2897,8 @@ function bindStaffModal(existing: StaffMember | null): void {
       monthlyTasks,
       availableMonths,
       crossDepartments,
+      fixedDaysOff,
+      isDeptLeader:     form.querySelector<HTMLInputElement>("#sf-leader")?.checked ?? false,
       notes:            form.querySelector<HTMLInputElement>("#sf-notes")?.value.trim() || "",
       isActive:         form.querySelector<HTMLInputElement>("#sf-active")?.checked ?? true,
     };
@@ -8363,10 +8372,26 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
   root.querySelector<HTMLSelectElement>("#shift-year-month")?.addEventListener("change", e => {
-    state.workforceYearMonth = (e.target as HTMLSelectElement).value;
-    state.workforceMetrics  = null;
-    state.dailyShiftPlans   = [];
+    state.workforceYearMonth   = (e.target as HTMLSelectElement).value;
+    state.workforceMetrics     = null;
+    state.dailyShiftPlans      = [];
+    state.workforceSelectedDay = null;
     navigate(state.currentPath); // loadRouteData 経由で再フェッチ
+  });
+
+  // 日セルクリック → 詳細パネル表示
+  root.querySelectorAll<HTMLDivElement>("[data-shift-day]").forEach(el => {
+    el.addEventListener("click", () => {
+      const day = el.dataset.shiftDay ?? null;
+      state.workforceSelectedDay = state.workforceSelectedDay === day ? null : day;
+      renderApp();
+    });
+  });
+
+  // 詳細パネル「閉じる」
+  root.querySelector<HTMLButtonElement>("[data-action='shift-day-close']")?.addEventListener("click", () => {
+    state.workforceSelectedDay = null;
+    renderApp();
   });
 
   // 詰口計画本数入力

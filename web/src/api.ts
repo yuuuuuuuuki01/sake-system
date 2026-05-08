@@ -6719,6 +6719,8 @@ export interface StaffMember {
   monthlyTasks: MonthlyTask[];              // 月次業務（請求・棚卸）
   availableMonths: number[] | null;
   crossDepartments: StaffDepartment[];
+  fixedDaysOff: number[];                   // 固定休み曜日 (0=日,1=月…6=土, getDay()準拠)
+  isDeptLeader: boolean;                    // 部門長フラグ（部門長不在時は他部門員で代行）
   notes: string;
   isActive: boolean;
 }
@@ -6741,6 +6743,8 @@ export async function fetchStaffMembers(): Promise<StaffMember[]> {
     monthlyTasks:     Array.isArray(r['monthly_tasks']) ? (r['monthly_tasks'] as MonthlyTask[]) : [],
     availableMonths:  Array.isArray(r['available_months']) ? (r['available_months'] as number[]) : null,
     crossDepartments: Array.isArray(r['cross_departments']) ? (r['cross_departments'] as StaffDepartment[]) : [],
+    fixedDaysOff:     Array.isArray(r['fixed_days_off']) ? (r['fixed_days_off'] as number[]) : [],
+    isDeptLeader:     r['is_dept_leader'] === true,
     notes:            getString(r, ['notes'], ''),
     isActive:         r['is_active'] !== false,
   }));
@@ -6760,6 +6764,8 @@ export async function upsertStaffMember(data: Partial<StaffMember> & { name: str
     monthly_tasks:       data.monthlyTasks ?? [],
     available_months:    data.availableMonths ?? null,
     cross_departments:   data.crossDepartments ?? [],
+    fixed_days_off:      data.fixedDaysOff ?? [],
+    is_dept_leader:      data.isDeptLeader ?? false,
     notes:               data.notes ?? null,
     is_active:           data.isActive ?? true,
     updated_at:          new Date().toISOString(),

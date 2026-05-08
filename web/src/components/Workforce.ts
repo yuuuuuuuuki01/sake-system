@@ -83,9 +83,12 @@ function renderStaffTab(staff: StaffMember[], deptFilter: string): string {
 
   function row(s: StaffMember): string {
     const months = s.availableMonths ? s.availableMonths.map(monthName).join('・') : '通年';
+    const leaderBadge = s.isDeptLeader
+      ? `<span style="display:inline-block;font-size:10px;padding:0 5px;border-radius:8px;background:#f59e0b20;color:#d97706;border:1px solid #f59e0b40;margin-left:4px;">部門長</span>`
+      : '';
     return `<tr class="${s.isActive ? '' : 'row-inactive'}">
       <td>
-        ${s.name}${s.kana ? `<br><span style="font-size:11px;color:var(--text-secondary);">${s.kana}</span>` : ''}
+        ${s.name}${leaderBadge}${s.kana ? `<br><span style="font-size:11px;color:var(--text-secondary);">${s.kana}</span>` : ''}
         ${taskBadges(s)}
       </td>
       <td>${deptBadge(s.department)}${crossBadges(s)}</td>
@@ -225,6 +228,20 @@ export function renderStaffModal(s?: StaffMember): string {
               </div>
             </div>
 
+            <!-- 固定休み曜日 -->
+            <div class="form-row" style="grid-column:1/-1;">
+              <label>固定休み曜日</label>
+              <div style="display:flex;gap:8px;padding:4px 0;flex-wrap:wrap;">
+                ${([1,2,3,4,5,6] as const).map(dow => {
+                  const labels = ['','月','火','水','木','金','土'];
+                  return `<label style="display:inline-flex;align-items:center;gap:3px;font-size:13px;">
+                    <input type="checkbox" name="sf-day-off" value="${dow}" ${s?.fixedDaysOff?.includes(dow) ? 'checked' : ''} />
+                    ${labels[dow]}
+                  </label>`;
+                }).join('')}
+              </div>
+            </div>
+
             <div class="form-row" style="grid-column:1/-1;">
               <label>稼働月（空欄=通年、例: 9,10,11,12,1,2,3,4）</label>
               <input type="text" id="sf-months" value="${availStr}" placeholder="例: 9,10,11,12,1,2,3,4（造りスタッフ等）" />
@@ -239,7 +256,11 @@ export function renderStaffModal(s?: StaffMember): string {
               <label>備考</label>
               <input type="text" id="sf-notes" value="${s?.notes ?? ''}" />
             </div>
-            <div class="form-row" style="grid-column:1/-1;">
+            <div class="form-row" style="grid-column:1/-1;display:flex;gap:20px;">
+              <label>
+                <input type="checkbox" id="sf-leader" ${s?.isDeptLeader ? 'checked' : ''} />
+                部門長（この人の日程を軸にシフトが決まる）
+              </label>
               <label>
                 <input type="checkbox" id="sf-active" ${s?.isActive !== false ? 'checked' : ''} />
                 有効（在籍中）
@@ -354,12 +375,15 @@ function renderCostTab(staff: StaffMember[], yearMonth: string): string {
 // ── 月次シフトタブ ─────────────────────────────────────────────────────────────
 
 // ── シフト自動生成ロジック ─────────────────────────────────────────────────────
-// 前年同月の実績工数をベースに今年の最適人員配置を算出する
 
 /** 1人が1日に処理できる出荷伝票数（目安） */
 const DOCS_PER_PERSON_DAY = 25;
 /** 1人が午前中に対応できる来客・電話件数（目安） */
 const VISITORS_PER_PERSON_AM = 15;
+/** 貼場: 1人1日あたりの貼付本数 (80本/h × 8h) */
+const LABELING_CAPACITY_PER_PERSON_DAY = 640;
+/** 詰口: 1酒質あたりの日産上限（単一銘柄フル稼働時） */
+// 複数酒質を1日に詰める場合は切り替え・洗浄ロスがあるため実効容量が下がる
 
 export function generateAutoShifts(
   yearMonth: string,
@@ -373,7 +397,7 @@ export function generateAutoShifts(
   const [y, m] = yearMonth.split('-').map(Number);
   const pad = (n: number) => String(n).padStart(2, '0');
   const daysInMonth = new Date(y, m, 0).getDate();
-  const workingDays = metrics?.workingDays ?? 22;
+  const workingDays = metrics?.workingDays ?? 26; // 月〜土: 約26日
 
   // ── 醸造月判定
   const isBrewingMonth = brewingSchedule.some(s => {
@@ -386,13 +410,13 @@ export function generateAutoShifts(
   // ── 前年同月 or 当月の日次平均指標（前年優先）
   const baseMonthlyDocs     = (metrics?.prevYearDocumentCount    ?? 0) || (metrics?.monthlyDocumentCount    ?? 0);
   const baseMonthlyRoute    = (metrics?.prevYearRouteSalesAmount ?? 0) || (metrics?.routeSalesAmount        ?? 0);
-  const baseMonthlyVisitors = metrics?.directSalesCount ?? 0; // 上様来店（当月値で代用）
+  const baseMonthlyVisitors = metrics?.directSalesCount ?? 0;
 
   const avgDailyDocs     = workingDays > 0 ? baseMonthlyDocs     / workingDays : 0;
   const avgDailyRoute    = workingDays > 0 ? baseMonthlyRoute    / workingDays : 0;
   const avgDailyVisitors = workingDays > 0 ? baseMonthlyVisitors / workingDays : 0;
 
-  // ── スタッフ分類ヘルパー
+  // ── スタッフ分類ヘルパー（稼働月フィルタ）
   function byDept(dept: StaffDepartment, types?: string[]): StaffMember[] {
     return staff.filter(s =>
       s.isActive &&
@@ -402,47 +426,60 @@ export function generateAutoShifts(
     );
   }
 
-  // ── 業務日リスト
+  // ── 業務日リスト（月〜土、日曜のみ除外）
   const businessDays: number[] = [];
   for (let d = 1; d <= daysInMonth; d++) {
-    if (![0, 6].includes(new Date(y, m - 1, d).getDay())) businessDays.push(d);
+    if (new Date(y, m - 1, d).getDay() !== 0) businessDays.push(d); // 0=日のみ除外
   }
   const inventorySet = new Set(businessDays.slice(-5)); // 月末5営業日＝棚卸週
 
-  // ── 総務 スタッフ分類
-  const soumuEmps     = byDept('soumu', ['employee']);
-  const soumuPartsAM  = byDept('soumu', ['part_time']).filter(s => (s.shiftPreference ?? 'both') !== 'afternoon');
-  const soumuPartsPM  = byDept('soumu', ['part_time']).filter(s => (s.shiftPreference ?? 'both') !== 'morning');
+  // ── 固定休み考慮: 各日に出勤可能なスタッフを返す
+  function availableOn(candidates: StaffMember[], dayNum: number): StaffMember[] {
+    const dow = new Date(y, m - 1, dayNum).getDay();
+    return candidates.filter(s => !(s.fixedDaysOff ?? []).includes(dow));
+  }
 
-  // 通常日に必要な総務人員（社員1人あたりの処理上限で算出）
+  // ── 部門長チェック: 部門長がいる日だけその部門が稼働する
+  // 部門長が設定されていない部門は全員が候補
+  function leaderAvailableOn(deptMembers: StaffMember[], dayNum: number): boolean {
+    const leaders = deptMembers.filter(s => s.isDeptLeader);
+    if (leaders.length === 0) return true; // 部門長未設定 → 常に稼働
+    return availableOn(leaders, dayNum).length > 0;
+  }
+
+  // 部門員を「部門長 → 社員 → パート → 委託」の順に並べ替え（リーダー優先配置）
+  function sortByRole(members: StaffMember[]): StaffMember[] {
+    return [...members].sort((a, b) => {
+      const score = (s: StaffMember) =>
+        s.isDeptLeader ? 0 :
+        s.employmentType === 'employee' ? 1 :
+        s.employmentType === 'part_time' ? 2 : 3;
+      return score(a) - score(b);
+    });
+  }
+
+  // ── 総務 スタッフ分類
+  const soumuEmps    = byDept('soumu', ['employee']);
+  const soumuPartsAM = byDept('soumu', ['part_time']).filter(s => (s.shiftPreference ?? 'both') !== 'afternoon');
+  const soumuPartsPM = byDept('soumu', ['part_time']).filter(s => (s.shiftPreference ?? 'both') !== 'morning');
+
   const soumuNeededBase = Math.max(
-    soumuEmps.length,                                         // 社員は最低限出勤
-    Math.ceil(avgDailyDocs / DOCS_PER_PERSON_DAY),           // 伝票数から逆算
-    Math.ceil(avgDailyVisitors / VISITORS_PER_PERSON_AM)     // 来客数から逆算
+    soumuEmps.length,
+    Math.ceil(avgDailyDocs / DOCS_PER_PERSON_DAY),
+    Math.ceil(avgDailyVisitors / VISITORS_PER_PERSON_AM)
   );
-  const soumuGap = Math.max(0, soumuNeededBase - soumuEmps.length); // パートで補う人数
+  const soumuGap = Math.max(0, soumuNeededBase - soumuEmps.length);
 
   // ── ルートセールス・配送 スタッフ分類
-  const routeEmps        = byDept('route_sales', ['employee']);
-  const deliveryConts    = byDept('delivery', ['contractor']);
-  const routeEmpCap      = routeEmps.length * DELIVERY_CAPACITY_PER_VEHICLE; // 社員のみの積載上限/日
-
-  // 社員キャパを超える日次平均分のみ委託を使う
-  const dailyOverflow        = Math.max(0, avgDailyRoute - routeEmpCap);
-  const contractorsNeeded    = dailyOverflow > 0
+  const routeEmps         = byDept('route_sales', ['employee']);
+  const deliveryConts     = byDept('delivery', ['contractor']);
+  const routeEmpCap       = routeEmps.length * DELIVERY_CAPACITY_PER_VEHICLE;
+  const dailyOverflow     = Math.max(0, avgDailyRoute - routeEmpCap);
+  const contractorsNeeded = dailyOverflow > 0
     ? Math.min(deliveryConts.length, Math.ceil(dailyOverflow / DELIVERY_CAPACITY_PER_VEHICLE))
     : 0;
-  const assignedDeliveryConts = deliveryConts.slice(0, contractorsNeeded);
 
-  // ── 詰口・貼場: 需要・生産計画から逆算（production_plan 連携）
-  // 考え方:
-  //   貼場 → 出荷見込み本数（demand_forecast の合計）から必要人日を逆算し月後半に集中配置
-  //   詰口 → 必要生産本数（required_production）を前半から均等先詰め
-  //   calendarShifts に今月データがあれば稼働日候補として優先使用（需要計画カレンダーと連動）
-
-  const LABELING_CAPACITY_PER_PERSON_DAY = 640; // 80本/時 × 8時間
-
-  // 需要計画から合計を集計
+  // ── 需要・生産計画集計
   const planDemandTotal   = productionPlan.reduce((s, r) => s + r.demandForecast,    0);
   const planRequiredTotal = productionPlan.reduce((s, r) => s + r.requiredProduction, 0)
                           || productionPlan.reduce((s, r) => s + r.plannedQty,        0);
@@ -451,7 +488,7 @@ export function generateAutoShifts(
   const labelingTotal =
     planDemandTotal > 0                        ? planDemandTotal :
     (metrics?.prevYearTotalQuantity ?? 0) > 0  ? metrics!.prevYearTotalQuantity :
-    (metrics?.currentTotalQuantity  ?? 0) > 0  ? metrics!.currentTotalQuantity : 0;
+    (metrics?.currentTotalQuantity  ?? 0) > 0  ? metrics!.currentTotalQuantity  : 0;
 
   // 詰口の計画本数: 手動入力 > 必要生産本数 > 貼場と同数
   const bottlingTotal =
@@ -459,71 +496,84 @@ export function generateAutoShifts(
     planRequiredTotal > 0 ? planRequiredTotal  :
     labelingTotal;
 
-  const bottlingBasis =
-    bottlingTargetQty > 0  ? `入力値 ${bottlingTargetQty.toLocaleString('ja-JP')}本` :
-    planRequiredTotal > 0  ? `需要計画 必要生産 ${planRequiredTotal.toLocaleString('ja-JP')}本` :
-    (metrics?.prevYearTotalQuantity ?? 0) > 0 ? `前年同月実績 ${metrics!.prevYearTotalQuantity.toLocaleString('ja-JP')}本` :
-    (metrics?.currentTotalQuantity  ?? 0) > 0 ? `当月実績 ${metrics!.currentTotalQuantity.toLocaleString('ja-JP')}本` :
-    '実績データなし（本数を入力してください）';
+  // ── 詰口スケジュール: 製品ごとにまとめてバッチ稼働（切り替え・洗浄ロス回避）
+  // 同一酒質は日産 LINE_MAX_DAILY 本で連続稼働、複数酒質は1日1銘柄原則
+  const bottlingAll  = byDept('bottling');
+  const labelingAll  = byDept('labeling');
+  const brewingAll   = byDept('brewing');
 
-  const labelingBasis =
-    planDemandTotal > 0 ? `需要計画 出荷見込み ${planDemandTotal.toLocaleString('ja-JP')}本` :
-    bottlingBasis;
+  // 製品別の必要稼働日を計算してバッチ割り当て
+  // productionPlan に製品別データがあれば製品ごと、なければ合計をまとめて扱う
+  interface ProductRun { productCode: string; productName: string; qty: number; daysNeeded: number; }
+  const productRuns: ProductRun[] = productionPlan.length > 0
+    ? productionPlan
+        .filter(r => (r.requiredProduction || r.plannedQty) > 0)
+        .map(r => ({
+          productCode: r.productCode,
+          productName: r.productName,
+          qty: r.requiredProduction || r.plannedQty,
+          daysNeeded: Math.max(1, Math.ceil((r.requiredProduction || r.plannedQty) / LINE_MAX_DAILY)),
+        }))
+    : bottlingTotal > 0
+      ? [{ productCode: '', productName: '詰口計画', qty: bottlingTotal, daysNeeded: Math.ceil(bottlingTotal / LINE_MAX_DAILY) }]
+      : [];
 
   // calendarShifts から今月の稼働日を抽出（需要計画カレンダーと連動）
   const calMonthPrefix = `${y}-${pad(m)}`;
   const calStaffedDays = calendarShifts
     .filter(s => s.date.startsWith(calMonthPrefix) && (s.partTimers > 0 || s.employees > 0))
     .sort((a, b) => a.date.localeCompare(b.date));
-  const hasCalData = calStaffedDays.length >= 5; // 5日以上データがあれば有効とみなす
+  const hasCalData = calStaffedDays.length >= 5;
 
-  // 棚卸除く稼働候補日（calendarShifts 優先、なければ業務日ベース）
   const activeDayNums = hasCalData
     ? calStaffedDays.map(s => parseInt(s.date.slice(-2))).filter(d => !inventorySet.has(d))
     : businessDays.filter(d => !inventorySet.has(d));
 
   const calDayMap = new Map(calStaffedDays.map(s => [parseInt(s.date.slice(-2)), s]));
 
-  // 詰口: 全体に均等配置（前詰め可能 → 前半から稼働）
-  const bottlingDaysNeeded = bottlingTotal > 0
-    ? Math.min(activeDayNums.length, Math.ceil(bottlingTotal / LINE_MAX_DAILY)) : 0;
-  const bottlingDaySet = new Set<number>();
-  if (bottlingDaysNeeded > 0 && activeDayNums.length > 0) {
-    const step = activeDayNums.length / bottlingDaysNeeded;
-    for (let i = 0; i < bottlingDaysNeeded; i++) {
-      bottlingDaySet.add(activeDayNums[Math.min(Math.round(i * step), activeDayNums.length - 1)]);
+  // 詰口日セット: 製品ごとに連続した日を割り当て（前詰め）
+  // bottlingDayMap: 日 → { productCode, productName, dailyQty }
+  const bottlingDayMap = new Map<number, { productCode: string; productName: string; dailyQty: number }>();
+  let dayIdx = 0;
+  for (const run of productRuns) {
+    for (let i = 0; i < run.daysNeeded && dayIdx < activeDayNums.length; i++, dayIdx++) {
+      const d = activeDayNums[dayIdx];
+      const remainingQty = run.qty - i * LINE_MAX_DAILY;
+      const dailyQty = Math.min(remainingQty, LINE_MAX_DAILY);
+      bottlingDayMap.set(d, { productCode: run.productCode, productName: run.productName, dailyQty });
     }
   }
 
   // 貼場: 月後半に集中配置（出荷直前）
-  const labelingPersonDaysNeeded = labelingTotal > 0
-    ? Math.ceil(labelingTotal / LABELING_CAPACITY_PER_PERSON_DAY) : 0;
-  const labelingAll = byDept('labeling');
   const labelingHeadcount = Math.max(LABELING_MIN, Math.min(labelingAll.length || 1, 3));
-  // 後半の稼働候補日
+  const labelingPersonDaysNeeded = labelingTotal > 0
+    ? Math.ceil(labelingTotal / (LABELING_CAPACITY_PER_PERSON_DAY * labelingHeadcount)) : 0;
   const labelingCandidates = activeDayNums.slice(Math.floor(activeDayNums.length / 2));
-  const labelingDaysNeeded = labelingPersonDaysNeeded > 0
-    ? Math.min(labelingCandidates.length, Math.ceil(labelingPersonDaysNeeded / labelingHeadcount)) : 0;
   const labelingDaySet = new Set<number>();
-  if (labelingDaysNeeded > 0 && labelingCandidates.length > 0) {
-    const step = labelingCandidates.length / labelingDaysNeeded;
-    for (let i = 0; i < labelingDaysNeeded; i++) {
+  if (labelingPersonDaysNeeded > 0 && labelingCandidates.length > 0) {
+    const step = labelingCandidates.length / Math.min(labelingPersonDaysNeeded, labelingCandidates.length);
+    for (let i = 0; i < labelingPersonDaysNeeded && i < labelingCandidates.length; i++) {
       labelingDaySet.add(labelingCandidates[Math.min(Math.round(i * step), labelingCandidates.length - 1)]);
     }
   }
 
-  // 日次の貼場必要人数（出荷本数 ÷ 稼働日数 ÷ 1人日生産性）
   const dailyLabelingQty = labelingDaySet.size > 0 ? Math.ceil(labelingTotal / labelingDaySet.size) : 0;
   const dailyLabelingHeadcount = Math.max(LABELING_MIN, Math.min(
     labelingAll.length || 1,
     Math.ceil(dailyLabelingQty / LABELING_CAPACITY_PER_PERSON_DAY)
   ));
 
-  // 詰口・貼場はパート含む（生産ラインはパートが主力）
-  const bottlingAll = byDept('bottling');
+  // 根拠テキスト（詰口・貼場）
+  const bottlingBasisSrc =
+    bottlingTargetQty > 0  ? `手動入力 ${bottlingTargetQty.toLocaleString('ja-JP')}本` :
+    planRequiredTotal > 0  ? `需要計画（必要生産 ${planRequiredTotal.toLocaleString('ja-JP')}本）` :
+    (metrics?.prevYearTotalQuantity ?? 0) > 0 ? `前年同月実績 ${metrics!.prevYearTotalQuantity.toLocaleString('ja-JP')}本` :
+    (metrics?.currentTotalQuantity  ?? 0) > 0 ? `当月実績 ${metrics!.currentTotalQuantity.toLocaleString('ja-JP')}本` :
+    '実績データなし';
 
-  // ── 造り
-  const brewingAll = byDept('brewing'); // 社員+パート両方
+  const labelingBasisSrc =
+    planDemandTotal > 0 ? `需要計画 出荷見込み ${planDemandTotal.toLocaleString('ja-JP')}本` :
+    bottlingBasisSrc;
 
   // ── プラン生成
   const plans: DailyShiftPlan[] = [];
@@ -531,77 +581,111 @@ export function generateAutoShifts(
   for (const d of businessDays) {
     const dateStr     = `${y}-${pad(m)}-${pad(d)}`;
     const isInventory = inventorySet.has(d);
-    const isBottling  = bottlingDaySet.has(d);
+    const bottlingRun = bottlingDayMap.get(d);
+    const isBottling  = bottlingRun !== undefined;
     const isLabeling  = labelingDaySet.has(d);
 
-    // ── 総務（業務量ベース配置）
-    const soumuAssigned: string[] = soumuEmps.map(s => s.id);
-    let gap = soumuGap + (isInventory ? 1 : 0); // 棚卸週は+1
-    // 午前パートから充当
-    for (const s of soumuPartsAM) {
-      if (gap <= 0) break;
-      soumuAssigned.push(s.id);
-      gap--;
-    }
-    // 午後パートで補完
-    for (const s of soumuPartsPM) {
+    // ── 総務（部門長ありき → 業務量ベースでパート補充）
+    const soumuAll       = sortByRole(byDept('soumu'));
+    const soumuToday     = availableOn(soumuAll, d);
+    const soumuEmpsToday = soumuToday.filter(s => s.employmentType === 'employee');
+    const soumuAMToday   = soumuToday.filter(s => s.employmentType === 'part_time' && (s.shiftPreference ?? 'both') !== 'afternoon');
+    const soumuPMToday   = soumuToday.filter(s => s.employmentType === 'part_time' && (s.shiftPreference ?? 'both') !== 'morning');
+    const soumuHasLeader = leaderAvailableOn(soumuAll, d);
+    const soumuAssigned: string[] = soumuEmpsToday.map(s => s.id);
+    let gap = Math.max(0, soumuNeededBase - soumuEmpsToday.length) + (isInventory ? 1 : 0);
+    for (const s of soumuAMToday) { if (gap <= 0) break; soumuAssigned.push(s.id); gap--; }
+    for (const s of soumuPMToday) {
       if (gap <= 0) break;
       if (!soumuAssigned.includes(s.id)) { soumuAssigned.push(s.id); gap--; }
     }
+    const soumuNoteBase = [
+      isInventory ? '棚卸週（月末棚卸対応）' : null,
+      !soumuHasLeader ? '⚠ 部門長不在' : null,
+      `伝票${Math.round(avgDailyDocs)}件/日 ÷ ${DOCS_PER_PERSON_DAY}件/人 = ${Math.ceil(avgDailyDocs/DOCS_PER_PERSON_DAY)}名必要`,
+      `来客${Math.round(avgDailyVisitors)}件/日 ÷ ${VISITORS_PER_PERSON_AM}件/人 = ${Math.ceil(avgDailyVisitors/VISITORS_PER_PERSON_AM)}名必要(AM)`,
+    ].filter(Boolean).join(' | ');
     plans.push({
       planDate: dateStr, department: 'soumu',
       staffMemberIds: soumuAssigned,
-      notes: isInventory ? '棚卸週' : `伝票${Math.round(avgDailyDocs)}件・来客${Math.round(avgDailyVisitors)}件/日`,
+      notes: soumuNoteBase,
     });
 
-    // ── ルートセールス（社員全員）
+    // ── ルートセールス（部門長ありき・社員全員・固定休み考慮）
+    const routeAll   = sortByRole(byDept('route_sales'));
+    const routeToday = availableOn(routeAll, d);
+    const routeHasLeader = leaderAvailableOn(routeAll, d);
     plans.push({
       planDate: dateStr, department: 'route_sales',
-      staffMemberIds: routeEmps.map(s => s.id),
-      notes: `日次目標 ${fmtYen(avgDailyRoute)}`,
+      staffMemberIds: routeToday.map(s => s.id),
+      notes: [
+        !routeHasLeader ? '⚠ 部門長不在' : null,
+        `前年同月日次平均 ${fmtYen(avgDailyRoute)}`,
+        `社員${routeToday.length}台 × 積載 ${fmtYen(DELIVERY_CAPACITY_PER_VEHICLE)}/台`,
+      ].filter(Boolean).join(' | '),
     });
 
-    // ── 配送委託（社員キャパ超過分のみ）
+    // ── 配送委託（社員キャパ超過分のみ・固定休み考慮）
+    const contsToday = availableOn(sortByRole(deliveryConts), d).slice(0, contractorsNeeded);
     plans.push({
       planDate: dateStr, department: 'delivery',
-      staffMemberIds: assignedDeliveryConts.map(s => s.id),
+      staffMemberIds: contsToday.map(s => s.id),
       notes: contractorsNeeded === 0
-        ? `社員(${routeEmps.length}台)で対応可`
-        : `超過 ${fmtYen(dailyOverflow)}/日`,
+        ? `社員${routeToday.length}台（${fmtYen(routeEmpCap)}/日）で対応可 | 超過なし`
+        : `社員キャパ超過 ${fmtYen(dailyOverflow)}/日 → 委託${contractorsNeeded}台追加`,
     });
 
-    // ── 造り（醸造月のみ・全員）
+    // ── 造り（醸造月のみ・部門長ありき・固定休み考慮）
     if (isBrewingMonth) {
-      plans.push({ planDate: dateStr, department: 'brewing', staffMemberIds: brewingAll.map(s => s.id), notes: '' });
+      const brewAll   = sortByRole(brewingAll);
+      const brewToday = availableOn(brewAll, d);
+      const brewHasLeader = leaderAvailableOn(brewAll, d);
+      if (brewToday.length > 0) {
+        plans.push({
+          planDate: dateStr, department: 'brewing',
+          staffMemberIds: brewToday.map(s => s.id),
+          notes: [
+            !brewHasLeader ? '⚠ 部門長不在（代行要確認）' : null,
+            `醸造月（${m}月） | 調達計画に基づく仕込み`,
+          ].filter(Boolean).join(' | '),
+        });
+      }
     }
 
-    // ── 詰口（均等先詰め、パート含む）
-    if (isBottling) {
-      // calendarShifts に人数情報があれば参考に、なければ BOTTLING_LINE_SIZE を最低人数とする
-      const calShift = calDayMap.get(d);
-      const targetHeadcount = calShift
-        ? Math.max(BOTTLING_LINE_SIZE, calShift.partTimers + calShift.employees)
-        : BOTTLING_LINE_SIZE;
-      const assigned = bottlingAll.slice(0, Math.min(bottlingAll.length, targetHeadcount));
-      plans.push({
-        planDate: dateStr, department: 'bottling',
-        staffMemberIds: assigned.map(s => s.id),
-        notes: assigned.length < BOTTLING_LINE_SIZE
-          ? `要員不足 ${assigned.length}/${BOTTLING_LINE_SIZE}名`
-          : bottlingBasis,
-      });
+    // ── 詰口（部門長ありきで稼働判断・製品ごとバッチ・前詰め）
+    if (isBottling && bottlingRun) {
+      const bottAll   = sortByRole(bottlingAll);
+      const bottHasLeader = leaderAvailableOn(bottAll, d);
+      if (bottHasLeader || bottAll.filter(s => s.isDeptLeader).length === 0) {
+        const calShift  = calDayMap.get(d);
+        const targetHead = calShift
+          ? Math.max(BOTTLING_LINE_SIZE, calShift.partTimers + calShift.employees)
+          : BOTTLING_LINE_SIZE;
+        const bottlingToday = availableOn(bottAll, d).slice(0, Math.min(bottAll.length, targetHead));
+        const productLabel  = bottlingRun.productName
+          ? `${bottlingRun.productName}（${bottlingRun.productCode}）`
+          : bottlingBasisSrc;
+        plans.push({
+          planDate: dateStr, department: 'bottling',
+          staffMemberIds: bottlingToday.map(s => s.id),
+          notes: bottlingToday.length < BOTTLING_LINE_SIZE
+            ? `⚠ 要員不足 ${bottlingToday.length}/${BOTTLING_LINE_SIZE}名 | ${productLabel}`
+            : `${productLabel} | 本日目標 ${bottlingRun.dailyQty.toLocaleString('ja-JP')}本 | 日産上限 ${LINE_MAX_DAILY.toLocaleString('ja-JP')}本/単一酒質`,
+        });
+      }
+      // 部門長不在の場合は翌稼働日に繰り越し（プランなし）
     }
 
-    // ── 貼場（出荷直前・月後半集中、詰口とは独立スケジュール）
+    // ── 貼場（出荷直前・月後半集中・固定休み考慮）
+    // ※ 貼場は部門長設定なし（全員対象）
     if (isLabeling) {
-      // 日次必要人数 = dailyLabelingHeadcount（出荷見込み本数から逆算）
-      const assigned = labelingAll.slice(0, dailyLabelingHeadcount);
+      const labelingToday = availableOn(sortByRole(labelingAll), d).slice(0, dailyLabelingHeadcount);
       plans.push({
         planDate: dateStr, department: 'labeling',
-        staffMemberIds: assigned.map(s => s.id),
-        notes: assigned.length < LABELING_MIN
-          ? `要員不足 ${assigned.length}/${LABELING_MIN}名`
-          : `出荷前貼付 ${labelingBasis}`,
+        staffMemberIds: labelingToday.map(s => s.id),
+        notes: labelingToday.length < LABELING_MIN
+          ? `⚠ 要員不足 ${labelingToday.length}/${LABELING_MIN}名`
+          : `${labelingBasisSrc} | 本日目標 ${dailyLabelingQty.toLocaleString('ja-JP')}本 (${dailyLabelingHeadcount}名 × ${LABELING_CAPACITY_PER_PERSON_DAY}本/人日)`,
       });
     }
   }
@@ -612,22 +696,23 @@ export function generateAutoShifts(
 // ── 月次シフト カレンダータブ ──────────────────────────────────────────────────
 
 function renderShiftTab(
-  _staff: StaffMember[],
+  staff: StaffMember[],
   yearMonth: string,
   _brewingSchedule: BrewingScheduleRow[],
   bottlingTargetQty: number,
   metrics: WorkforceMetrics | null,
-  dailyPlans: DailyShiftPlan[]
+  dailyPlans: DailyShiftPlan[],
+  selectedDay: string | null
 ): string {
   const [y, m] = yearMonth.split('-').map(Number);
   const pad = (n: number) => String(n).padStart(2, '0');
   const daysInMonth = new Date(y, m, 0).getDate();
 
-  // 月の1日の曜日（月曜始まり: 0=月…6=日）
   const firstDow = new Date(y, m - 1, 1).getDay();
   const firstOffset = firstDow === 0 ? 6 : firstDow - 1;
-
   const todayStr = new Date().toISOString().slice(0, 10);
+
+  const staffMap = new Map(staff.map(s => [s.id, s]));
 
   // plans を日付→部門リストに変換
   const planByDate = new Map<string, DailyShiftPlan[]>();
@@ -639,7 +724,6 @@ function renderShiftTab(
 
   const hasPlans = dailyPlans.length > 0;
 
-  // 月選択
   const now = new Date();
   const monthOptions = Array.from({ length: 24 }, (_, i) => {
     const d  = new Date(now.getFullYear(), now.getMonth() - 6 + i, 1);
@@ -647,51 +731,113 @@ function renderShiftTab(
     return `<option value="${ym}" ${ym === yearMonth ? 'selected' : ''}>${ym.replace('-', '年')}月</option>`;
   }).join('');
 
-  // ── カレンダーヘッダ（月〜日）
-  const DOW = ['月','火','水','木','金','土','日'];
-  const headerCells = DOW.map((label, i) => {
-    const isWe = i >= 5;
-    return `<div style="text-align:center;padding:5px 2px;font-size:11px;font-weight:700;color:${i===5?'#3b82f6':i===6?'#ef4444':'var(--text-secondary)'};background:var(--surface-alt);border-radius:4px;">${label}</div>`;
-  }).join('');
+  // ── カレンダーヘッダ（月〜日）、土曜は通常営業日として表示
+  const DOW_LABELS = ['月','火','水','木','金','土','日'];
+  const headerCells = DOW_LABELS.map((label, i) =>
+    `<div style="text-align:center;padding:5px 2px;font-size:11px;font-weight:700;color:${i===6?'#ef4444':'var(--text-secondary)'};background:var(--surface-alt);border-radius:4px;">${label}</div>`
+  ).join('');
 
   const emptyCells = Array(firstOffset).fill('<div></div>').join('');
 
   // ── 日セル
   const dayCells = Array.from({ length: daysInMonth }, (_, i) => {
-    const d      = i + 1;
+    const d       = i + 1;
     const dateStr = `${y}-${pad(m)}-${pad(d)}`;
-    const dow    = new Date(y, m - 1, d).getDay(); // 0=日,6=土
-    const isSat  = dow === 6;
-    const isSun  = dow === 0;
-    const isWe   = isSat || isSun;
+    const dow     = new Date(y, m - 1, d).getDay(); // 0=日,6=土
+    const isSun   = dow === 0;
     const isToday = dateStr === todayStr;
+    const isSel   = dateStr === selectedDay;
 
-    const plans  = planByDate.get(dateStr) ?? [];
-    const hasInventory = plans.some(p => p.notes?.includes('棚卸'));
+    const dayPlans      = planByDate.get(dateStr) ?? [];
+    const hasInventory  = dayPlans.some(p => p.notes?.includes('棚卸'));
+    const hasWarning    = dayPlans.some(p => p.notes?.includes('⚠'));
 
-    const deptBadges = plans.map(p => {
+    const deptBadges = dayPlans.map(p => {
       const color = DEPT_COLOR[p.department];
       const cnt   = p.staffMemberIds.length;
-      return `<span style="display:inline-flex;align-items:center;gap:1px;font-size:9px;padding:1px 4px;border-radius:3px;margin:1px;background:${color}22;color:${color};font-weight:700;border:1px solid ${color}44;" title="${DEPT_LABEL[p.department]} ${cnt}名">
+      const names = p.staffMemberIds.map(id => staffMap.get(id)?.name ?? '?').join(', ');
+      return `<span style="display:inline-flex;align-items:center;gap:1px;font-size:9px;padding:1px 4px;border-radius:3px;margin:1px;background:${color}22;color:${color};font-weight:700;border:1px solid ${color}44;cursor:pointer;" title="${DEPT_LABEL[p.department]}: ${names}">
         ${DEPT_SHORT[p.department]}<span style="font-size:8px;opacity:0.85;">${cnt}</span>
       </span>`;
     }).join('');
 
-    return `<div style="border:1px solid ${isToday?'var(--accent)':'var(--border)'};border-radius:4px;padding:3px 4px;min-height:68px;background:${isWe?'var(--surface-alt)':'var(--surface)'};${isToday?'outline:2px solid var(--accent);':''}${plans.length===0&&!isWe?'opacity:0.4;':''}">
-      <div style="font-size:10px;font-weight:700;color:${isSat?'#3b82f6':isSun?'#ef4444':isToday?'var(--accent)':'var(--text-secondary)'};margin-bottom:2px;">${d}</div>
+    const border = isSel
+      ? '2px solid var(--accent)'
+      : isToday ? '2px solid #f59e0b' : '1px solid var(--border)';
+    const bg = isSun ? 'var(--surface-alt)' : 'var(--surface)';
+
+    return `<div data-shift-day="${dateStr}" style="border:${border};border-radius:4px;padding:3px 4px;min-height:72px;background:${bg};cursor:pointer;position:relative;${isSun?'opacity:0.5;':''}${dayPlans.length===0&&!isSun?'opacity:0.35;':''}">
+      <div style="font-size:10px;font-weight:700;color:${dow===6?'#6b7280':isSun?'#ef4444':isToday?'#f59e0b':isSel?'var(--accent)':'var(--text-secondary)'};margin-bottom:2px;">
+        ${d}${isToday?' ●':''}
+      </div>
       <div style="display:flex;flex-wrap:wrap;">${deptBadges}</div>
-      ${hasInventory ? '<div style="font-size:8px;color:#7c3aed;font-weight:700;margin-top:2px;">棚卸</div>' : ''}
+      ${hasInventory ? '<div style="font-size:7px;color:#7c3aed;font-weight:700;margin-top:1px;">棚卸</div>' : ''}
+      ${hasWarning   ? '<div style="font-size:7px;color:#ef4444;font-weight:700;margin-top:1px;">⚠要確認</div>' : ''}
     </div>`;
   }).join('');
 
-  // ── 前年比メトリクスパネル
+  // ── 選択日の詳細パネル
+  const DOW_JP = ['日','月','火','水','木','金','土'];
+  const detailPanel = selectedDay ? (() => {
+    const [dy, dm, dd] = selectedDay.split('-').map(Number);
+    const dowLabel = DOW_JP[new Date(dy, dm - 1, dd).getDay()];
+    const dayPlans = planByDate.get(selectedDay) ?? [];
+
+    if (dayPlans.length === 0) {
+      return `<div class="panel" style="margin-top:12px;padding:14px 16px;">
+        <p style="font-weight:700;margin:0 0 6px;">${dy}年${dm}月${dd}日（${dowLabel}）</p>
+        <p style="font-size:12px;color:var(--text-secondary);">この日のシフト計画はありません（日曜または未生成）。</p>
+      </div>`;
+    }
+
+    const sections = dayPlans.map(p => {
+      const color = DEPT_COLOR[p.department];
+      const members = p.staffMemberIds.map(id => staffMap.get(id)).filter(Boolean) as StaffMember[];
+      const leaderNames = members.filter(s => s.isDeptLeader).map(s => s.name);
+      const otherNames  = members.filter(s => !s.isDeptLeader).map(s => s.name);
+
+      const nameHtml = members.length === 0
+        ? '<span style="color:var(--text-secondary);font-size:11px;">担当なし</span>'
+        : [
+            ...leaderNames.map(n => `<span style="font-weight:700;color:${color};">${n}★</span>`),
+            ...otherNames.map(n => `<span>${n}</span>`),
+          ].join('、');
+
+      // notes を | で分割して行表示
+      const noteLines = (p.notes ?? '').split(' | ').filter(Boolean);
+
+      return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${color};flex-shrink:0;"></span>
+          <strong style="color:${color};font-size:13px;">${DEPT_LABEL[p.department]}</strong>
+          <span style="font-size:11px;color:var(--text-secondary);">${members.length}名</span>
+        </div>
+        <div style="font-size:12px;margin-bottom:4px;">出勤: ${nameHtml}</div>
+        <div style="font-size:11px;color:var(--text-secondary);display:flex;flex-direction:column;gap:2px;">
+          ${noteLines.map(l => `<span style="padding:1px 0;${l.startsWith('⚠')?'color:#ef4444;font-weight:600;':''}">${l}</span>`).join('')}
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="panel" style="margin-top:12px;padding:14px 16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <p style="font-weight:700;margin:0;font-size:14px;">${dy}年${dm}月${dd}日（${dowLabel}）の配置</p>
+        <button class="button secondary small" data-action="shift-day-close">閉じる</button>
+      </div>
+      ${sections}
+    </div>`;
+  })() : `<div style="margin-top:8px;padding:10px 14px;font-size:11px;color:var(--text-secondary);background:var(--surface-alt);border-radius:6px;">
+    日付をクリックすると出勤者・根拠が表示されます。★=部門長
+  </div>`;
+
+  // ── メトリクスパネル
   const metricsPanel = metrics ? (() => {
-    const maxLoad = DELIVERY_CAPACITY_PER_VEHICLE * MAX_DELIVERY_VEHICLES * metrics.workingDays;
-    const loadPct = maxLoad > 0 ? Math.min(100, Math.round(metrics.routeSalesAmount / maxLoad * 100)) : 0;
+    const maxLoad  = DELIVERY_CAPACITY_PER_VEHICLE * MAX_DELIVERY_VEHICLES * metrics.workingDays;
+    const loadPct  = maxLoad > 0 ? Math.min(100, Math.round(metrics.routeSalesAmount / maxLoad * 100)) : 0;
     const loadColor = loadPct >= 90 ? '#ef4444' : loadPct >= 70 ? '#f59e0b' : '#10b981';
-    const pyLoad  = maxLoad > 0 ? Math.min(100, Math.round(metrics.prevYearRouteSalesAmount / maxLoad * 100)) : 0;
+    const pyLoad   = maxLoad > 0 ? Math.min(100, Math.round(metrics.prevYearRouteSalesAmount / maxLoad * 100)) : 0;
     return `<div class="panel" style="padding:10px 16px;margin-top:8px;">
-      <p style="font-size:11px;font-weight:700;margin:0 0 8px;color:var(--text-secondary);">稼働指標（前年同月比較）</p>
+      <p style="font-size:11px;font-weight:700;margin:0 0 8px;color:var(--text-secondary);">自動生成の根拠データ（前年同月比較）</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;font-size:12px;">
         <div>
           <p style="font-size:10px;color:var(--text-secondary);margin:0 0 2px;">総務 処理伝票数</p>
@@ -703,10 +849,10 @@ function renderShiftTab(
           <strong>${metrics.directSalesCount}件 ${fmtYen(metrics.directSalesAmount)}</strong>
         </div>
         <div>
-          <p style="font-size:10px;color:var(--text-secondary);margin:0 0 2px;">詰口・貼場 計画本数（需要計画）</p>
+          <p style="font-size:10px;color:var(--text-secondary);margin:0 0 2px;">詰口・貼場 出荷見込み本数</p>
           <strong>${(metrics.prevYearTotalQuantity || metrics.currentTotalQuantity || 0).toLocaleString('ja-JP')}本</strong>
           <span style="font-size:10px;color:var(--text-secondary);margin-left:6px;">
-            ${metrics.prevYearTotalQuantity ? `前年同月実績 ${metrics.prevYearTotalQuantity.toLocaleString('ja-JP')}本` : metrics.currentTotalQuantity ? `当月実績 ${metrics.currentTotalQuantity.toLocaleString('ja-JP')}本` : '実績なし'}
+            ${metrics.prevYearTotalQuantity ? `前年同月 ${metrics.prevYearTotalQuantity.toLocaleString('ja-JP')}本` : metrics.currentTotalQuantity ? `当月実績 ${metrics.currentTotalQuantity.toLocaleString('ja-JP')}本` : '実績なし'}
           </span>
         </div>
         <div>
@@ -743,7 +889,7 @@ function renderShiftTab(
     </div>
 
     ${!hasPlans ? `<div style="padding:12px 16px;font-size:12px;color:var(--text-secondary);background:var(--surface-alt);border-radius:8px;margin-bottom:12px;">
-      「自動生成」で日次シフトを作成します。醸造計画・前年同月データをもとに詰口・造り稼働日を自動配置します。
+      「自動生成」で月次シフトを作成します。需要・生産計画・部門長スケジュール・固定休みをもとに担当者を自動配置します。
     </div>` : ''}
 
     <div style="overflow-x:auto;">
@@ -755,16 +901,17 @@ function renderShiftTab(
     </div>
 
     <!-- 凡例 -->
-    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px;font-size:11px;color:var(--text-secondary);">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;font-size:11px;color:var(--text-secondary);">
       ${(Object.keys(DEPT_LABEL) as StaffDepartment[]).map(d =>
         `<span style="display:inline-flex;align-items:center;gap:3px;">
           <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${DEPT_COLOR[d]};"></span>
           <strong style="color:${DEPT_COLOR[d]};">${DEPT_SHORT[d]}</strong>${DEPT_LABEL[d]}
         </span>`
       ).join('')}
-      <span>| 数字=配置人数</span>
+      <span>| 数字=配置人数 | ★=部門長 | 月〜土が営業日</span>
     </div>
 
+    ${detailPanel}
     ${metricsPanel}
   `;
 }
@@ -779,12 +926,13 @@ export function renderWorkforce(
   brewingSchedule: BrewingScheduleRow[],
   bottlingTargetQty: number = 0,
   metrics: WorkforceMetrics | null = null,
-  dailyPlans: DailyShiftPlan[] = []
+  dailyPlans: DailyShiftPlan[] = [],
+  selectedDay: string | null = null
 ): string {
   const tabContent =
     activeTab === 'staff' ? renderStaffTab(staff, deptFilter) :
     activeTab === 'cost'  ? renderCostTab(staff, yearMonth) :
-    renderShiftTab(staff, yearMonth, brewingSchedule, bottlingTargetQty, metrics, dailyPlans);
+    renderShiftTab(staff, yearMonth, brewingSchedule, bottlingTargetQty, metrics, dailyPlans, selectedDay);
 
   return `
     <section class="page-head">
