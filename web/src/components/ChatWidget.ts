@@ -172,19 +172,13 @@ function bindWidgetEvents(): void {
   root.querySelector("#cw-submit")?.addEventListener("click", async () => {
     if (!messageText.trim() || submitting) return;
 
-    const user = currentUser();
-    if (!user) {
-      showToast("ログインが必要です", "error");
-      return;
-    }
-
     submitting = true;
     refresh();
 
     const result = await supabaseInsert<SupportTicket>("support_tickets", {
       category: selectedCategory,
       message: messageText.trim(),
-      user_email: user.email,
+      user_email: getUserEmail(),
       status: "open",
     });
 
@@ -203,10 +197,8 @@ function bindWidgetEvents(): void {
 
   // History
   root.querySelector("#cw-show-history")?.addEventListener("click", async () => {
-    const user = currentUser();
-    if (!user) return;
     tickets = await supabaseQuery<SupportTicket>("support_tickets", {
-      user_email: `eq.${user.email}`,
+      user_email: `eq.${getUserEmail()}`,
       order: "created_at.desc",
       limit: "20",
     });
@@ -227,16 +219,12 @@ function escapeHTML(s: string): string {
 
 let initialized = false;
 
+function getUserEmail(): string {
+  return currentUser()?.email ?? "anonymous";
+}
+
 /** main.ts の renderApp() 後に呼ぶ */
 export function initChatWidget(): void {
-  // ログイン画面では表示しない
-  const user = currentUser();
-  if (!user) {
-    // ログアウト時はウィジェットを除去
-    const existing = document.getElementById("chat-widget-root");
-    if (existing) { existing.remove(); initialized = false; }
-    return;
-  }
   // 既に初期化済みなら何もしない
   if (initialized && document.getElementById("chat-widget-root")) return;
   initialized = true;
