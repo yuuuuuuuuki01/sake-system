@@ -5,6 +5,8 @@ create table if not exists support_tickets (
   message text not null,
   user_email text not null,
   status text not null default 'open',
+  page_route text,
+  feature_id text,
   admin_reply text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

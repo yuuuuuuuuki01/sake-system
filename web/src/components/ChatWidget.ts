@@ -2,12 +2,14 @@
  * ChatWidget — 右下フローティングのサポートチャットウィジェット
  *
  * ユーザーが使い方の質問や改修依頼を送信できる。
+ * 現在のページを自動検出し、どの機能についてかを選択できる。
  * 送信内容は support_tickets テーブルに保存され、
  * 定期的にターミナルから Claude で確認・まとめて対応する運用。
  */
 import { supabaseInsert, supabaseQuery } from "../supabase";
 import { currentUser } from "../auth";
 import { showToast } from "./Toast";
+import { FEATURE_SECTIONS, type FeatureEntry } from "./Changelog";
 
 interface SupportTicket {
   id?: string;
@@ -15,6 +17,8 @@ interface SupportTicket {
   message: string;
   user_email: string;
   status: string;
+  page_route?: string;
+  feature_id?: string;
   created_at?: string;
   admin_reply?: string | null;
 }
@@ -23,6 +27,7 @@ type WidgetView = "closed" | "home" | "form" | "history";
 
 let widgetView: WidgetView = "closed";
 let selectedCategory = "";
+let selectedFeatureId = "";
 let messageText = "";
 let tickets: SupportTicket[] = [];
 let submitting = false;
@@ -34,6 +39,28 @@ const CATEGORIES = [
   { id: "other",   icon: "📝", label: "その他",         desc: "上記に当てはまらない場合" },
 ];
 
+/** 現在のルートを取得 */
+function getCurrentRoute(): string {
+  const hash = location.hash.replace(/^#/, "") || "/";
+  return hash.split("?")[0];
+}
+
+/** 現在のルートに該当する機能一覧を取得 */
+function getFeaturesForRoute(route: string): FeatureEntry[] {
+  return FEATURE_SECTIONS.flatMap(s => s.features).filter(f => f.route === route);
+}
+
+/** 全機能をセクション付きで取得（ドロップダウン用） */
+function getAllFeaturesGrouped(): { section: string; features: FeatureEntry[] }[] {
+  return FEATURE_SECTIONS.map(s => ({ section: s.title, features: s.features }));
+}
+
+/** 機能IDからラベルを取得 */
+function getFeatureLabel(featureId: string): string {
+  const f = FEATURE_SECTIONS.flatMap(s => s.features).find(f => f.id === featureId);
+  return f ? f.label : "";
+}
+
 function getContainer(): HTMLElement {
   let el = document.getElementById("chat-widget-root");
   if (!el) {
@@ -42,6 +69,37 @@ function getContainer(): HTMLElement {
     document.body.appendChild(el);
   }
   return el;
+}
+
+function renderFeatureSelect(): string {
+  const route = getCurrentRoute();
+  const currentFeatures = getFeaturesForRoute(route);
+  const grouped = getAllFeaturesGrouped();
+
+  // 現在のページの機能を先頭にプリセレクト
+  const autoId = currentFeatures.length === 1 ? currentFeatures[0].id : "";
+  if (autoId && !selectedFeatureId) selectedFeatureId = autoId;
+
+  const currentOpts = currentFeatures.length > 0
+    ? `<optgroup label="📍 現在のページ">${currentFeatures.map(f =>
+        `<option value="${f.id}" ${selectedFeatureId === f.id ? "selected" : ""}>${f.label} — ${f.desc}</option>`
+      ).join("")}</optgroup>`
+    : "";
+
+  const otherOpts = grouped.map(g => {
+    const feats = g.features.filter(f => !currentFeatures.some(cf => cf.id === f.id));
+    if (feats.length === 0) return "";
+    return `<optgroup label="${g.section}">${feats.map(f =>
+      `<option value="${f.id}" ${selectedFeatureId === f.id ? "selected" : ""}>${f.label}</option>`
+    ).join("")}</optgroup>`;
+  }).join("");
+
+  return `
+    <select class="cw-select" id="cw-feature-select">
+      <option value="">機能を選択してください</option>
+      ${currentOpts}
+      ${otherOpts}
+    </select>`;
 }
 
 function renderWidget(): string {
@@ -57,6 +115,13 @@ function renderWidget(): string {
   let body = "";
 
   if (widgetView === "home") {
+    // 現在のページ情報
+    const route = getCurrentRoute();
+    const currentFeatures = getFeaturesForRoute(route);
+    const pageLabel = currentFeatures.length > 0
+      ? currentFeatures.map(f => f.label).join(" / ")
+      : route === "/" ? "ホーム" : route;
+
     const categoryCards = CATEGORIES.map(c => `
       <button class="cw-category-card" data-cw-cat="${c.id}">
         <span class="cw-cat-icon">${c.icon}</span>
@@ -69,6 +134,10 @@ function renderWidget(): string {
 
     body = `
       <div class="cw-home">
+        <div class="cw-current-page">
+          <span class="cw-page-pin">📍</span>
+          <span class="cw-page-label">${escapeHTML(pageLabel)}</span>
+        </div>
         <p class="cw-subtitle">どのようなご用件ですか？</p>
         <div class="cw-categories">${categoryCards}</div>
         <button class="cw-history-link" id="cw-show-history">過去の問い合わせを見る</button>
@@ -77,12 +146,17 @@ function renderWidget(): string {
 
   if (widgetView === "form") {
     const catLabel = CATEGORIES.find(c => c.id === selectedCategory)?.label ?? "";
+    const featureSelect = renderFeatureSelect();
+
     body = `
       <div class="cw-form">
         <button class="cw-back" id="cw-back-home">&larr; 戻る</button>
         <p class="cw-form-cat">${catLabel}</p>
+        <label class="cw-label">対象の機能</label>
+        ${featureSelect}
+        <label class="cw-label">内容</label>
         <textarea class="cw-textarea" id="cw-message" rows="5"
-          placeholder="内容を入力してください…">${messageText}</textarea>
+          placeholder="具体的にどこをどうしたいか教えてください…">${messageText}</textarea>
         <button class="cw-submit button primary" id="cw-submit"
           ${submitting ? "disabled" : ""}>
           ${submitting ? "送信中…" : "送信する"}
@@ -95,6 +169,7 @@ function renderWidget(): string {
       ? `<p class="cw-empty">まだ問い合わせはありません</p>`
       : tickets.map(t => {
           const cat = CATEGORIES.find(c => c.id === t.category);
+          const featureLabel = t.feature_id ? getFeatureLabel(t.feature_id) : "";
           const date = t.created_at
             ? new Date(t.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
             : "";
@@ -106,6 +181,7 @@ function renderWidget(): string {
                 <span class="cw-ticket-cat">${cat?.icon ?? ""} ${cat?.label ?? t.category}</span>
                 <span class="cw-ticket-status ${statusClass}">${statusLabel}</span>
               </div>
+              ${featureLabel ? `<span class="cw-ticket-feature">📍 ${escapeHTML(featureLabel)}</span>` : ""}
               <p class="cw-ticket-msg">${escapeHTML(t.message)}</p>
               ${t.admin_reply ? `<div class="cw-ticket-reply"><strong>回答:</strong> ${escapeHTML(t.admin_reply)}</div>` : ""}
               <span class="cw-ticket-date">${date}</span>
@@ -135,6 +211,7 @@ function bindWidgetEvents(): void {
 
   // FAB
   root.querySelector("#cw-fab")?.addEventListener("click", () => {
+    selectedFeatureId = "";
     widgetView = "home";
     refresh();
   });
@@ -143,6 +220,7 @@ function bindWidgetEvents(): void {
   root.querySelector("#cw-close")?.addEventListener("click", () => {
     widgetView = "closed";
     messageText = "";
+    selectedFeatureId = "";
     refresh();
   });
 
@@ -151,6 +229,10 @@ function bindWidgetEvents(): void {
     btn.addEventListener("click", () => {
       selectedCategory = btn.dataset.cwCat ?? "";
       messageText = "";
+      // 現在のページの機能が1つだけなら自動選択
+      const route = getCurrentRoute();
+      const feats = getFeaturesForRoute(route);
+      selectedFeatureId = feats.length === 1 ? feats[0].id : "";
       widgetView = "form";
       refresh();
       root.querySelector<HTMLTextAreaElement>("#cw-message")?.focus();
@@ -161,6 +243,11 @@ function bindWidgetEvents(): void {
   root.querySelector("#cw-back-home")?.addEventListener("click", () => {
     widgetView = "home";
     refresh();
+  });
+
+  // Feature select
+  root.querySelector<HTMLSelectElement>("#cw-feature-select")?.addEventListener("change", (e) => {
+    selectedFeatureId = (e.target as HTMLSelectElement).value;
   });
 
   // Textarea sync
@@ -175,11 +262,14 @@ function bindWidgetEvents(): void {
     submitting = true;
     refresh();
 
+    const route = getCurrentRoute();
     const result = await supabaseInsert<SupportTicket>("support_tickets", {
       category: selectedCategory,
       message: messageText.trim(),
       user_email: getUserEmail(),
       status: "open",
+      page_route: route,
+      feature_id: selectedFeatureId || null,
     });
 
     submitting = false;
@@ -188,6 +278,7 @@ function bindWidgetEvents(): void {
       showToast("送信しました。ありがとうございます！");
       messageText = "";
       selectedCategory = "";
+      selectedFeatureId = "";
       widgetView = "home";
     } else {
       showToast("送信に失敗しました", "error");
@@ -225,7 +316,6 @@ function getUserEmail(): string {
 
 /** main.ts の renderApp() 後に呼ぶ */
 export function initChatWidget(): void {
-  // 既に初期化済みなら何もしない
   if (initialized && document.getElementById("chat-widget-root")) return;
   initialized = true;
   refresh();
