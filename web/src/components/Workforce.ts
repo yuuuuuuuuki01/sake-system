@@ -561,14 +561,14 @@ export function generateAutoShifts(
     Math.ceil(avgDailyVisitors / VISITORS_PER_PERSON_AM)
   );
 
-  // ── 配送の必要人数
+  // ── 配送の必要人数（社員で回せるなら委託不要）
   const routePrimary = primaryMembers('route_sales');
   const routeEmps    = routePrimary.filter(s => s.employmentType === 'employee');
   const routeConts   = routePrimary.filter(s => s.employmentType === 'contractor');
   const routeEmpCap  = routeEmps.length * DELIVERY_CAPACITY_PER_VEHICLE;
+  // 委託が必要かどうかは Pass2（越境社員補充）後に判定するため、ここでは社員分のみ
+  const routeTotalCapNeeded = Math.ceil(avgDailyRoute / DELIVERY_CAPACITY_PER_VEHICLE);
   const dailyOverflow = Math.max(0, avgDailyRoute - routeEmpCap);
-  const contractorsNeeded = dailyOverflow > 0
-    ? Math.min(routeConts.length, Math.ceil(dailyOverflow / DELIVERY_CAPACITY_PER_VEHICLE)) : 0;
 
   // ══════════════════════════════════════════════════════════════════════════
   // 2パス方式: Pass1 = 主部門配置、Pass2 = 越境による不足補充
@@ -615,15 +615,16 @@ export function generateAutoShifts(
       ].filter(Boolean),
     });
 
-    // 配送
-    const routeNeeded = routeEmps.length + contractorsNeeded;
+    // 配送（まず社員で回す。越境社員補充後にまだ足りなければ委託）
     slots.set('route_sales', {
-      dept: 'route_sales', active: true, assignedIds: [], neededCount: routeNeeded, shortage: routeNeeded,
+      dept: 'route_sales', active: true, assignedIds: [],
+      neededCount: Math.max(routeEmps.length, routeTotalCapNeeded),
+      shortage: Math.max(routeEmps.length, routeTotalCapNeeded),
       notes: '', reasons: [
         `前年同月日次平均 ${fmtYen(avgDailyRoute)}`,
-        `社員${routeEmps.length}台 × 積載 ${fmtYen(DELIVERY_CAPACITY_PER_VEHICLE)}/台`,
-        contractorsNeeded > 0 ? `超過 → 委託${contractorsNeeded}台追加` : '',
-      ].filter(Boolean),
+        `必要台数 ${routeTotalCapNeeded}台 × 積載 ${fmtYen(DELIVERY_CAPACITY_PER_VEHICLE)}/台`,
+        `社員${routeEmps.length}名で ${fmtYen(routeEmpCap)}/日`,
+      ],
     });
 
     // 造り
@@ -797,6 +798,21 @@ export function generateAutoShifts(
       }
     }
 
+    // ── Pass 4: 委託は最終手段（社員・越境・パートでも足りない場合のみ）────────
+    {
+      const routeSlot = slots.get('route_sales');
+      if (routeSlot && routeSlot.active && routeSlot.shortage > 0) {
+        const contsToday = availableOn(routeConts, d).filter(s => !assignedGlobal.has(s.id));
+        for (const s of contsToday) {
+          if (routeSlot.shortage <= 0) break;
+          routeSlot.assignedIds.push(s.id);
+          routeSlot.shortage--;
+          assignedGlobal.add(s.id);
+          routeSlot.reasons.push(`${s.name}（委託・社員だけではキャパ不足のため）`);
+        }
+      }
+    }
+
     // ── プラン出力 ────────────────────────────────────────────────────────────
     for (const slot of slots.values()) {
       if (!slot.active && slot.assignedIds.length === 0) continue;
@@ -804,7 +820,7 @@ export function generateAutoShifts(
 
       const reasonText = slot.reasons.filter(Boolean).join(' | ');
       const shortageWarning = slot.shortage > 0
-        ? `⚠ ${slot.shortage}名不足（社員・パートとも候補なし）`
+        ? `⚠ ${slot.shortage}名不足（社員・パート・委託とも候補なし）`
         : '';
 
       plans.push({
