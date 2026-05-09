@@ -201,7 +201,7 @@ import { renderDemandPlanning, buildDefaultShifts, optimizeShifts, DEFAULT_PART_
 import { renderBrewingPlan } from "./components/BrewingPlan";
 import { renderProcurement } from "./components/Procurement";
 import { renderBrewingProcess } from "./components/BrewingProcess";
-import { renderWorkforce, renderStaffModal, generateAutoShifts, type WorkforceTab } from "./components/Workforce";
+import { renderWorkforce, renderStaffModal, generateAutoShifts, DEFAULT_DEPT_WORKING_DAYS, type WorkforceTab, type DeptWorkingDays } from "./components/Workforce";
 import { fetchStaffMembers, upsertStaffMember, deleteStaffMember, fetchWorkforceMetrics, fetchDailyShiftPlans, saveDailyShiftPlans, type StaffMember, type WorkforceMetrics, type DailyShiftPlan } from "./api";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { CHURN_REASONS } from "./api";
@@ -694,6 +694,7 @@ interface AppState {
   shiftBottlingTarget: number;
   workforceSelectedDay: string | null;
   bottlingSchedule: import("./api").BottlingScheduleItem[];
+  deptWorkingDays: DeptWorkingDays;
   brewingProductDetail: import("./api").BrewingProductDetail[];
   brewingExcludedProducts: Set<string>;
   brewingCustomCategories: import("./api").BrewingCustomCategory[];
@@ -1071,6 +1072,7 @@ const state: AppState = {
   shiftBottlingTarget: 0,
   workforceSelectedDay: null as string | null,
   bottlingSchedule: [] as import("./api").BottlingScheduleItem[],
+  deptWorkingDays: { ...DEFAULT_DEPT_WORKING_DAYS } as DeptWorkingDays,
   brewingProductDetail: [] as import("./api").BrewingProductDetail[],
   brewingExcludedProducts: new Set<string>(),
   brewingCustomCategories: [] as import("./api").BrewingCustomCategory[],
@@ -1871,7 +1873,7 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
         break;
       }
       case "/workforce": {
-        const [members, schedule, wfMetrics, plans] = await Promise.all([
+        const [members, schedule, wfMetrics, plans, savedDeptDays] = await Promise.all([
           state.staffMembers.length > 0
             ? Promise.resolve(state.staffMembers)
             : fetchStaffMembers(),
@@ -1883,11 +1885,16 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
               })(),
           fetchWorkforceMetrics(state.workforceYearMonth),
           fetchDailyShiftPlans(state.workforceYearMonth),
+          (async () => {
+            const { fetchSystemSetting } = await import("./api");
+            return fetchSystemSetting<DeptWorkingDays>("dept_working_days");
+          })(),
         ]);
         state.staffMembers     = members;
         state.workforceMetrics = wfMetrics;
         state.dailyShiftPlans  = plans;
         if (state.brewingSchedule.length === 0) state.brewingSchedule = schedule;
+        if (savedDeptDays) state.deptWorkingDays = { ...DEFAULT_DEPT_WORKING_DAYS, ...savedDeptDays };
         break;
       }
       case "/jikomi":
@@ -2320,7 +2327,8 @@ function renderView(): string {
         state.dailyShiftPlans,
         state.workforceSelectedDay,
         state.productionPlan,
-        state.bottlingSchedule ?? []
+        state.bottlingSchedule ?? [],
+        state.deptWorkingDays
       );
     case "/jikomi":
       return state.jikomiView === "calendar"
@@ -9183,6 +9191,28 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // ── 標準稼働曜日チェックボックス ─────────────────────────────────────────
+  root.querySelectorAll<HTMLInputElement>("[data-action='dept-working-day']").forEach(cb => {
+    cb.addEventListener("change", () => {
+      const dept = cb.dataset.dept as import("./api").StaffDepartment;
+      const dow = parseInt(cb.dataset.dow ?? "0");
+      const current = state.deptWorkingDays[dept] ?? [];
+      if (cb.checked) {
+        if (!current.includes(dow)) current.push(dow);
+        current.sort((a: number, b: number) => a - b);
+      } else {
+        const idx = current.indexOf(dow);
+        if (idx >= 0) current.splice(idx, 1);
+      }
+      state.deptWorkingDays[dept] = current;
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='dept-working-days-save']")?.addEventListener("click", async () => {
+    const { upsertSystemSetting } = await import("./api");
+    await upsertSystemSetting("dept_working_days", state.deptWorkingDays);
+    showToast("標準稼働曜日を保存しました", "success");
+  });
+
   // 日セルクリック → 詳細パネル表示
   root.querySelectorAll<HTMLDivElement>("[data-shift-day]").forEach(el => {
     el.addEventListener("click", () => {
@@ -9226,7 +9256,8 @@ function bindEvents(root: HTMLElement): void {
         state.shiftBottlingTarget,
         state.workforceMetrics,
         wfProdPlan,
-        wfCalShifts
+        wfCalShifts,
+        state.deptWorkingDays
       );
       const ok = await saveDailyShiftPlans(state.workforceYearMonth, plans);
       if (ok) {

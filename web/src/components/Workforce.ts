@@ -5,6 +5,18 @@ export type WorkforceTab = 'staff' | 'shift' | 'bottling' | 'cost';
 
 // ── 定数 ─────────────────────────────────────────────────────────────────────
 
+/** 部門別 標準稼働曜日（getDay準拠: 0=日,1=月…6=土） */
+export type DeptWorkingDays = Record<StaffDepartment, number[]>;
+
+/** デフォルト: 営業日ベース部門=月〜土、工程ベース部門=月〜金 */
+export const DEFAULT_DEPT_WORKING_DAYS: DeptWorkingDays = {
+  soumu:       [1, 2, 3, 4, 5, 6],        // 月〜土
+  route_sales: [1, 2, 3, 4, 5, 6],        // 月〜土
+  brewing:     [1, 2, 3, 4, 5],            // 月〜金
+  bottling:    [1, 2, 3],                  // 月火水
+  labeling:    [4, 5],                     // 木金
+};
+
 const BOTTLING_LINE_SIZE             = 4;       // 詰口ライン定員（最低4名）
 const LABELING_MIN                   = 1;       // 貼場最小人数（1名〜）
 const LINE_MAX_DAILY                 = 4000;    // 日産最大本数（1800ml換算）
@@ -390,7 +402,8 @@ export function generateAutoShifts(
   bottlingTargetQty: number,
   metrics: WorkforceMetrics | null,
   productionPlan: ProductionPlanRow[] = [],
-  calendarShifts: { date: string; partTimers: number; employees: number }[] = []
+  calendarShifts: { date: string; partTimers: number; employees: number }[] = [],
+  deptWorkingDays: DeptWorkingDays = DEFAULT_DEPT_WORKING_DAYS
 ): DailyShiftPlan[] {
   const [y, m] = yearMonth.split('-').map(Number);
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -480,26 +493,37 @@ export function generateAutoShifts(
   const labelingBasisSrc =
     planDemandTotal > 0 ? `需要計画 出荷見込み ${planDemandTotal.toLocaleString('ja-JP')}本` : bottlingBasisSrc;
 
-  // ── 詰口スケジュール（優先スコアベース）─────────────────────────────────────
+  // ── 部門別稼働候補日（標準稼働曜日でフィルタ）───────────────────────────────
   const calMonthPrefix = `${y}-${pad(m)}`;
   const calStaffedDays = calendarShifts
     .filter(s => s.date.startsWith(calMonthPrefix) && (s.partTimers > 0 || s.employees > 0))
     .sort((a, b) => a.date.localeCompare(b.date));
   const hasCalData = calStaffedDays.length >= 5;
-  const activeDayNums = hasCalData
-    ? calStaffedDays.map(s => parseInt(s.date.slice(-2))).filter(d => !inventorySet.has(d))
-    : businessDays.filter(d => !inventorySet.has(d));
   const calDayMap = new Map(calStaffedDays.map(s => [parseInt(s.date.slice(-2)), s]));
 
-  // buildBottlingSchedule で在庫逼迫度・納期・同酒質まとめを考慮した順序を生成
+  /** 指定部門の標準稼働曜日に合致する営業日を返す */
+  function deptActiveDays(dept: StaffDepartment): number[] {
+    const dows = deptWorkingDays[dept] ?? [1, 2, 3, 4, 5, 6];
+    const base = hasCalData
+      ? calStaffedDays.map(s => parseInt(s.date.slice(-2)))
+      : businessDays;
+    return base.filter(d => {
+      if (inventorySet.has(d)) return false;
+      const dow = new Date(y, m - 1, d).getDay();
+      return dows.includes(dow);
+    });
+  }
+
+  // ── 詰口スケジュール（優先スコアベース + 標準稼働曜日）───────────────────────
   const bottlingSchedule = buildBottlingSchedule(productionPlan, yearMonth);
+  const bottlingActiveDays = deptActiveDays('bottling');
 
   const bottlingDayMap = new Map<number, { productCode: string; productName: string; dailyQty: number; brewCategory: string; priorityScore: number }>();
   let dayIdx = 0;
   for (const item of bottlingSchedule) {
     const qty = item.plannedQty > 0 ? item.plannedQty : item.requiredQty;
-    for (let i = 0; i < item.daysNeeded && dayIdx < activeDayNums.length; i++, dayIdx++) {
-      const d = activeDayNums[dayIdx];
+    for (let i = 0; i < item.daysNeeded && dayIdx < bottlingActiveDays.length; i++, dayIdx++) {
+      const d = bottlingActiveDays[dayIdx];
       bottlingDayMap.set(d, {
         productCode: item.productCode,
         productName: item.productName,
@@ -510,17 +534,17 @@ export function generateAutoShifts(
     }
   }
 
-  // ── 貼場スケジュール
+  // ── 貼場スケジュール（標準稼働曜日に寄せる）
   const labelingPrimaryCount = primaryMembers('labeling').length || 1;
   const labelingHeadcount = Math.max(LABELING_MIN, Math.min(labelingPrimaryCount, 3));
   const labelingPersonDaysNeeded = labelingTotal > 0
     ? Math.ceil(labelingTotal / (LABELING_CAPACITY_PER_PERSON_DAY * labelingHeadcount)) : 0;
-  const labelingCandidates = activeDayNums.slice(Math.floor(activeDayNums.length / 2));
+  const labelingActiveDays = deptActiveDays('labeling');
   const labelingDaySet = new Set<number>();
-  if (labelingPersonDaysNeeded > 0 && labelingCandidates.length > 0) {
-    const step = labelingCandidates.length / Math.min(labelingPersonDaysNeeded, labelingCandidates.length);
-    for (let i = 0; i < labelingPersonDaysNeeded && i < labelingCandidates.length; i++) {
-      labelingDaySet.add(labelingCandidates[Math.min(Math.round(i * step), labelingCandidates.length - 1)]);
+  if (labelingPersonDaysNeeded > 0 && labelingActiveDays.length > 0) {
+    const step = labelingActiveDays.length / Math.min(labelingPersonDaysNeeded, labelingActiveDays.length);
+    for (let i = 0; i < labelingPersonDaysNeeded && i < labelingActiveDays.length; i++) {
+      labelingDaySet.add(labelingActiveDays[Math.min(Math.round(i * step), labelingActiveDays.length - 1)]);
     }
   }
   const dailyLabelingQty = labelingDaySet.size > 0 ? Math.ceil(labelingTotal / labelingDaySet.size) : 0;
@@ -749,7 +773,8 @@ function renderShiftTab(
   bottlingTargetQty: number,
   metrics: WorkforceMetrics | null,
   dailyPlans: DailyShiftPlan[],
-  selectedDay: string | null
+  selectedDay: string | null,
+  deptWorkingDays: DeptWorkingDays = DEFAULT_DEPT_WORKING_DAYS
 ): string {
   const [y, m] = yearMonth.split('-').map(Number);
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -946,8 +971,36 @@ function renderShiftTab(
     </div>
 
     ${!hasPlans ? `<div style="padding:12px 16px;font-size:12px;color:var(--text-secondary);background:var(--surface-alt);border-radius:8px;margin-bottom:12px;">
-      「自動生成」で月次シフトを作成します。需要・生産計画・部門長スケジュール・固定休みをもとに担当者を自動配置します。
+      「自動生成」で月次シフトを作成します。需要・生産計画・部門長スケジュール・固定休み・標準稼働曜日をもとに担当者を自動配置します。
     </div>` : ''}
+
+    <!-- 標準稼働曜日設定 -->
+    <details style="margin-bottom:12px;">
+      <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--text-secondary);padding:6px 0;">
+        標準稼働曜日の設定（工程ベース部門）
+      </summary>
+      <div style="padding:8px 0;display:flex;flex-direction:column;gap:8px;">
+        ${(['brewing', 'bottling', 'labeling'] as const).map(dept => {
+          const color = DEPT_COLOR[dept];
+          const dows = deptWorkingDays[dept] ?? [];
+          const DOW_NAMES = ['日','月','火','水','木','金','土'];
+          const checks = DOW_NAMES.map((name, i) => {
+            if (i === 0) return ''; // 日曜は除外
+            return `<label style="display:inline-flex;align-items:center;gap:2px;font-size:12px;cursor:pointer;">
+              <input type="checkbox" data-action="dept-working-day" data-dept="${dept}" data-dow="${i}"
+                ${dows.includes(i) ? 'checked' : ''} style="cursor:pointer;" />
+              ${name}
+            </label>`;
+          }).filter(Boolean).join('');
+          return `<div style="display:flex;align-items:center;gap:10px;padding:4px 8px;background:var(--surface-alt);border-radius:6px;">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${color};flex-shrink:0;"></span>
+            <span style="font-size:12px;font-weight:600;color:${color};min-width:32px;">${DEPT_LABEL[dept]}</span>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">${checks}</div>
+          </div>`;
+        }).join('')}
+        <button class="button secondary small" data-action="dept-working-days-save" style="align-self:flex-end;margin-top:4px;">保存</button>
+      </div>
+    </details>
 
     <div style="overflow-x:auto;">
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;min-width:490px;">
@@ -1184,13 +1237,14 @@ export function renderWorkforce(
   dailyPlans: DailyShiftPlan[] = [],
   selectedDay: string | null = null,
   productionPlan: ProductionPlanRow[] = [],
-  bottlingSchedule: BottlingScheduleItem[] = []
+  bottlingSchedule: BottlingScheduleItem[] = [],
+  deptWorkingDays: DeptWorkingDays = DEFAULT_DEPT_WORKING_DAYS
 ): string {
   const tabContent =
     activeTab === 'staff'    ? renderStaffTab(staff, deptFilter) :
     activeTab === 'cost'     ? renderCostTab(staff, yearMonth) :
     activeTab === 'bottling' ? renderBottlingTab(productionPlan, yearMonth, bottlingSchedule) :
-    renderShiftTab(staff, yearMonth, brewingSchedule, bottlingTargetQty, metrics, dailyPlans, selectedDay);
+    renderShiftTab(staff, yearMonth, brewingSchedule, bottlingTargetQty, metrics, dailyPlans, selectedDay, deptWorkingDays);
 
   return `
     <section class="page-head">
