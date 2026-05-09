@@ -3796,7 +3796,7 @@ export interface TankMovement {
   batchCode: string;
   alcoholDegree: number | null;
   temperature: number | null;
-  movementType: "transfer" | "receive" | "ship" | "blend" | "discard" | "adjust";
+  movementType: "transfer" | "receive" | "ship" | "blend" | "discard" | "adjust" | "warimizu";
   recordedBy: string;
   notes: string;
 }
@@ -3927,6 +3927,15 @@ export interface Genzaishu {
   riceType: string;
   polishRate: number | null;
   productionTypeName: string;
+  genshuCategory: string;
+  productionDate: string;
+  rawAlcoholL: number;
+  blendingWaterL: number;
+  producedVolumeL: number;
+  pureAlcoholL: number;
+  convertedVolumeL: number;
+  kasuKg: number;
+  kasuRatio: number;
   notes: string;
 }
 
@@ -3946,6 +3955,15 @@ export async function fetchGenzaishu(): Promise<Genzaishu[]> {
     riceType: getString(r, ["rice_type"], ""),
     polishRate: r["polish_rate"] != null ? getNumber(r, ["polish_rate"], 0) : null,
     productionTypeName: getString(r, ["production_type_name"], ""),
+    genshuCategory: getString(r, ["genshu_category"], ""),
+    productionDate: getString(r, ["production_date"], ""),
+    rawAlcoholL: getNumber(r, ["raw_alcohol_l"], 0),
+    blendingWaterL: getNumber(r, ["blending_water_l"], 0),
+    producedVolumeL: getNumber(r, ["produced_volume_l"], 0),
+    pureAlcoholL: getNumber(r, ["pure_alcohol_l"], 0),
+    convertedVolumeL: getNumber(r, ["converted_volume_l"], 0),
+    kasuKg: getNumber(r, ["kasu_kg"], 0),
+    kasuRatio: getNumber(r, ["kasu_ratio"], 0),
     notes: getString(r, ["notes"], "")
   }));
 }
@@ -3956,6 +3974,10 @@ export async function registerGenzaishu(g: Omit<Genzaishu, "id">): Promise<boole
     tank_no: g.tankNo, volume_l: g.volumeL, alcohol_degree: g.alcoholDegree,
     sake_meter_value: g.sakeMeterValue, acidity: g.acidity, amino_acid: g.aminoAcid,
     rice_type: g.riceType, polish_rate: g.polishRate, production_type_name: g.productionTypeName,
+    genshu_category: g.genshuCategory, production_date: g.productionDate || null,
+    raw_alcohol_l: g.rawAlcoholL, blending_water_l: g.blendingWaterL,
+    produced_volume_l: g.producedVolumeL, pure_alcohol_l: g.pureAlcoholL,
+    converted_volume_l: g.convertedVolumeL, kasu_kg: g.kasuKg, kasu_ratio: g.kasuRatio,
     notes: g.notes
   })) !== null;
 }

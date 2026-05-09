@@ -8171,10 +8171,15 @@ function bindEvents(root: HTMLElement): void {
       const { registerGenzaishu, fetchGenzaishu, fetchKenteiList: fkl } = await import("./api");
       await registerGenzaishu({
         batchCode: rec.batchCode, productName: rec.productName, kenteiDate: rec.kenteiDate,
-        tankNo: rec.tankNo, volumeL: rec.volume, alcoholDegree: rec.alcoholDegree || null,
+        tankNo: rec.tankNo || "", volumeL: rec.volume, alcoholDegree: rec.alcoholDegree || null,
         sakeMeterValue: rec.sakaMeterValue || null, acidity: rec.acidity || null,
         aminoAcid: rec.aminoAcid || null, riceType: rec.riceType,
-        polishRate: rec.polishRate || null, productionTypeName: rec.productionTypeName, notes: ""
+        polishRate: rec.polishRate || null, productionTypeName: rec.productionTypeName,
+        genshuCategory: "", productionDate: rec.kenteiDate,
+        rawAlcoholL: 0, blendingWaterL: 0, producedVolumeL: rec.volume,
+        pureAlcoholL: Math.round(rec.volume * (rec.alcoholDegree || 0) / 100 * 10) / 10,
+        convertedVolumeL: Math.round(rec.volume * (rec.alcoholDegree || 0) / 15),
+        kasuKg: 0, kasuRatio: 0, notes: ""
       });
       // ステータスをapprovedに更新
       const { supabaseUpdate } = await import("./supabase");
@@ -8182,6 +8187,21 @@ function bindEvents(root: HTMLElement): void {
       state.kenteiList = await fkl(); state.genzaishuList = await fetchGenzaishu();
       showToast("現在酒に登録しました"); renderApp();
     });
+  });
+
+  // 酒類検定簿の印刷
+  root.querySelector<HTMLButtonElement>("[data-action='genzaishu-print']")?.addEventListener("click", () => {
+    const table = root.querySelector<HTMLElement>("[data-action='genzaishu-print']")?.closest("section.panel");
+    if (!table) return;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>酒類検定簿</title><style>
+      body { font-family:'Hiragino Sans','Yu Gothic','Meiryo',sans-serif; font-size:9px; padding:10mm; }
+      table { width:100%; border-collapse:collapse; } th, td { border:1px solid #ccc; padding:2px 4px; }
+      th { background:#f0f0f0; } button,.button-sm { display:none; }
+      @media print { body { padding:5mm; } }
+    </style></head><body><h1 style="font-size:14px;margin-bottom:8px;">酒類検定簿</h1>${table.querySelector(".table-wrap")?.innerHTML ?? ""}</body></html>`);
+    w.document.close(); setTimeout(() => w.print(), 300);
   });
 
   // ── 移動簿 ──────────────────────────────────────────

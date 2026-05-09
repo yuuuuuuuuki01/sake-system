@@ -4,11 +4,11 @@ function fmtNum(n: number): string { return n.toLocaleString("ja-JP"); }
 
 const TYPE_LABELS: Record<TankMovement["movementType"], string> = {
   transfer: "タンク移動", receive: "受入", ship: "出荷・移出",
-  blend: "ブレンド", discard: "廃棄", adjust: "調整"
+  blend: "ブレンド", discard: "廃棄", adjust: "調整", warimizu: "割水"
 };
 const TYPE_COLORS: Record<TankMovement["movementType"], string> = {
   transfer: "#2563eb", receive: "#059669", ship: "#d97706",
-  blend: "#7c3aed", discard: "#ef4444", adjust: "#6b7280"
+  blend: "#7c3aed", discard: "#ef4444", adjust: "#6b7280", warimizu: "#0ea5e9"
 };
 
 export function renderTankMovements(movements: TankMovement[], tanks: TankRecord[], filterTank: string = "", genzaishu: Genzaishu[] = []): string {
