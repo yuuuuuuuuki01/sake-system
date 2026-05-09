@@ -6742,6 +6742,149 @@ export async function saveProductionPlan(row: ProductionPlanRow): Promise<boolea
   return result !== null;
 }
 
+// ─── 詰口スケジューリング ────────────────────────────────────────────────────
+
+/** 3ヶ月分の生産計画を一括取得 */
+export async function fetchProductionPlan3Months(baseYearMonth: string): Promise<ProductionPlanRow[]> {
+  const [y, m] = baseYearMonth.split('-').map(Number);
+  const months: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    const d = new Date(y, m - 1 + i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  const results = await Promise.all(months.map(ym => fetchProductionPlan(ym)));
+  return results.flat();
+}
+
+/** 詰口スケジュール1行: どの銘柄をいつ何本詰めるか */
+export interface BottlingScheduleItem {
+  productCode: string;
+  productName: string;
+  yearMonth: string;           // 元の計画月
+  brewCategory: string;        // 酒質（同酒質まとめ用）
+  productionType: ProductionType;
+  requiredQty: number;         // 必要生産数
+  plannedQty: number;          // 計画数（手動調整後）
+  openingStock: number;
+  safetyStockTarget: number;
+  demandForecast: number;
+  // スコアリング
+  stockUrgency: number;        // 在庫逼迫度（0-100）: 高い = 急ぎ
+  deadlineUrgency: number;     // 納期逼迫度（0-100）: make_to_order, november で高い
+  priorityScore: number;       // 総合スコア（高い = 先に詰める）
+  // 稼働日数
+  daysNeeded: number;
+  volumeMl: number;            // 瓶サイズ（作業速度に影響）
+}
+
+/** 商品名から酒質を推定（DB関数 classify_brewing_category と同等） */
+function classifyBrewCategory(productionType: string, name: string): string {
+  if (name.includes('純米大吟醸')) return '純米大吟醸';
+  if (name.includes('大吟醸')) return '大吟醸';
+  if (name.includes('純米吟醸') || productionType.startsWith('純米吟醸')) return '純米吟醸';
+  if ((name.includes('純米') && !name.includes('吟醸')) || productionType.startsWith('純米酒')) return '純米';
+  if (name.includes('本醸造') || name.includes('原酒') || productionType.startsWith('本醸造') || productionType.startsWith('吟醸')) return '本醸造';
+  if (name.includes('梅酒') || name.includes('リキュール') || productionType.startsWith('その他(酒類)')) return 'リキュール';
+  if (productionType.startsWith('普通酒')) return '普通酒';
+  return 'その他';
+}
+
+/** 瓶サイズを商品名から推定 */
+function guessVolumeMl(name: string): number {
+  const m = name.match(/(\d{3,4})\s*ml/i);
+  if (m) return parseInt(m[1]);
+  if (name.includes('1800') || name.includes('一升')) return 1800;
+  if (name.includes('720')) return 720;
+  if (name.includes('300')) return 300;
+  if (name.includes('180')) return 180;
+  return 720; // デフォルト
+}
+
+const BOTTLING_LINE_MAX_DAILY = 4000; // 日産上限（1銘柄フル稼働時）
+
+/**
+ * 3ヶ月分の生産計画から詰口スケジュールを生成
+ *
+ * ロジック:
+ * 1. 在庫逼迫度: (必要生産数 - 期首在庫) / 安全在庫目標 → 高いほど急ぎ
+ * 2. 納期逼迫度: make_to_order=100, november=80, monthly(当月)=60, monthly(翌月以降)=30, annual=20
+ * 3. 同酒質まとめ: スコアでソート後、同酒質が連続するようにグルーピング
+ */
+export function buildBottlingSchedule(
+  plans: ProductionPlanRow[],
+  currentYearMonth: string
+): BottlingScheduleItem[] {
+  const items: BottlingScheduleItem[] = [];
+
+  for (const row of plans) {
+    const qty = row.plannedQty > 0 ? row.plannedQty
+      : Math.max(0, row.demandForecast + row.safetyStockTarget - row.openingStock);
+    if (qty <= 0) continue;
+
+    const brewCategory = classifyBrewCategory(row.productionType, row.productName);
+    const volumeMl = guessVolumeMl(row.productName);
+
+    // 在庫逼迫度: 安全在庫を大きく割り込むほど高スコア
+    const stockGap = row.safetyStockTarget > 0
+      ? Math.max(0, row.safetyStockTarget - row.openingStock) / row.safetyStockTarget
+      : row.openingStock <= 0 ? 1 : 0;
+    const stockUrgency = Math.min(100, Math.round(stockGap * 100));
+
+    // 納期逼迫度
+    const isCurrentMonth = row.yearMonth === currentYearMonth;
+    let deadlineUrgency: number;
+    switch (row.productionType) {
+      case 'make_to_order': deadlineUrgency = 100; break;
+      case 'november':      deadlineUrgency = 80; break;
+      case 'monthly':       deadlineUrgency = isCurrentMonth ? 60 : 30; break;
+      case 'annual':        deadlineUrgency = 20; break;
+      default:              deadlineUrgency = 40;
+    }
+
+    // 量が多いものは少しスコア加算（後回しにするとキャパ不足になる）
+    const volumeBonus = Math.min(20, Math.round(qty / BOTTLING_LINE_MAX_DAILY * 10));
+
+    const priorityScore = stockUrgency * 0.4 + deadlineUrgency * 0.4 + volumeBonus * 0.2;
+
+    items.push({
+      productCode: row.productCode,
+      productName: row.productName,
+      yearMonth: row.yearMonth,
+      brewCategory,
+      productionType: row.productionType,
+      requiredQty: Math.max(0, row.demandForecast + row.safetyStockTarget - row.openingStock),
+      plannedQty: row.plannedQty,
+      openingStock: row.openingStock,
+      safetyStockTarget: row.safetyStockTarget,
+      demandForecast: row.demandForecast,
+      stockUrgency,
+      deadlineUrgency,
+      priorityScore,
+      daysNeeded: Math.max(1, Math.ceil(qty / BOTTLING_LINE_MAX_DAILY)),
+      volumeMl,
+    });
+  }
+
+  // ── ソート: スコア降順で並べた後、同酒質をまとめる
+  items.sort((a, b) => b.priorityScore - a.priorityScore);
+
+  // 同酒質まとめ: 高スコアの酒質を先頭に、同酒質内ではスコア降順を維持
+  const categoryOrder: string[] = [];
+  for (const item of items) {
+    if (!categoryOrder.includes(item.brewCategory)) {
+      categoryOrder.push(item.brewCategory);
+    }
+  }
+
+  const grouped: BottlingScheduleItem[] = [];
+  for (const cat of categoryOrder) {
+    const catItems = items.filter(i => i.brewCategory === cat);
+    grouped.push(...catItems);
+  }
+
+  return grouped;
+}
+
 // ─── 出荷カレンダー ──────────────────────────────────────────────────────────
 
 export interface VolumeBreakdown {
@@ -7058,15 +7201,14 @@ export async function unconfirmFeature(featureId: string): Promise<void> {
 // ── 人員マスタ ────────────────────────────────────────────────────────────────
 
 export type EmploymentType = 'employee' | 'part_time' | 'contractor';
-export type StaffDepartment = 'soumu' | 'route_sales' | 'brewing' | 'bottling' | 'labeling' | 'delivery';
+export type StaffDepartment = 'soumu' | 'route_sales' | 'brewing' | 'bottling' | 'labeling';
 
 export const DEPT_LABEL: Record<StaffDepartment, string> = {
   soumu:       '総務',
-  route_sales: 'ルートセールス',
+  route_sales: '配送',
   brewing:     '造り',
   bottling:    '詰口',
   labeling:    '貼場',
-  delivery:    '配送（業務委託）',
 };
 
 export const DEPT_MONTHS: Record<StaffDepartment, number[] | null> = {
@@ -7075,7 +7217,6 @@ export const DEPT_MONTHS: Record<StaffDepartment, number[] | null> = {
   brewing:     [9,10,11,12,1,2,3,4],
   bottling:    null,
   labeling:    null,
-  delivery:    null,
 };
 
 export type ShiftPreference = 'morning' | 'afternoon' | 'both';

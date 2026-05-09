@@ -1051,6 +1051,7 @@ const state: AppState = {
   workforceYearMonth: new Date().toISOString().slice(0, 7),
   shiftBottlingTarget: 0,
   workforceSelectedDay: null as string | null,
+  bottlingSchedule: [] as import("./api").BottlingScheduleItem[],
   brewingProductDetail: [] as import("./api").BrewingProductDetail[],
   brewingExcludedProducts: new Set<string>(),
   brewingCustomCategories: [] as import("./api").BrewingCustomCategory[],
@@ -8826,8 +8827,14 @@ function bindEvents(root: HTMLElement): void {
 
   // タブ切替
   root.querySelectorAll<HTMLButtonElement>("[data-workforce-tab]").forEach(btn => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       state.workforceTab = btn.dataset.workforceTab as WorkforceTab;
+      // 詰口タブ: スケジュール計算（3ヶ月分の計画から）
+      if (state.workforceTab === 'bottling' && state.bottlingSchedule.length === 0) {
+        const { fetchProductionPlan3Months, buildBottlingSchedule } = await import("./api");
+        const plans3m = await fetchProductionPlan3Months(state.workforceYearMonth);
+        state.bottlingSchedule = buildBottlingSchedule(plans3m, state.workforceYearMonth);
+      }
       renderApp();
     });
   });
@@ -8851,6 +8858,33 @@ function bindEvents(root: HTMLElement): void {
     state.dailyShiftPlans      = [];
     state.workforceSelectedDay = null;
     navigate(state.currentPath); // loadRouteData 経由で再フェッチ
+  });
+
+  // ── 詰口スケジュールタブ ─────────────────────────────────────────────────
+  root.querySelector<HTMLSelectElement>("#bottling-year-month")?.addEventListener("change", async (e) => {
+    state.workforceYearMonth = (e.target as HTMLSelectElement).value;
+    const { fetchProductionPlan3Months, buildBottlingSchedule } = await import("./api");
+    const plans3m = await fetchProductionPlan3Months(state.workforceYearMonth);
+    state.bottlingSchedule = buildBottlingSchedule(plans3m, state.workforceYearMonth);
+    renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='bottling-recalc']")?.addEventListener("click", async () => {
+    const { fetchProductionPlan3Months, buildBottlingSchedule } = await import("./api");
+    const plans3m = await fetchProductionPlan3Months(state.workforceYearMonth);
+    state.bottlingSchedule = buildBottlingSchedule(plans3m, state.workforceYearMonth);
+    renderApp();
+  });
+  // ▲▼ 順序移動
+  root.querySelectorAll<HTMLButtonElement>("[data-bottling-move]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.bottlingIdx ?? "0");
+      const dir = btn.dataset.bottlingMove === "up" ? -1 : 1;
+      const newIdx = idx + dir;
+      if (newIdx < 0 || newIdx >= state.bottlingSchedule.length) return;
+      const arr = state.bottlingSchedule;
+      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
+      renderApp();
+    });
   });
 
   // 日セルクリック → 詳細パネル表示
