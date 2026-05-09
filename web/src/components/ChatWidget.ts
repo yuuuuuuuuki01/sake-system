@@ -437,9 +437,21 @@ function getUserEmail(): string {
   return currentUser()?.email ?? "anonymous";
 }
 
+function setupMobileViewportHandler(): void {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  vv.addEventListener("resize", () => {
+    const panel = document.querySelector<HTMLElement>(".cw-panel");
+    if (!panel) return;
+    // visualViewport.height はキーボードが出ると小さくなる
+    panel.style.maxHeight = `${vv.height - 16}px`;
+  });
+}
+
 /** main.ts の renderApp() 後に呼ぶ */
 export function initChatWidget(): void {
   if (initialized && document.getElementById("chat-widget-root")) return;
   initialized = true;
+  setupMobileViewportHandler();
   refresh();
 }
