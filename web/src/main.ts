@@ -3451,8 +3451,8 @@ function bindEvents(root: HTMLElement): void {
         alcoholDegree: alcohol ? Number(alcohol) : null,
         riceType: rice || "",
         polishRate: polish ? Number(polish) : null,
-        brewingYear: year || "",
-        status: status || "active",
+        brewingYear: year ? Number(year) : null,
+        status: status || "aging",
       });
       if (ok) {
         showToast("原酒を登録しました", "success");

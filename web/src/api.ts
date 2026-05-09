@@ -208,7 +208,7 @@ export interface BaseSake {
   sakemeterValue: number | null;
   riceType: string;
   polishRate: number | null;
-  brewingYear: string;
+  brewingYear: number | null;
   brewingBatchId: string | null;
   currentTankId: string | null;
   currentTankNo: string;
@@ -1192,7 +1192,7 @@ export async function fetchBaseSakes(): Promise<BaseSake[]> {
     sakemeterValue: row["sakemeter_value"] != null ? Number(row["sakemeter_value"]) : null,
     riceType: getString(row, ["rice_type"], ""),
     polishRate: row["polish_rate"] != null ? Number(row["polish_rate"]) : null,
-    brewingYear: getString(row, ["brewing_year"], ""),
+    brewingYear: row["brewing_year"] != null ? Number(row["brewing_year"]) : null,
     brewingBatchId: row["brewing_batch_id"] ? String(row["brewing_batch_id"]) : null,
     currentTankId: row["current_tank_id"] ? String(row["current_tank_id"]) : null,
     currentTankNo: getString(row, ["current_tank_no"], ""),

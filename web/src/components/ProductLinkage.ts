@@ -122,7 +122,7 @@ export function renderProductLinkage(
           <td>${bs.riceType || "―"}</td>
           <td class="numeric">${bs.polishRate != null ? `${bs.polishRate}%` : "―"}</td>
           <td>${bs.brewingYear || "―"}</td>
-          <td><span class="badge ${bs.status === "active" ? "badge-success" : "badge-muted"}">${bs.status === "active" ? "有効" : bs.status}</span></td>
+          <td>${({aging:"熟成中",ready:"瓶詰可",fermenting:"醗酵中",pressing:"上槽中",empty:"使切り",blended:"ブレンド済"} as Record<string,string>)[bs.status] ?? bs.status}</td>
           <td>
             <button class="button secondary small" data-delete-base-sake="${bs.id}" title="削除">削除</button>
           </td>
@@ -181,13 +181,16 @@ export function renderProductLinkage(
           <div><label class="form-label">度数(%)</label><input id="bs-alcohol" class="form-input" type="number" step="0.1" placeholder="例: 17.5"></div>
           <div><label class="form-label">使用米</label><input id="bs-rice" class="form-input" placeholder="例: 山田錦"></div>
           <div><label class="form-label">精米歩合(%)</label><input id="bs-polish" class="form-input" type="number" step="1" placeholder="例: 50"></div>
-          <div><label class="form-label">醸造年度</label><input id="bs-year" class="form-input" placeholder="例: R6BY"></div>
+          <div><label class="form-label">醸造年度(BY)</label><input id="bs-year" class="form-input" type="number" placeholder="例: 7"></div>
           <div>
             <label class="form-label">ステータス</label>
             <select id="bs-status" class="form-input">
-              <option value="active">有効</option>
-              <option value="aging">熟成中</option>
-              <option value="depleted">使い切り</option>
+              <option value="aging" selected>熟成中</option>
+              <option value="ready">瓶詰め可</option>
+              <option value="fermenting">醗酵中</option>
+              <option value="pressing">上槽中</option>
+              <option value="empty">使い切り</option>
+              <option value="blended">ブレンド済</option>
             </select>
           </div>
           <div style="display:flex;align-items:flex-end;">
