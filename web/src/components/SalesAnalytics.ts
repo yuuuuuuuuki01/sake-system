@@ -1,4 +1,4 @@
-import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow, DrilldownBreakdownRow, PeriodChartPoint, AnalyticsMonthlyPoint } from "../api";
+import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow, DrilldownBreakdownRow, PeriodChartPoint, AnalyticsMonthlyPoint, MasterProduct } from "../api";
 import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 
 const ANALYTICS_COL_MAP: Record<string, keyof AnalyticsBreakdownRow> = {
@@ -243,6 +243,121 @@ function renderDrilldownTable(rows: StaffBreakdownRow[], tagFilter: string, colL
   `;
 }
 
+// ─── 年別・製成別 移出量 vs 単価 ────────────────────────────────────────────────
+
+function renderVolumeSection(
+  summary: SalesAnalytics,
+  products: MasterProduct[],
+  fiscalMode: FiscalMode
+): string {
+  const fmtKl = (ml: number) => (ml / 1_000_000).toFixed(2) + " kL";
+  const fmtL  = (ml: number) => (ml / 1000).toLocaleString("ja-JP", { maximumFractionDigits: 1 }) + " L";
+  const fmtPrice = (v: number) => "¥" + Math.round(v).toLocaleString("ja-JP");
+
+  // ── 年別集計 ──
+  type YearRow = { label: string; volumeMl: number; amount: number };
+  const yearMap = new Map<string, YearRow>();
+  for (const p of summary.monthlySales) {
+    const label = fiscalMode === "fiscal"
+      ? `${monthToFiscalYear(p.month)}年度`
+      : p.month.slice(0, 4) + "年";
+    const existing = yearMap.get(label) ?? { label, volumeMl: 0, amount: 0 };
+    existing.volumeMl += p.volumeMl;
+    existing.amount   += p.amount;
+    yearMap.set(label, existing);
+  }
+  const yearRows = [...yearMap.values()].sort((a, b) => a.label.localeCompare(b.label));
+
+  const yearTableBody = yearRows.length === 0
+    ? `<tr><td colspan="4" class="empty-row">データなし</td></tr>`
+    : yearRows.map(r => {
+        const pricePerL = r.volumeMl > 0 ? (r.amount / (r.volumeMl / 1000)) : 0;
+        return `<tr>
+          <td>${r.label}</td>
+          <td class="numeric">${fmtL(r.volumeMl)}</td>
+          <td class="numeric">${fmtPrice(r.amount)}</td>
+          <td class="numeric" style="font-weight:600;">${pricePerL > 0 ? fmtPrice(pricePerL) + " /L" : "―"}</td>
+        </tr>`;
+      }).join("");
+
+  // ── 製成別集計 ──
+  const prodTypeMap = new Map<string, string>(); // code → productionTypeName
+  for (const p of products) {
+    if (p.productionTypeName) prodTypeMap.set(p.code, p.productionTypeName);
+  }
+
+  type TypeRow = { label: string; volumeMl: number; amount: number; quantity: number };
+  const typeMap = new Map<string, TypeRow>();
+  for (const row of summary.productTotals) {
+    const typeName = prodTypeMap.get(row.code) ?? "その他";
+    const existing = typeMap.get(typeName) ?? { label: typeName, volumeMl: 0, amount: 0, quantity: 0 };
+    existing.volumeMl += row.volumeMl;
+    existing.amount   += row.amount;
+    existing.quantity += row.quantity;
+    typeMap.set(typeName, existing);
+  }
+  // 移出量降順
+  const typeRows = [...typeMap.values()].sort((a, b) => b.volumeMl - a.volumeMl);
+
+  const typeTableBody = typeRows.length === 0
+    ? `<tr><td colspan="5" class="empty-row">データなし</td></tr>`
+    : typeRows.map(r => {
+        const pricePerL = r.volumeMl > 0 ? (r.amount / (r.volumeMl / 1000)) : 0;
+        return `<tr>
+          <td>${r.label}</td>
+          <td class="numeric">${fmtL(r.volumeMl)}</td>
+          <td class="numeric">${r.quantity.toLocaleString("ja-JP")} 本</td>
+          <td class="numeric">${fmtPrice(r.amount)}</td>
+          <td class="numeric" style="font-weight:600;">${pricePerL > 0 ? fmtPrice(pricePerL) + " /L" : "―"}</td>
+        </tr>`;
+      }).join("");
+
+  return `
+    <section class="analytics-grid" style="margin-top:0;">
+      <article class="panel">
+        <div class="panel-header">
+          <h2>年別 移出量 vs 単価</h2>
+          <p class="panel-caption">年ごとの移出量と平均単価（売上額 ÷ 移出量）</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>${fiscalMode === "fiscal" ? "年度" : "年"}</th>
+                <th class="numeric">移出量</th>
+                <th class="numeric">売上額</th>
+                <th class="numeric">単価(/L)</th>
+              </tr>
+            </thead>
+            <tbody>${yearTableBody}</tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-header">
+          <h2>製成別 移出量 vs 単価</h2>
+          <p class="panel-caption">製成種別ごとの移出量・本数・平均単価（全期間累計）</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>製成種別</th>
+                <th class="numeric">移出量</th>
+                <th class="numeric">本数</th>
+                <th class="numeric">売上額</th>
+                <th class="numeric">単価(/L)</th>
+              </tr>
+            </thead>
+            <tbody>${typeTableBody}</tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  `;
+}
+
 export function renderSalesAnalytics(
   summary: SalesAnalytics,
   activeTab: AnalyticsTab,
@@ -262,7 +377,8 @@ export function renderSalesAnalytics(
   periodChartData: PeriodChartPoint[] = [],
   prevYearChartData: PeriodChartPoint[] = [],
   chartMetric: ChartMetric = "amount",
-  fiscalMode: FiscalMode = "calendar"
+  fiscalMode: FiscalMode = "calendar",
+  products: MasterProduct[] = []
 ): string {
   const tableTitle = activeTab === "products" ? "商品別集計" : activeTab === "customers" ? "得意先別集計" : "担当別集計";
   const baseRows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
@@ -531,5 +647,7 @@ export function renderSalesAnalytics(
     ` : ""}
 
     ${drilldownHtml}
+
+    ${renderVolumeSection(summary, products, fiscalMode)}
   `;
 }

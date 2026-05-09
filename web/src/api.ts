@@ -195,6 +195,7 @@ export interface MasterProduct {
   parentProductId: string | null;
   baseSakeName: string | null;
   parentProductName: string | null;
+  productionTypeName: string; // 製成種別
 }
 
 export interface BaseSake {
@@ -853,7 +854,8 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
           baseSakeId: row["base_sake_id"] ? String(row["base_sake_id"]) : null,
           parentProductId: row["parent_product_id"] ? String(row["parent_product_id"]) : null,
           baseSakeName: null,
-          parentProductName: null
+          parentProductName: null,
+          productionTypeName: getString(row, ["production_type_name"], "")
         }))
       : mockMasterStats.products;
 
