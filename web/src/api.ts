@@ -4142,6 +4142,82 @@ export async function deleteTsumekuchiRecord(id: string): Promise<boolean> {
   return supabaseDelete("tsumekuchi_records", id);
 }
 
+// ─── 原料受払簿 ──────────────────────────────────────────────────────────────
+
+export interface RawMaterialEntry {
+  id: string; ledgerDate: string; materialType: string; materialName: string;
+  transactionType: "receive" | "use" | "return" | "adjust";
+  quantityKg: number; unitPrice: number; supplier: string; batchCode: string;
+  notes: string; recordedBy: string;
+}
+
+export async function fetchRawMaterialLedger(): Promise<RawMaterialEntry[]> {
+  const rows = await supabaseQuery<LooseRow>("raw_material_ledger", { order: "ledger_date.desc,created_at.desc" });
+  return rows.map(r => ({
+    id: getString(r, ["id"], ""), ledgerDate: getString(r, ["ledger_date"], ""),
+    materialType: getString(r, ["material_type"], ""), materialName: getString(r, ["material_name"], ""),
+    transactionType: getString(r, ["transaction_type"], "receive") as RawMaterialEntry["transactionType"],
+    quantityKg: getNumber(r, ["quantity_kg"], 0), unitPrice: getNumber(r, ["unit_price"], 0),
+    supplier: getString(r, ["supplier"], ""), batchCode: getString(r, ["batch_code"], ""),
+    notes: getString(r, ["notes"], ""), recordedBy: getString(r, ["recorded_by"], "")
+  }));
+}
+
+export async function saveRawMaterialEntry(e: Omit<RawMaterialEntry, "id">): Promise<boolean> {
+  return (await supabaseInsert("raw_material_ledger", {
+    ledger_date: e.ledgerDate, material_type: e.materialType, material_name: e.materialName,
+    transaction_type: e.transactionType, quantity_kg: e.quantityKg, unit_price: e.unitPrice,
+    supplier: e.supplier, batch_code: e.batchCode, notes: e.notes, recorded_by: e.recordedBy
+  })) !== null;
+}
+
+export async function deleteRawMaterialEntry(id: string): Promise<boolean> {
+  const { supabaseDelete } = await import("./supabase");
+  return supabaseDelete("raw_material_ledger", id);
+}
+
+// ─── 製品受払簿（移出入簿）──────────────────────────────────────────────────
+
+export interface ProductShipmentEntry {
+  id: string; ledgerDate: string;
+  transactionType: "shipout" | "shipin" | "return" | "loss" | "sample" | "adjust";
+  productName: string; productCode: string; containerType: string; containerVolumeMl: number;
+  quantityBottles: number; volumeL: number; alcoholDegree: number | null;
+  taxRate: number; taxAmount: number; destination: string; batchCode: string;
+  notes: string; recordedBy: string;
+}
+
+export async function fetchProductShipmentLedger(): Promise<ProductShipmentEntry[]> {
+  const rows = await supabaseQuery<LooseRow>("product_shipment_ledger", { order: "ledger_date.desc,created_at.desc" });
+  return rows.map(r => ({
+    id: getString(r, ["id"], ""), ledgerDate: getString(r, ["ledger_date"], ""),
+    transactionType: getString(r, ["transaction_type"], "shipout") as ProductShipmentEntry["transactionType"],
+    productName: getString(r, ["product_name"], ""), productCode: getString(r, ["product_code"], ""),
+    containerType: getString(r, ["container_type"], ""), containerVolumeMl: getNumber(r, ["container_volume_ml"], 720),
+    quantityBottles: getNumber(r, ["quantity_bottles"], 0), volumeL: getNumber(r, ["volume_l"], 0),
+    alcoholDegree: r["alcohol_degree"] != null ? getNumber(r, ["alcohol_degree"], 0) : null,
+    taxRate: getNumber(r, ["tax_rate"], 0), taxAmount: getNumber(r, ["tax_amount"], 0),
+    destination: getString(r, ["destination"], ""), batchCode: getString(r, ["batch_code"], ""),
+    notes: getString(r, ["notes"], ""), recordedBy: getString(r, ["recorded_by"], "")
+  }));
+}
+
+export async function saveProductShipmentEntry(e: Omit<ProductShipmentEntry, "id">): Promise<boolean> {
+  return (await supabaseInsert("product_shipment_ledger", {
+    ledger_date: e.ledgerDate, transaction_type: e.transactionType,
+    product_name: e.productName, product_code: e.productCode,
+    container_type: e.containerType, container_volume_ml: e.containerVolumeMl,
+    quantity_bottles: e.quantityBottles, volume_l: e.volumeL,
+    alcohol_degree: e.alcoholDegree, tax_rate: e.taxRate, tax_amount: e.taxAmount,
+    destination: e.destination, batch_code: e.batchCode, notes: e.notes, recorded_by: e.recordedBy
+  })) !== null;
+}
+
+export async function deleteProductShipmentEntry(id: string): Promise<boolean> {
+  const { supabaseDelete } = await import("./supabase");
+  return supabaseDelete("product_shipment_ledger", id);
+}
+
 export interface MaterialRecord {
   id: string;
   code: string;

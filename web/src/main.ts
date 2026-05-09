@@ -209,6 +209,8 @@ import { renderVisitPlanner, buildVisitPlan, type VisitPlannerState } from "./co
 import { renderTankList, renderTankForm } from "./components/TankList";
 import { renderTankMovements } from "./components/TankMovements";
 import { renderTsumekuchi } from "./components/Tsumekuchi";
+import { renderRawMaterialLedger } from "./components/RawMaterialLedger";
+import { renderProductShipmentLedger } from "./components/ProductShipmentLedger";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { isNewRoute, renderChangelog } from "./components/Changelog";
 import { initChatWidget } from "./components/ChatWidget";
@@ -282,6 +284,8 @@ type RoutePath =
   | "/workforce"
   | "/tank-movements"
   | "/tsumekuchi"
+  | "/raw-material-ledger"
+  | "/product-shipment-ledger"
   | "/changelog";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
@@ -432,6 +436,8 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/brewing-process", title: "醸造工程" },
   { path: "/tank-movements", title: "移動簿" },
   { path: "/tsumekuchi", title: "詰口帳票" },
+  { path: "/raw-material-ledger", title: "原料受払簿" },
+  { path: "/product-shipment-ledger", title: "製品受払簿" },
   { path: "/changelog", title: "機能一覧・更新履歴" }
 ];
 
@@ -769,6 +775,8 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/tanks":
     case "/tank-movements":
     case "/tsumekuchi":
+    case "/raw-material-ledger":
+    case "/product-shipment-ledger":
     case "/kentei":
     case "/materials":
     case "/tax":
@@ -1083,6 +1091,10 @@ const state: AppState = {
   tankMovements: [] as import("./api").TankMovement[],
   tankMovementFilter: "",
   tsumekuchiRecords: [] as import("./api").TsumekuchiRecord[],
+  rawMaterialLedger: [] as import("./api").RawMaterialEntry[],
+  rawMaterialFilter: "",
+  productShipmentLedger: [] as import("./api").ProductShipmentEntry[],
+  productShipmentFilter: "",
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1881,6 +1893,16 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
           state.tankList = await fetchTankList();
         }
         break;
+      case "/raw-material-ledger": {
+        const { fetchRawMaterialLedger } = await import("./api");
+        state.rawMaterialLedger = await fetchRawMaterialLedger().catch(() => []);
+        break;
+      }
+      case "/product-shipment-ledger": {
+        const { fetchProductShipmentLedger } = await import("./api");
+        state.productShipmentLedger = await fetchProductShipmentLedger().catch(() => []);
+        break;
+      }
       case "/tsumekuchi": {
         const { fetchTsumekuchiRecords, fetchGenzaishu: fgz2, fetchTankList: ftl2 } = await import("./api");
         const [tsumeRecs, gzL2, tlL2] = await Promise.all([
@@ -2299,6 +2321,10 @@ function renderView(): string {
         : renderJikomi(state.jikomiList, state.jikomiView);
     case "/tanks":
       return renderTankList(state.tankList);
+    case "/raw-material-ledger":
+      return renderRawMaterialLedger(state.rawMaterialLedger, state.rawMaterialFilter);
+    case "/product-shipment-ledger":
+      return renderProductShipmentLedger(state.productShipmentLedger, state.productShipmentFilter);
     case "/tsumekuchi":
       return renderTsumekuchi(state.tsumekuchiRecords, state.genzaishuList, state.tankList);
     case "/tank-movements":
@@ -2683,7 +2709,9 @@ function renderSidebar(): string {
       { path: "/jikomi",          label: "仕込管理" },
       { path: "/tanks",           label: "タンク管理" },
       { path: "/tank-movements",  label: "移動簿" },
-      { path: "/tsumekuchi",      label: "詰口帳票" },
+      { path: "/tsumekuchi",           label: "詰口帳票" },
+      { path: "/raw-material-ledger", label: "原料受払簿" },
+      { path: "/product-shipment-ledger", label: "製品受払簿" },
       { path: "/kentei",          label: "検定管理" },
       { path: "/tax",             label: "酒税申告" },
       { path: "/workforce",       label: "人員・シフト" },
@@ -3604,7 +3632,8 @@ function bindEvents(root: HTMLElement): void {
         ` data-prod-retail="${retail}"` +
         ` data-prod-jan="${qEsc(p.janCode ?? "")}"` +
         ` data-prod-unit="${qEsc(p.unit)}"` +
-        ` data-prod-case="${p.caseQty ?? ""}">` +
+        ` data-prod-case="${p.caseQty ?? ""}"` +
+        ` data-prod-volume="${p.volumeMl ?? ""}">` +
         `<span class="mono">${qEsc(p.code)}</span>` +
         `<span style="font-size:13px;font-weight:600;line-height:1.4;">${qEsc(p.name)}</span>` +
         `<span class="numeric"${isSpecial ? ' style="color:#2f855a;font-weight:700;"' : ""}>` +
@@ -3614,6 +3643,16 @@ function bindEvents(root: HTMLElement): void {
         `</span>` +
         `</button>`;
     }).join("");
+  }
+
+  function caseQtyFromVolume(ml: number | null): number | null {
+    if (ml === null) return null;
+    if (ml >= 1800) return 6;
+    if (ml >= 720)  return 12;
+    if (ml >= 500)  return 12;
+    if (ml >= 300)  return 20;
+    if (ml >= 180)  return 30;
+    return null;
   }
 
   function bindProdListClicks(div: HTMLElement) {
@@ -3626,7 +3665,8 @@ function bindEvents(root: HTMLElement): void {
         const jan = btn.dataset.prodJan ?? "";
         const unit = btn.dataset.prodUnit || "本";
         const caseQtyRaw = btn.dataset.prodCase ?? "";
-        const caseQty = caseQtyRaw ? parseInt(caseQtyRaw) : null;
+        const volumeRaw = btn.dataset.prodVolume ?? "";
+        const caseQty = caseQtyRaw ? parseInt(caseQtyRaw) : caseQtyFromVolume(volumeRaw ? parseInt(volumeRaw) : null);
         state.quoteState.lines.push({
           productCode: code, productName: name,
           janCode: jan, caseQty,
@@ -3769,7 +3809,8 @@ function bindEvents(root: HTMLElement): void {
       const jan = btn.dataset.prodJan ?? "";
       const unit = btn.dataset.prodUnit || "本";
       const caseQtyRaw = btn.dataset.prodCase ?? "";
-      const caseQty = caseQtyRaw ? parseInt(caseQtyRaw) : null;
+      const volumeRaw = btn.dataset.prodVolume ?? "";
+      const caseQty = caseQtyRaw ? parseInt(caseQtyRaw) : caseQtyFromVolume(volumeRaw ? parseInt(volumeRaw) : null);
       state.quoteState.lines.push({
         productCode: code, productName: name,
         janCode: jan, caseQty,
@@ -8325,6 +8366,91 @@ function bindEvents(root: HTMLElement): void {
       th { background:#f0f0f0; } button,.button-sm { display:none; }
       @media print { body { padding:5mm; } }
     </style></head><body><h1 style="font-size:14px;margin-bottom:8px;">酒類検定簿</h1>${table.querySelector(".table-wrap")?.innerHTML ?? ""}</body></html>`);
+    w.document.close(); setTimeout(() => w.print(), 300);
+  });
+
+  // ── 原料受払簿 ──────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='rml-add']")?.addEventListener("click", async () => {
+    const date = (root.querySelector<HTMLInputElement>("#rml-date") as HTMLInputElement)?.value ?? "";
+    const qty = parseFloat((root.querySelector<HTMLInputElement>("#rml-qty") as HTMLInputElement)?.value ?? "0");
+    if (!date || qty <= 0) { showToast("日付と数量を入力", "warning"); return; }
+    const { saveRawMaterialEntry, fetchRawMaterialLedger } = await import("./api");
+    await saveRawMaterialEntry({
+      ledgerDate: date,
+      materialType: (root.querySelector<HTMLSelectElement>("#rml-material-type") as HTMLSelectElement)?.value ?? "米",
+      materialName: (root.querySelector<HTMLInputElement>("#rml-material-name") as HTMLInputElement)?.value ?? "",
+      transactionType: (root.querySelector<HTMLSelectElement>("#rml-tx-type") as HTMLSelectElement)?.value as any ?? "receive",
+      quantityKg: qty,
+      unitPrice: parseFloat((root.querySelector<HTMLInputElement>("#rml-price") as HTMLInputElement)?.value ?? "0"),
+      supplier: (root.querySelector<HTMLInputElement>("#rml-supplier") as HTMLInputElement)?.value ?? "",
+      batchCode: (root.querySelector<HTMLInputElement>("#rml-batch") as HTMLInputElement)?.value ?? "",
+      notes: (root.querySelector<HTMLInputElement>("#rml-notes") as HTMLInputElement)?.value ?? "",
+      recordedBy: state.myProfile?.name ?? ""
+    });
+    state.rawMaterialLedger = await fetchRawMaterialLedger();
+    showToast("記録しました"); renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='rml-delete']").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      if (!id || !confirm("削除しますか？")) return;
+      const { deleteRawMaterialEntry, fetchRawMaterialLedger } = await import("./api");
+      await deleteRawMaterialEntry(id); state.rawMaterialLedger = await fetchRawMaterialLedger(); renderApp();
+    });
+  });
+  root.querySelector<HTMLSelectElement>("[data-action='rml-filter']")?.addEventListener("change", (e) => {
+    state.rawMaterialFilter = (e.target as HTMLSelectElement).value; renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='rml-print']")?.addEventListener("click", () => {
+    const t = root.querySelector<HTMLElement>("#rml-table");
+    if (!t) return;
+    const w = window.open("", "_blank"); if (!w) return;
+    w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>原料受払簿</title><style>body{font-family:'Hiragino Sans',sans-serif;font-size:9px;padding:10mm;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:2px 4px;}th{background:#f0f0f0;}button{display:none;}@media print{body{padding:5mm;}}</style></head><body><h1 style="font-size:14px;margin-bottom:8px;">原料受払簿</h1>${t.querySelector(".table-wrap")?.innerHTML??""}</body></html>`);
+    w.document.close(); setTimeout(() => w.print(), 300);
+  });
+
+  // ── 製品受払簿 ──────────────────────────────────────────
+  root.querySelector<HTMLButtonElement>("[data-action='psl-add']")?.addEventListener("click", async () => {
+    const date = (root.querySelector<HTMLInputElement>("#psl-date") as HTMLInputElement)?.value ?? "";
+    const qty = parseInt((root.querySelector<HTMLInputElement>("#psl-qty") as HTMLInputElement)?.value ?? "0");
+    if (!date || qty <= 0) { showToast("日付と数量を入力", "warning"); return; }
+    const ml = parseInt((root.querySelector<HTMLInputElement>("#psl-container-vol") as HTMLInputElement)?.value ?? "720");
+    const volL = qty * ml / 1000;
+    const taxRate = parseFloat((root.querySelector<HTMLInputElement>("#psl-tax-rate") as HTMLInputElement)?.value ?? "0");
+    const { saveProductShipmentEntry, fetchProductShipmentLedger } = await import("./api");
+    await saveProductShipmentEntry({
+      ledgerDate: date,
+      transactionType: (root.querySelector<HTMLSelectElement>("#psl-tx-type") as HTMLSelectElement)?.value as any ?? "shipout",
+      productName: (root.querySelector<HTMLInputElement>("#psl-product-name") as HTMLInputElement)?.value ?? "",
+      productCode: (root.querySelector<HTMLInputElement>("#psl-product-code") as HTMLInputElement)?.value ?? "",
+      containerType: (root.querySelector<HTMLInputElement>("#psl-container-type") as HTMLInputElement)?.value ?? "",
+      containerVolumeMl: ml, quantityBottles: qty, volumeL: volL,
+      alcoholDegree: parseFloat((root.querySelector<HTMLInputElement>("#psl-alc") as HTMLInputElement)?.value) || null,
+      taxRate, taxAmount: Math.round(volL * taxRate),
+      destination: (root.querySelector<HTMLInputElement>("#psl-destination") as HTMLInputElement)?.value ?? "",
+      batchCode: (root.querySelector<HTMLInputElement>("#psl-batch") as HTMLInputElement)?.value ?? "",
+      notes: (root.querySelector<HTMLInputElement>("#psl-notes") as HTMLInputElement)?.value ?? "",
+      recordedBy: state.myProfile?.name ?? ""
+    });
+    state.productShipmentLedger = await fetchProductShipmentLedger();
+    showToast("記録しました"); renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='psl-delete']").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      if (!id || !confirm("削除しますか？")) return;
+      const { deleteProductShipmentEntry, fetchProductShipmentLedger } = await import("./api");
+      await deleteProductShipmentEntry(id); state.productShipmentLedger = await fetchProductShipmentLedger(); renderApp();
+    });
+  });
+  root.querySelector<HTMLSelectElement>("[data-action='psl-filter']")?.addEventListener("change", (e) => {
+    state.productShipmentFilter = (e.target as HTMLSelectElement).value; renderApp();
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='psl-print']")?.addEventListener("click", () => {
+    const t = root.querySelector<HTMLElement>("#psl-table");
+    if (!t) return;
+    const w = window.open("", "_blank"); if (!w) return;
+    w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>製品受払簿</title><style>body{font-family:'Hiragino Sans',sans-serif;font-size:9px;padding:10mm;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:2px 4px;}th{background:#f0f0f0;}button{display:none;}@media print{body{padding:5mm;}}</style></head><body><h1 style="font-size:14px;margin-bottom:8px;">製品受払簿（移出入簿）</h1>${t.querySelector(".table-wrap")?.innerHTML??""}</body></html>`);
     w.document.close(); setTimeout(() => w.print(), 300);
   });
 
