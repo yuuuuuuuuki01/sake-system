@@ -3982,6 +3982,79 @@ export async function registerGenzaishu(g: Omit<Genzaishu, "id">): Promise<boole
   })) !== null;
 }
 
+// ─── 詰口帳票 ────────────────────────────────────────────────────────────────
+
+export interface TsumekuchiRecord {
+  id: string;
+  tsumekuchiDate: string;
+  sourceTankNo: string;
+  genshuBatchCode: string;
+  genshuName: string;
+  targetProductCode: string;
+  targetProductName: string;
+  genshuVolumeBeforeL: number;
+  zanshuReceiveL: number;
+  linkedTankNo: string;
+  volumeBeforeTsumekuchiL: number;
+  tsumekuchiSuccessQty: number;
+  tsumekuchiSuccessL: number;
+  depthAfterMm: number;
+  volumeAfterL: number;
+  tsumekuchiRemainingL: number;
+  breakageL: number;
+  lossL: number;
+  productVolumeMl: number;
+  notes: string;
+  recordedBy: string;
+}
+
+export async function fetchTsumekuchiRecords(): Promise<TsumekuchiRecord[]> {
+  const rows = await supabaseQuery<LooseRow>("tsumekuchi_records", { order: "tsumekuchi_date.desc,created_at.desc" });
+  return rows.map(r => ({
+    id: getString(r, ["id"], ""),
+    tsumekuchiDate: getString(r, ["tsumekuchi_date"], ""),
+    sourceTankNo: getString(r, ["source_tank_no"], ""),
+    genshuBatchCode: getString(r, ["genshu_batch_code"], ""),
+    genshuName: getString(r, ["genshu_name"], ""),
+    targetProductCode: getString(r, ["target_product_code"], ""),
+    targetProductName: getString(r, ["target_product_name"], ""),
+    genshuVolumeBeforeL: getNumber(r, ["genshu_volume_before_l"], 0),
+    zanshuReceiveL: getNumber(r, ["zanshu_receive_l"], 0),
+    linkedTankNo: getString(r, ["linked_tank_no"], ""),
+    volumeBeforeTsumekuchiL: getNumber(r, ["volume_before_tsumekuchi_l"], 0),
+    tsumekuchiSuccessQty: getNumber(r, ["tsumekuchi_success_qty"], 0),
+    tsumekuchiSuccessL: getNumber(r, ["tsumekuchi_success_l"], 0),
+    depthAfterMm: getNumber(r, ["depth_after_mm"], 0),
+    volumeAfterL: getNumber(r, ["volume_after_l"], 0),
+    tsumekuchiRemainingL: getNumber(r, ["tsumekuchi_remaining_l"], 0),
+    breakageL: getNumber(r, ["breakage_l"], 0),
+    lossL: getNumber(r, ["loss_l"], 0),
+    productVolumeMl: getNumber(r, ["product_volume_ml"], 720),
+    notes: getString(r, ["notes"], ""),
+    recordedBy: getString(r, ["recorded_by"], "")
+  }));
+}
+
+export async function saveTsumekuchiRecord(r: Omit<TsumekuchiRecord, "id">): Promise<boolean> {
+  return (await supabaseInsert("tsumekuchi_records", {
+    tsumekuchi_date: r.tsumekuchiDate, source_tank_no: r.sourceTankNo,
+    genshu_batch_code: r.genshuBatchCode, genshu_name: r.genshuName,
+    target_product_code: r.targetProductCode, target_product_name: r.targetProductName,
+    genshu_volume_before_l: r.genshuVolumeBeforeL, zanshu_receive_l: r.zanshuReceiveL,
+    linked_tank_no: r.linkedTankNo, volume_before_tsumekuchi_l: r.volumeBeforeTsumekuchiL,
+    tsumekuchi_success_qty: r.tsumekuchiSuccessQty, tsumekuchi_success_l: r.tsumekuchiSuccessL,
+    depth_after_mm: r.depthAfterMm, volume_after_l: r.volumeAfterL,
+    tsumekuchi_remaining_l: r.tsumekuchiRemainingL, breakage_l: r.breakageL,
+    loss_l: r.lossL, product_volume_ml: r.productVolumeMl,
+    notes: r.notes, recorded_by: r.recordedBy
+  })) !== null;
+}
+
+export async function deleteTsumekuchiRecord(id: string): Promise<boolean> {
+  const { supabaseDelete } = await import("./supabase");
+  return supabaseDelete("tsumekuchi_records", id);
+}
+
 export interface MaterialRecord {
   id: string;
   code: string;

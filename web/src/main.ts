@@ -207,6 +207,7 @@ import { renderShipmentCalendar } from "./components/ShipmentCalendar";
 import { renderVisitPlanner, buildVisitPlan, type VisitPlannerState } from "./components/VisitPlanner";
 import { renderTankList, renderTankForm } from "./components/TankList";
 import { renderTankMovements } from "./components/TankMovements";
+import { renderTsumekuchi } from "./components/Tsumekuchi";
 import { renderTaxDeclaration } from "./components/TaxDeclaration";
 import { isNewRoute, renderChangelog } from "./components/Changelog";
 import { initChatWidget } from "./components/ChatWidget";
@@ -278,6 +279,7 @@ type RoutePath =
   | "/brewing-process"
   | "/workforce"
   | "/tank-movements"
+  | "/tsumekuchi"
   | "/changelog";
 
 type CategoryKey = "dashboard" | "sales" | "analytics" | "crm" | "orders" | "brewery" | "master" | "settings";
@@ -427,6 +429,7 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/procurement", title: "調達計画" },
   { path: "/brewing-process", title: "醸造工程" },
   { path: "/tank-movements", title: "移動簿" },
+  { path: "/tsumekuchi", title: "詰口帳票" },
   { path: "/changelog", title: "機能一覧・更新履歴" }
 ];
 
@@ -761,6 +764,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/jikomi":
     case "/tanks":
     case "/tank-movements":
+    case "/tsumekuchi":
     case "/kentei":
     case "/materials":
     case "/tax":
@@ -1072,6 +1076,7 @@ const state: AppState = {
   bpTanks: [] as import("./api").TankInfo[],
   tankMovements: [] as import("./api").TankMovement[],
   tankMovementFilter: "",
+  tsumekuchiRecords: [] as import("./api").TsumekuchiRecord[],
   globalSearchOpen: false,
   globalQuery: "",
   orderHeaders: [],
@@ -1866,6 +1871,14 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
           state.tankList = await fetchTankList();
         }
         break;
+      case "/tsumekuchi": {
+        const { fetchTsumekuchiRecords, fetchGenzaishu: fgz2, fetchTankList: ftl2 } = await import("./api");
+        const [tsumeRecs, gzL2, tlL2] = await Promise.all([
+          fetchTsumekuchiRecords().catch(() => []), fgz2().catch(() => []), ftl2().catch(() => [])
+        ]);
+        state.tsumekuchiRecords = tsumeRecs; state.genzaishuList = gzL2; state.tankList = tlL2;
+        break;
+      }
       case "/tank-movements": {
         const { fetchTankMovements, fetchTankList: ftl, fetchGenzaishu: fgz } = await import("./api");
         const [movements, tankList, gzList] = await Promise.all([
@@ -2272,6 +2285,8 @@ function renderView(): string {
         : renderJikomi(state.jikomiList, state.jikomiView);
     case "/tanks":
       return renderTankList(state.tankList);
+    case "/tsumekuchi":
+      return renderTsumekuchi(state.tsumekuchiRecords, state.genzaishuList, state.tankList);
     case "/tank-movements":
       return renderTankMovements(state.tankMovements, state.tankList, state.tankMovementFilter, state.genzaishuList);
     case "/kentei":
@@ -2653,6 +2668,7 @@ function renderSidebar(): string {
       { path: "/jikomi",          label: "仕込管理" },
       { path: "/tanks",           label: "タンク管理" },
       { path: "/tank-movements",  label: "移動簿" },
+      { path: "/tsumekuchi",      label: "詰口帳票" },
       { path: "/kentei",          label: "検定管理" },
       { path: "/tax",             label: "酒税申告" },
       { path: "/workforce",       label: "人員・シフト" },
@@ -8201,6 +8217,69 @@ function bindEvents(root: HTMLElement): void {
       th { background:#f0f0f0; } button,.button-sm { display:none; }
       @media print { body { padding:5mm; } }
     </style></head><body><h1 style="font-size:14px;margin-bottom:8px;">酒類検定簿</h1>${table.querySelector(".table-wrap")?.innerHTML ?? ""}</body></html>`);
+    w.document.close(); setTimeout(() => w.print(), 300);
+  });
+
+  // ── 詰口帳票 ──────────────────────────────────────────
+  root.querySelector<HTMLSelectElement>("#tsume-genshu")?.addEventListener("change", (e) => {
+    const opt = (e.target as HTMLSelectElement).selectedOptions[0];
+    if (opt?.dataset.name) {
+      const nameEl = root.querySelector<HTMLInputElement>("#tsume-product");
+      if (nameEl && !nameEl.value) nameEl.value = opt.dataset.name;
+    }
+    if (opt?.dataset.tank) {
+      const tankEl = root.querySelector<HTMLSelectElement>("#tsume-tank");
+      if (tankEl) tankEl.value = opt.dataset.tank;
+    }
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='tsume-save']")?.addEventListener("click", async () => {
+    const date = (root.querySelector<HTMLInputElement>("#tsume-date") as HTMLInputElement)?.value ?? "";
+    const qty = parseInt((root.querySelector<HTMLInputElement>("#tsume-qty") as HTMLInputElement)?.value ?? "0");
+    const ml = parseInt((root.querySelector<HTMLInputElement>("#tsume-ml") as HTMLInputElement)?.value ?? "720");
+    if (!date || qty <= 0) { showToast("日付と成功本数を入力", "warning"); return; }
+    const volBefore = parseFloat((root.querySelector<HTMLInputElement>("#tsume-vol-before") as HTMLInputElement)?.value ?? "0");
+    const volAfter = parseFloat((root.querySelector<HTMLInputElement>("#tsume-vol-after") as HTMLInputElement)?.value ?? "0");
+    const successL = qty * ml / 1000;
+    const remaining = volBefore - successL - parseFloat((root.querySelector<HTMLInputElement>("#tsume-break") as HTMLInputElement)?.value ?? "0") - parseFloat((root.querySelector<HTMLInputElement>("#tsume-loss") as HTMLInputElement)?.value ?? "0");
+    const gzSel = root.querySelector<HTMLSelectElement>("#tsume-genshu") as HTMLSelectElement;
+    const { saveTsumekuchiRecord, fetchTsumekuchiRecords } = await import("./api");
+    await saveTsumekuchiRecord({
+      tsumekuchiDate: date,
+      sourceTankNo: (root.querySelector<HTMLSelectElement>("#tsume-tank") as HTMLSelectElement)?.value ?? "",
+      genshuBatchCode: gzSel?.value ?? "",
+      genshuName: gzSel?.selectedOptions[0]?.dataset.name ?? "",
+      targetProductCode: "", targetProductName: (root.querySelector<HTMLInputElement>("#tsume-product") as HTMLInputElement)?.value ?? "",
+      genshuVolumeBeforeL: parseFloat((root.querySelector<HTMLInputElement>("#tsume-before") as HTMLInputElement)?.value ?? "0"),
+      zanshuReceiveL: parseFloat((root.querySelector<HTMLInputElement>("#tsume-zanshu") as HTMLInputElement)?.value ?? "0"),
+      linkedTankNo: (root.querySelector<HTMLInputElement>("#tsume-linked") as HTMLInputElement)?.value ?? "",
+      volumeBeforeTsumekuchiL: volBefore, tsumekuchiSuccessQty: qty, tsumekuchiSuccessL: successL,
+      depthAfterMm: parseFloat((root.querySelector<HTMLInputElement>("#tsume-depth") as HTMLInputElement)?.value ?? "0"),
+      volumeAfterL: volAfter, tsumekuchiRemainingL: Math.max(0, remaining),
+      breakageL: parseFloat((root.querySelector<HTMLInputElement>("#tsume-break") as HTMLInputElement)?.value ?? "0"),
+      lossL: parseFloat((root.querySelector<HTMLInputElement>("#tsume-loss") as HTMLInputElement)?.value ?? "0"),
+      productVolumeMl: ml, notes: "", recordedBy: state.myProfile?.name ?? ""
+    });
+    state.tsumekuchiRecords = await fetchTsumekuchiRecords();
+    showToast("記録しました"); renderApp();
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-action='tsume-delete']").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id ?? "";
+      if (!id || !confirm("この記録を削除しますか？")) return;
+      const { deleteTsumekuchiRecord, fetchTsumekuchiRecords } = await import("./api");
+      await deleteTsumekuchiRecord(id); state.tsumekuchiRecords = await fetchTsumekuchiRecords(); renderApp();
+    });
+  });
+  root.querySelector<HTMLButtonElement>("[data-action='tsume-print']")?.addEventListener("click", () => {
+    const t = root.querySelector<HTMLElement>("#tsume-table");
+    if (!t) return;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>詰口帳票</title><style>
+      body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;font-size:9px;padding:10mm;}
+      table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ccc;padding:2px 4px;}
+      th{background:#f0f0f0;}button{display:none;}@media print{body{padding:5mm;}}
+    </style></head><body><h1 style="font-size:14px;margin-bottom:8px;">詰口帳票</h1>${t.querySelector(".table-wrap")?.innerHTML??""}</body></html>`);
     w.document.close(); setTimeout(() => w.print(), 300);
   });
 
