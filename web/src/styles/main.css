@@ -5356,6 +5356,7 @@ th.sortable:hover {
   padding: 16px;
   overflow-y: auto;
   flex: 1;
+  min-height: 0;
 }
 
 .cw-subtitle {
@@ -5603,6 +5604,7 @@ th.sortable:hover {
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
 .cw-messages {
   flex: 1;
@@ -5611,8 +5613,7 @@ th.sortable:hover {
   flex-direction: column;
   gap: 8px;
   padding: 4px 0 8px;
-  min-height: 200px;
-  max-height: 320px;
+  min-height: 0;
 }
 .cw-msg {
   display: flex;
