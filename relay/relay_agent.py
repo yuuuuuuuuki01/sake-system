@@ -21,37 +21,14 @@ LOG_PATH = BASE_DIR / "relay_log.txt"
 DEFAULT_BATCH_SIZE = 500
 
 # 業務で同期が必要と確認済みの対象ファイル (相対パス、Z_DRIVE_PATH からの)
-# 酒仙iの画面機能と対応づけて決定済みの対象のみ。
+#
+# ※ 新PJ (ridspyczkxwkcbmwndhm) では sake_* RAWテーブルが存在しないため
+#    raw同期は無効化。マスタ・売上は個別デコーダが直接処理:
+#    - decoder_master_diff.py  → customers, products
+#    - decoder_headers_diff.py → sales_document_headers
+#    - decoder_sales_diff.py   → sales_document_lines
 DEFAULT_SYNC_TARGETS: list[str] = [
-    # 1. 取引先マスタ
-    "sk/mst/SKTRI.MST",
-    # 2. 得意先マスタ
-    "sh/mst/SHTKI.MST",
-    # 3. 納品先マスタ
-    "sh/mst/SHNOU.MST",
-    # 4. 仕入先マスタ
-    "h5/mst/H5TKI.MST",
-    # 5. 商品マスタ (モジュール毎に別属性)
-    "sk/mst/SKSYO.MST",
-    "k5/mst/K5SYO.MST",
-    "h5/mst/H5SYO.MST",
-    "sh/mst/SHSYO.MST",
-    # 6. 特定単価
-    "sh/mst/SHTAN.MST",
-    "h5/mst/H5TAN.MST",
-    # 7. 売上伝票・明細は decoder_sales_diff.py が差分処理するため除外
-    #    (全件生バイナリ同期は ~900MB になりタイムアウト・クラッシュの原因)
-    # "sh/dat/SHDEN.DAT",
-    # "h5/dat/H5DEN.DAT",
-    # "sh/dat/SHTOR.DAT",
-    # "h5/dat/H5TOR.DAT",
-    # 8. 移動簿 (400割水 もこの中に含まれる)
-    "sk/dat/SKIDO.DAT",
-    "k5/dat/K5IDO.DAT",
-    # 9. 現在酒
-    "sh/dat/sHZAI.DAT",
-    "h5/dat/H5ZAI.DAT",
-    "sk/dat/SKZAI.DAT",
+    # 現在すべて個別デコーダに移行済み — raw同期は不要
 ]
 
 # ファイル名 -> Supabase テーブル名 (全テーブル sake_ プレフィクス付きで衝突回避)

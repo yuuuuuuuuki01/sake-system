@@ -295,6 +295,22 @@ def find_changed_pages(old_snap: dict[int, bytes],
     return [pn for pn, h in new_snap.items() if old_snap.get(pn) != h]
 
 
+def _save_snapshot(new_snapshot: dict[int, bytes], data_len: int,
+                   config: dict[str, Any]) -> None:
+    """スナップショット + ファイルmtime を保存。"""
+    import os
+    shtor_path = Path(config["z_drive_path"]) / "sh" / "dat" / "SHTOR.DAT"
+    shden_path = Path(config["z_drive_path"]) / "sh" / "dat" / "SHDEN.DAT"
+    payload = {
+        "snapshot": new_snapshot,
+        "file_size": data_len,
+        "shtor_mtime": os.path.getmtime(shtor_path) if shtor_path.exists() else 0,
+        "shden_mtime": os.path.getmtime(shden_path) if shden_path.exists() else 0,
+    }
+    with SNAPSHOT_PATH.open("wb") as f:
+        pickle.dump(payload, f)
+
+
 # ---------------------------------------------------------------------------
 # upsert
 # ---------------------------------------------------------------------------
@@ -347,6 +363,22 @@ def main() -> int:
         logger.error("File not found: %s", filepath)
         return 1
 
+    # mtime チェック: ファイルが前回から変わっていなければスキップ（1.4GB読み込み回避）
+    if not args.full_scan and SNAPSHOT_PATH.exists():
+        import os
+        mtime = os.path.getmtime(filepath)
+        shden_path = Path(config["z_drive_path"]) / "sh" / "dat" / "SHDEN.DAT"
+        shden_mtime = os.path.getmtime(shden_path) if shden_path.exists() else 0
+        try:
+            with SNAPSHOT_PATH.open("rb") as f:
+                old_data = pickle.load(f)
+            if (old_data.get("shtor_mtime") == mtime
+                    and old_data.get("shden_mtime") == shden_mtime):
+                logger.info("No file changes (mtime unchanged), skipping")
+                return 0
+        except Exception:
+            pass
+
     logger.info("Reading: %s", filepath)
     data = filepath.read_bytes()
     num_pages = len(data) // SHTOR_PAGE_SIZE
@@ -362,7 +394,7 @@ def main() -> int:
 
     if args.init:
         with SNAPSHOT_PATH.open("wb") as f:
-            pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
+            _save_snapshot(new_snapshot, len(data), config)
         logger.info("Initial snapshot saved")
         return 0
 
@@ -372,7 +404,7 @@ def main() -> int:
         target_pages = list(range(num_pages))
     elif not SNAPSHOT_PATH.exists():
         with SNAPSHOT_PATH.open("wb") as f:
-            pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
+            _save_snapshot(new_snapshot, len(data), config)
         logger.info("Initial snapshot created. Next run will detect changes.")
         return 0
     else:
@@ -384,7 +416,7 @@ def main() -> int:
         if not target_pages:
             logger.info("No changes detected")
             with SNAPSHOT_PATH.open("wb") as f:
-                pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
+                _save_snapshot(new_snapshot, len(data), config)
             return 0
 
     # --- Pass1: データページ (byte4=0x44) からレコード抽出（正規データ） ---
@@ -461,7 +493,7 @@ def main() -> int:
     # スナップショット更新
     if not args.dry_run:
         with SNAPSHOT_PATH.open("wb") as f:
-            pickle.dump({"snapshot": new_snapshot, "file_size": len(data)}, f)
+            _save_snapshot(new_snapshot, len(data), config)
         logger.info("Snapshot updated")
 
     # 明細 → ヘッダー FK 自動補完
