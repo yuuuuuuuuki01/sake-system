@@ -640,37 +640,56 @@ export function generateAutoShifts(
       });
     }
 
-    // 詰口
+    // 詰口（常に稼働: 生産日=本番、非生産日=準備・メンテ）
     {
       const members = primaryMembers('bottling');
       const hasLeader = leaderAvailableOn(members, d);
-      const active = isBottling && !!bottlingRun && (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
+      const isProductionDay = isBottling && !!bottlingRun && (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
+      // 詰口は営業日なら常に稼働（社員は準備・酒メンテ等で必要）
+      const active = hasLeader || members.filter(s => s.isDeptLeader).length === 0;
       const calShift = calDayMap.get(d);
-      const targetHead = calShift
-        ? Math.max(BOTTLING_LINE_SIZE, calShift.partTimers + calShift.employees)
-        : BOTTLING_LINE_SIZE;
+
+      // 生産日: フルライン定員、非生産日: 社員のみ（準備・メンテ）
+      const empCount = availableOn(members.filter(s => s.employmentType === 'employee'), d).length;
+      const targetHead = isProductionDay
+        ? (calShift ? Math.max(BOTTLING_LINE_SIZE, calShift.partTimers + calShift.employees) : BOTTLING_LINE_SIZE)
+        : Math.max(1, empCount); // 非生産日は社員だけ
+
       const productLabel = bottlingRun?.productName
-        ? `${bottlingRun.productName}（${bottlingRun.productCode}）` : bottlingBasisSrc;
+        ? `${bottlingRun.productName}（${bottlingRun.productCode}）` : '';
       const catLabel = bottlingRun && 'brewCategory' in bottlingRun ? bottlingRun.brewCategory : '';
       const scoreLabel = bottlingRun && 'priorityScore' in bottlingRun ? `優先度${Math.round(bottlingRun.priorityScore)}` : '';
+
+      const reasons: string[] = isProductionDay
+        ? [`[${catLabel}] ${productLabel}`, scoreLabel, `本日目標 ${bottlingRun!.dailyQty.toLocaleString('ja-JP')}本`, `ライン定員 ${targetHead}名`]
+        : ['準備・洗浄・酒メンテ', `社員${empCount}名で作業`];
+
       slots.set('bottling', {
         dept: 'bottling', active, assignedIds: [], neededCount: active ? targetHead : 0, shortage: active ? targetHead : 0,
-        notes: '', reasons: active
-          ? [`[${catLabel}] ${productLabel}`, scoreLabel, `本日目標 ${bottlingRun!.dailyQty.toLocaleString('ja-JP')}本`, `ライン定員 ${targetHead}名`]
-          : [isBottling ? '部門長不在' : '詰口予定なし'],
+        notes: '', reasons,
       });
     }
 
-    // 貼場
+    // 貼場（稼働日は作業、非稼働日もパート最低限の仕事を確保）
     {
       const members = primaryMembers('labeling');
       const hasLeader = leaderAvailableOn(members, d);
-      const active = isLabeling && (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
+      const isLabelingDay = isLabeling && (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
+
+      // 貼場パートの稼働確保: 標準稼働曜日なら最低1名は配置（仕分け・検品等）
+      const dow = new Date(y, m - 1, d).getDay();
+      const isLabelingWorkday = (deptWorkingDays['labeling'] ?? []).includes(dow);
+      const active = isLabelingDay || isLabelingWorkday;
+
+      const needed = isLabelingDay ? dailyLabelingHeadcount : (isLabelingWorkday ? Math.max(1, LABELING_MIN) : 0);
+
       slots.set('labeling', {
-        dept: 'labeling', active, assignedIds: [], neededCount: active ? dailyLabelingHeadcount : 0, shortage: active ? dailyLabelingHeadcount : 0,
-        notes: '', reasons: active
+        dept: 'labeling', active, assignedIds: [], neededCount: needed, shortage: needed,
+        notes: '', reasons: isLabelingDay
           ? [`${labelingBasisSrc}`, `本日目標 ${dailyLabelingQty.toLocaleString('ja-JP')}本`, `${dailyLabelingHeadcount}名 × ${LABELING_CAPACITY_PER_PERSON_DAY}本/人日`]
-          : ['貼場予定なし'],
+          : isLabelingWorkday
+            ? ['仕分け・検品・準備作業']
+            : ['貼場予定なし'],
       });
     }
 
