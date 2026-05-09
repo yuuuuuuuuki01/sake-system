@@ -641,19 +641,21 @@ export function generateAutoShifts(
     }
 
     // 詰口（常に稼働: 生産日=本番、非生産日=準備・メンテ）
+    // 標準稼働曜日外でも生産計画があればフル稼働
     {
       const members = primaryMembers('bottling');
       const hasLeader = leaderAvailableOn(members, d);
+      const dow = new Date(y, m - 1, d).getDay();
+      const isBottlingWorkday = (deptWorkingDays['bottling'] ?? []).includes(dow);
       const isProductionDay = isBottling && !!bottlingRun && (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
-      // 詰口は営業日なら常に稼働（社員は準備・酒メンテ等で必要）
-      const active = hasLeader || members.filter(s => s.isDeptLeader).length === 0;
+      // 稼働条件: 生産計画がある日 or 標準稼働曜日（準備・メンテ）
+      const active = isProductionDay || isBottlingWorkday || (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
       const calShift = calDayMap.get(d);
 
-      // 生産日: フルライン定員、非生産日: 社員のみ（準備・メンテ）
       const empCount = availableOn(members.filter(s => s.employmentType === 'employee'), d).length;
       const targetHead = isProductionDay
         ? (calShift ? Math.max(BOTTLING_LINE_SIZE, calShift.partTimers + calShift.employees) : BOTTLING_LINE_SIZE)
-        : Math.max(1, empCount); // 非生産日は社員だけ
+        : Math.max(1, empCount); // 非生産日は社員のみ
 
       const productLabel = bottlingRun?.productName
         ? `${bottlingRun.productName}（${bottlingRun.productCode}）` : '';
@@ -662,7 +664,9 @@ export function generateAutoShifts(
 
       const reasons: string[] = isProductionDay
         ? [`[${catLabel}] ${productLabel}`, scoreLabel, `本日目標 ${bottlingRun!.dailyQty.toLocaleString('ja-JP')}本`, `ライン定員 ${targetHead}名`]
-        : ['準備・洗浄・酒メンテ', `社員${empCount}名で作業`];
+        : isBottlingWorkday
+          ? ['準備・洗浄・酒メンテ', `社員${empCount}名で作業`]
+          : [`社員${empCount}名で作業（メンテ・在庫管理）`];
 
       slots.set('bottling', {
         dept: 'bottling', active, assignedIds: [], neededCount: active ? targetHead : 0, shortage: active ? targetHead : 0,
@@ -670,23 +674,30 @@ export function generateAutoShifts(
       });
     }
 
-    // 貼場（稼働日は作業、非稼働日もパート最低限の仕事を確保）
+    // 貼場（標準稼働曜日 + 生産計画があれば曜日外も稼働）
+    // 受注や緊急在庫逼迫があれば標準曜日以外も動く
     {
       const members = primaryMembers('labeling');
       const hasLeader = leaderAvailableOn(members, d);
-      const isLabelingDay = isLabeling && (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
-
-      // 貼場パートの稼働確保: 標準稼働曜日なら最低1名は配置（仕分け・検品等）
       const dow = new Date(y, m - 1, d).getDay();
       const isLabelingWorkday = (deptWorkingDays['labeling'] ?? []).includes(dow);
-      const active = isLabelingDay || isLabelingWorkday;
+      const isLabelingDay = isLabeling && (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
 
-      const needed = isLabelingDay ? dailyLabelingHeadcount : (isLabelingWorkday ? Math.max(1, LABELING_MIN) : 0);
+      // 稼働: 生産計画でラベル日 or 標準稼働曜日（準備・検品）
+      const active = isLabelingDay || isLabelingWorkday;
+      const needed = isLabelingDay
+        ? dailyLabelingHeadcount
+        : isLabelingWorkday ? Math.max(1, LABELING_MIN) : 0;
 
       slots.set('labeling', {
         dept: 'labeling', active, assignedIds: [], neededCount: needed, shortage: needed,
         notes: '', reasons: isLabelingDay
-          ? [`${labelingBasisSrc}`, `本日目標 ${dailyLabelingQty.toLocaleString('ja-JP')}本`, `${dailyLabelingHeadcount}名 × ${LABELING_CAPACITY_PER_PERSON_DAY}本/人日`]
+          ? [
+              `${labelingBasisSrc}`,
+              `本日目標 ${dailyLabelingQty.toLocaleString('ja-JP')}本`,
+              `${dailyLabelingHeadcount}名 × ${LABELING_CAPACITY_PER_PERSON_DAY}本/人日`,
+              !isLabelingWorkday ? '※標準曜日外だが生産計画あり' : '',
+            ].filter(Boolean)
           : isLabelingWorkday
             ? ['仕分け・検品・準備作業']
             : ['貼場予定なし'],
