@@ -583,75 +583,64 @@ export function generateAutoShifts(
     const isBottling  = bottlingRun !== undefined;
     const isLabeling  = labelingDaySet.has(d);
 
-    // ── Pass 1: 各部門に主部門メンバーだけを配置 ─────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // 3パス方式:
+    //   Pass 1: 主部門の社員（部門長含む）のみ配置
+    //   Pass 2: 不足部門に越境社員を補充（自部門が休みの社員）
+    //   Pass 3: まだ足りなければパートを配置（主部門→越境の順）
+    // ══════════════════════════════════════════════════════════════════════
 
-    // 各部門の「この日に稼働するか」「配置済みID」「必要人数」「不足人数」を記録
     interface DeptSlot {
       dept: StaffDepartment;
-      active: boolean;           // この日に稼働するか
-      assignedIds: string[];     // 配置済みスタッフID
-      neededCount: number;       // 必要人数
-      shortage: number;          // 不足人数（Pass2で越境者を入れる基準）
+      active: boolean;
+      assignedIds: string[];
+      neededCount: number;
+      shortage: number;
       notes: string;
+      reasons: string[];  // アサイン理由を個別に記録
     }
     const slots = new Map<StaffDepartment, DeptSlot>();
+    const assignedGlobal = new Set<string>();
 
-    // ── 総務（営業日ベース: 常に稼働）
-    {
-      const members = sortByRole(availableOn(soumuPrimary, d));
-      const empsToday = members.filter(s => s.employmentType === 'employee');
-      const partsAM   = members.filter(s => s.employmentType === 'part_time' && (s.shiftPreference ?? 'both') !== 'afternoon');
-      const partsPM   = members.filter(s => s.employmentType === 'part_time' && (s.shiftPreference ?? 'both') !== 'morning');
-      const needed = soumuNeededBase + (isInventory ? 1 : 0);
-      const assigned: string[] = empsToday.map(s => s.id);
-      let g = Math.max(0, needed - empsToday.length);
-      for (const s of partsAM)  { if (g <= 0) break; assigned.push(s.id); g--; }
-      for (const s of partsPM)  { if (g <= 0) break; if (!assigned.includes(s.id)) { assigned.push(s.id); g--; } }
-      slots.set('soumu', {
-        dept: 'soumu', active: true, assignedIds: assigned,
-        neededCount: needed, shortage: Math.max(0, needed - assigned.length),
-        notes: [
-          isInventory ? '棚卸週（月末棚卸対応）' : null,
-          `伝票${Math.round(avgDailyDocs)}件/日 ÷ ${DOCS_PER_PERSON_DAY}件/人 = ${Math.ceil(avgDailyDocs/DOCS_PER_PERSON_DAY)}名必要`,
-          `来客${Math.round(avgDailyVisitors)}件/日 ÷ ${VISITORS_PER_PERSON_AM}件/人 = ${Math.ceil(avgDailyVisitors/VISITORS_PER_PERSON_AM)}名必要(AM)`,
-        ].filter(Boolean).join(' | '),
-      });
-    }
+    // ── 各部門の稼働判定と必要人数を先に決定 ────────────────────────────────
 
-    // ── 配送（営業日ベース: 常に稼働）
-    {
-      const empsToday  = availableOn(routeEmps, d);
-      const contsToday = availableOn(routeConts, d).slice(0, contractorsNeeded);
-      const assigned = [...empsToday, ...contsToday].map(s => s.id);
-      const needed = empsToday.length + contractorsNeeded;
-      slots.set('route_sales', {
-        dept: 'route_sales', active: true, assignedIds: assigned,
-        neededCount: needed, shortage: 0,
-        notes: [
-          `前年同月日次平均 ${fmtYen(avgDailyRoute)}`,
-          `社員${empsToday.length}台 × 積載 ${fmtYen(DELIVERY_CAPACITY_PER_VEHICLE)}/台`,
-          contractorsNeeded > 0 ? `委託${contsToday.length}台追加（超過 ${fmtYen(dailyOverflow)}/日）` : null,
-        ].filter(Boolean).join(' | '),
-      });
-    }
+    // 総務
+    const soumuNeeded = soumuNeededBase + (isInventory ? 1 : 0);
+    slots.set('soumu', {
+      dept: 'soumu', active: true, assignedIds: [], neededCount: soumuNeeded, shortage: soumuNeeded,
+      notes: '', reasons: [
+        isInventory ? '棚卸週（月末棚卸対応）' : '',
+        `伝票${Math.round(avgDailyDocs)}件/日 → ${Math.ceil(avgDailyDocs/DOCS_PER_PERSON_DAY)}名必要`,
+        `来客${Math.round(avgDailyVisitors)}件/日 → ${Math.ceil(avgDailyVisitors/VISITORS_PER_PERSON_AM)}名必要(AM)`,
+      ].filter(Boolean),
+    });
 
-    // ── 造り（工程ベース: 醸造月 + 部門長出勤）
+    // 配送
+    const routeNeeded = routeEmps.length + contractorsNeeded;
+    slots.set('route_sales', {
+      dept: 'route_sales', active: true, assignedIds: [], neededCount: routeNeeded, shortage: routeNeeded,
+      notes: '', reasons: [
+        `前年同月日次平均 ${fmtYen(avgDailyRoute)}`,
+        `社員${routeEmps.length}台 × 積載 ${fmtYen(DELIVERY_CAPACITY_PER_VEHICLE)}/台`,
+        contractorsNeeded > 0 ? `超過 → 委託${contractorsNeeded}台追加` : '',
+      ].filter(Boolean),
+    });
+
+    // 造り
     {
       const members = primaryMembers('brewing');
-      const todayMembers = sortByRole(availableOn(members, d));
       const hasLeader = leaderAvailableOn(members, d);
-      const active = isBrewingMonth && hasLeader && todayMembers.length > 0;
+      const active = isBrewingMonth && hasLeader && availableOn(members, d).length > 0;
+      const needed = active ? availableOn(members, d).length : 0;
       slots.set('brewing', {
-        dept: 'brewing', active,
-        assignedIds: active ? todayMembers.map(s => s.id) : [],
-        neededCount: active ? todayMembers.length : 0, shortage: 0,
-        notes: active
-          ? `醸造月（${m}月） | 調達計画に基づく仕込み`
-          : !isBrewingMonth ? '醸造期間外' : '部門長不在',
+        dept: 'brewing', active, assignedIds: [], neededCount: needed, shortage: needed,
+        notes: '', reasons: active
+          ? [`醸造月（${m}月）`, '調達計画に基づく仕込み']
+          : [!isBrewingMonth ? '醸造期間外' : '部門長不在'],
       });
     }
 
-    // ── 詰口（工程ベース: 生産計画あり + 部門長出勤）
+    // 詰口
     {
       const members = primaryMembers('bottling');
       const hasLeader = leaderAvailableOn(members, d);
@@ -660,103 +649,139 @@ export function generateAutoShifts(
       const targetHead = calShift
         ? Math.max(BOTTLING_LINE_SIZE, calShift.partTimers + calShift.employees)
         : BOTTLING_LINE_SIZE;
-      const todayMembers = active ? sortByRole(availableOn(members, d)).slice(0, targetHead) : [];
       const productLabel = bottlingRun?.productName
         ? `${bottlingRun.productName}（${bottlingRun.productCode}）` : bottlingBasisSrc;
-      const catLabel = bottlingRun && 'brewCategory' in bottlingRun ? `[${bottlingRun.brewCategory}]` : '';
+      const catLabel = bottlingRun && 'brewCategory' in bottlingRun ? bottlingRun.brewCategory : '';
       const scoreLabel = bottlingRun && 'priorityScore' in bottlingRun ? `優先度${Math.round(bottlingRun.priorityScore)}` : '';
       slots.set('bottling', {
-        dept: 'bottling', active,
-        assignedIds: todayMembers.map(s => s.id),
-        neededCount: active ? targetHead : 0,
-        shortage: active ? Math.max(0, BOTTLING_LINE_SIZE - todayMembers.length) : 0,
-        notes: !active ? (isBottling ? '部門長不在' : '詰口予定なし')
-          : todayMembers.length < BOTTLING_LINE_SIZE
-            ? `⚠ 要員不足 ${todayMembers.length}/${BOTTLING_LINE_SIZE}名 | ${catLabel} ${productLabel}`
-            : `${catLabel} ${productLabel} | ${scoreLabel} | 本日目標 ${bottlingRun!.dailyQty.toLocaleString('ja-JP')}本`,
+        dept: 'bottling', active, assignedIds: [], neededCount: active ? targetHead : 0, shortage: active ? targetHead : 0,
+        notes: '', reasons: active
+          ? [`[${catLabel}] ${productLabel}`, scoreLabel, `本日目標 ${bottlingRun!.dailyQty.toLocaleString('ja-JP')}本`, `ライン定員 ${targetHead}名`]
+          : [isBottling ? '部門長不在' : '詰口予定なし'],
       });
     }
 
-    // ── 貼場（工程ベース: 貼場スケジュールあり + 部門長出勤）
+    // 貼場
     {
       const members = primaryMembers('labeling');
       const hasLeader = leaderAvailableOn(members, d);
       const active = isLabeling && (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
-      const todayMembers = active ? sortByRole(availableOn(members, d)).slice(0, dailyLabelingHeadcount) : [];
       slots.set('labeling', {
-        dept: 'labeling', active,
-        assignedIds: todayMembers.map(s => s.id),
-        neededCount: active ? dailyLabelingHeadcount : 0,
-        shortage: active ? Math.max(0, LABELING_MIN - todayMembers.length) : 0,
-        notes: !active ? '貼場予定なし'
-          : todayMembers.length < LABELING_MIN
-            ? `⚠ 要員不足 ${todayMembers.length}/${LABELING_MIN}名`
-            : `${labelingBasisSrc} | 本日目標 ${dailyLabelingQty.toLocaleString('ja-JP')}本 (${dailyLabelingHeadcount}名 × ${LABELING_CAPACITY_PER_PERSON_DAY}本/人日)`,
+        dept: 'labeling', active, assignedIds: [], neededCount: active ? dailyLabelingHeadcount : 0, shortage: active ? dailyLabelingHeadcount : 0,
+        notes: '', reasons: active
+          ? [`${labelingBasisSrc}`, `本日目標 ${dailyLabelingQty.toLocaleString('ja-JP')}本`, `${dailyLabelingHeadcount}名 × ${LABELING_CAPACITY_PER_PERSON_DAY}本/人日`]
+          : ['貼場予定なし'],
       });
     }
 
-    // ── Pass 2: 越境による不足補充 ────────────────────────────────────────────
-    // 自部門に作業がない日のスタッフを、不足度が高い部門に優先配置
-
-    // 自部門が非稼働のスタッフを収集
-    const crossCandidates: StaffMember[] = [];
-    const assignedGlobal = new Set<string>();
+    // ── Pass 1: 主部門の社員のみ配置 ─────────────────────────────────────────
     for (const slot of slots.values()) {
-      for (const id of slot.assignedIds) assignedGlobal.add(id);
-    }
-
-    for (const s of staff) {
-      if (!s.isActive) continue;
-      if (s.availableMonths && !s.availableMonths.includes(m)) continue;
-      if (s.crossDepartments.length === 0) continue;
-      if (assignedGlobal.has(s.id)) continue;
-      // 固定休みチェック
-      const dow = new Date(y, m - 1, d).getDay();
-      if ((s.fixedDaysOff ?? []).includes(dow)) continue;
-      // 自部門が稼働中なら越境不可
-      const ownSlot = slots.get(s.department as StaffDepartment);
-      if (ownSlot && ownSlot.active) continue;
-      crossCandidates.push(s);
-    }
-
-    // 不足がある部門を不足度降順にソート
-    const shortageSlots = [...slots.values()]
-      .filter(s => s.active && s.shortage > 0)
-      .sort((a, b) => b.shortage - a.shortage);
-
-    for (const slot of shortageSlots) {
-      if (slot.shortage <= 0) continue;
-      // この部門に越境可能な候補を探す
-      const candidates = crossCandidates.filter(s =>
-        s.crossDepartments.includes(slot.dept) && !assignedGlobal.has(s.id)
-      );
-      // 社員優先でソート
-      candidates.sort((a, b) => {
-        const score = (s: StaffMember) => s.employmentType === 'employee' ? 0 : s.employmentType === 'part_time' ? 1 : 2;
-        return score(a) - score(b);
-      });
-      for (const c of candidates) {
+      if (!slot.active || slot.shortage <= 0) continue;
+      const members = primaryMembers(slot.dept);
+      const available = availableOn(members, d);
+      // 社員（部門長含む）のみ
+      const employees = sortByRole(available.filter(s => s.employmentType === 'employee' || s.employmentType === 'contractor'));
+      for (const s of employees) {
         if (slot.shortage <= 0) break;
-        slot.assignedIds.push(c.id);
+        if (assignedGlobal.has(s.id)) continue;
+        slot.assignedIds.push(s.id);
         slot.shortage--;
-        assignedGlobal.add(c.id);
-        // notes に越境者を記録
-        slot.notes += ` | 越境: ${c.name}（${DEPT_LABEL[c.department as StaffDepartment] ?? c.department}）`;
+        assignedGlobal.add(s.id);
+        const role = s.isDeptLeader ? '部門長' : '社員';
+        slot.reasons.push(`${s.name}（${role}・主部門）`);
       }
     }
 
-    // ── プラン出力（稼働部門のみ）
+    // ── Pass 2: 越境社員で不足を補充 ─────────────────────────────────────────
+    // 自部門が非稼働の社員を、不足度が高い部門に優先配置
+    {
+      const shortageSlots = [...slots.values()]
+        .filter(s => s.active && s.shortage > 0)
+        .sort((a, b) => b.shortage - a.shortage);
+
+      for (const slot of shortageSlots) {
+        if (slot.shortage <= 0) continue;
+        // 越境可能な社員を探す
+        for (const s of staff) {
+          if (slot.shortage <= 0) break;
+          if (!s.isActive || assignedGlobal.has(s.id)) continue;
+          if (s.employmentType !== 'employee') continue; // 社員のみ
+          if (s.availableMonths && !s.availableMonths.includes(m)) continue;
+          if (!s.crossDepartments.includes(slot.dept)) continue;
+          const dow = new Date(y, m - 1, d).getDay();
+          if ((s.fixedDaysOff ?? []).includes(dow)) continue;
+          // 自部門が稼働中なら越境不可
+          const ownSlot = slots.get(s.department as StaffDepartment);
+          if (ownSlot && ownSlot.active) continue;
+
+          slot.assignedIds.push(s.id);
+          slot.shortage--;
+          assignedGlobal.add(s.id);
+          slot.reasons.push(`${s.name}（社員・越境 ← ${DEPT_LABEL[s.department as StaffDepartment] ?? s.department}休）`);
+        }
+      }
+    }
+
+    // ── Pass 3: パートで残りの不足を補充（主部門→越境の順）─────────────────────
+    {
+      const shortageSlots = [...slots.values()]
+        .filter(s => s.active && s.shortage > 0)
+        .sort((a, b) => b.shortage - a.shortage);
+
+      for (const slot of shortageSlots) {
+        if (slot.shortage <= 0) continue;
+
+        // 3a: 主部門のパート
+        const primaryParts = availableOn(
+          primaryMembers(slot.dept).filter(s => s.employmentType === 'part_time'),
+          d
+        );
+        for (const s of primaryParts) {
+          if (slot.shortage <= 0) break;
+          if (assignedGlobal.has(s.id)) continue;
+          slot.assignedIds.push(s.id);
+          slot.shortage--;
+          assignedGlobal.add(s.id);
+          slot.reasons.push(`${s.name}（パート・主部門）`);
+        }
+
+        // 3b: 越境パート（自部門が非稼働のパート）
+        if (slot.shortage > 0) {
+          for (const s of staff) {
+            if (slot.shortage <= 0) break;
+            if (!s.isActive || assignedGlobal.has(s.id)) continue;
+            if (s.employmentType !== 'part_time') continue;
+            if (s.availableMonths && !s.availableMonths.includes(m)) continue;
+            if (!s.crossDepartments.includes(slot.dept)) continue;
+            const dow = new Date(y, m - 1, d).getDay();
+            if ((s.fixedDaysOff ?? []).includes(dow)) continue;
+            const ownSlot = slots.get(s.department as StaffDepartment);
+            if (ownSlot && ownSlot.active) continue;
+
+            slot.assignedIds.push(s.id);
+            slot.shortage--;
+            assignedGlobal.add(s.id);
+            slot.reasons.push(`${s.name}（パート・越境 ← ${DEPT_LABEL[s.department as StaffDepartment] ?? s.department}休）`);
+          }
+        }
+      }
+    }
+
+    // ── プラン出力 ────────────────────────────────────────────────────────────
     for (const slot of slots.values()) {
       if (!slot.active && slot.assignedIds.length === 0) continue;
-      // 営業日ベース部門は常に出力、工程ベースは稼働日のみ
       if (!slot.active && PROCESS_BASED_DEPTS.includes(slot.dept)) continue;
+
+      const reasonText = slot.reasons.filter(Boolean).join(' | ');
+      const shortageWarning = slot.shortage > 0
+        ? `⚠ ${slot.shortage}名不足（社員・パートとも候補なし）`
+        : '';
+
       plans.push({
         planDate: dateStr,
         department: slot.dept,
         staffMemberIds: slot.assignedIds,
-        notes: slot.shortage > 0
-          ? `⚠ ${slot.shortage}名不足（越境候補なし） | ${slot.notes}`
-          : slot.notes,
+        notes: [shortageWarning, reasonText].filter(Boolean).join(' | '),
       });
     }
   }
