@@ -175,10 +175,10 @@ export interface MasterProduct {
   category: string;
   taxCategoryCode: string;
   isActive: boolean;
-  listPrice: number;       // 定価（小売価格）
-  purchasePrice: number;   // 仕入単価（生産者価格）
-  salePrice: number;       // 卸価格（デフォルト売価）
-  costPrice: number;       // 原価
+  listPrice: number;
+  purchasePrice: number;
+  salePrice: number;
+  costPrice: number;
   alcoholDegree: number | null;
   volumeMl: number | null;
   unit: string;
@@ -189,6 +189,26 @@ export interface MasterProduct {
   riceType: string;
   season: string;
   agingYears: number;
+  // 階層
+  productType: string;       // base_sake, standard, pb, material, misc
+  baseSakeId: string | null;
+  parentProductId: string | null;
+  baseSakeName: string | null;
+  parentProductName: string | null;
+}
+
+export interface ProductMaterial {
+  id: string;
+  productId: string;
+  materialType: string;  // bottle, cap, label, box, other
+  materialName: string;
+  materialCode: string;
+  supplierCode: string;
+  supplierName: string;
+  unitCost: number;
+  quantityPerProduct: number;
+  notes: string;
+  isActive: boolean;
 }
 
 export interface MasterStatsSummary {
@@ -807,7 +827,12 @@ export async function fetchMasterStats(): Promise<MasterStatsSummary> {
           polishRate: row["polish_rate"] != null ? Number(row["polish_rate"]) : null,
           riceType: getString(row, ["rice_type"], ""),
           season: getString(row, ["season"], ""),
-          agingYears: getNumber(row, ["aging_years"], 0)
+          agingYears: getNumber(row, ["aging_years"], 0),
+          productType: getString(row, ["product_type"], "standard"),
+          baseSakeId: row["base_sake_id"] ? String(row["base_sake_id"]) : null,
+          parentProductId: row["parent_product_id"] ? String(row["parent_product_id"]) : null,
+          baseSakeName: null,
+          parentProductName: null
         }))
       : mockMasterStats.products;
 
@@ -1069,6 +1094,68 @@ export async function fetchInvoiceLines(documentNo: string): Promise<InvoiceLine
   }));
   _lineCache.set(documentNo, result);
   return result;
+}
+
+// ── 商品資材管理 ──────────────────────────────────────────────────────────────
+
+export async function fetchProductMaterials(productId: string): Promise<ProductMaterial[]> {
+  const rows = await supabaseQuery<LooseRow>("product_materials", {
+    select: "*",
+    product_id: `eq.${productId}`,
+    order: "material_type,material_name"
+  });
+  return rows.map((row) => ({
+    id: getString(row, ["id"], ""),
+    productId: getString(row, ["product_id"], ""),
+    materialType: getString(row, ["material_type"], ""),
+    materialName: getString(row, ["material_name"], ""),
+    materialCode: getString(row, ["material_code"], ""),
+    supplierCode: getString(row, ["supplier_code"], ""),
+    supplierName: getString(row, ["supplier_name"], ""),
+    unitCost: getNumber(row, ["unit_cost"], 0),
+    quantityPerProduct: getNumber(row, ["quantity_per_product"], 1),
+    notes: getString(row, ["notes"], ""),
+    isActive: getBoolean(row, ["is_active"], true)
+  }));
+}
+
+export async function saveProductMaterial(material: Partial<ProductMaterial>): Promise<boolean> {
+  const payload: Record<string, unknown> = {
+    product_id: material.productId,
+    material_type: material.materialType,
+    material_name: material.materialName,
+    material_code: material.materialCode || null,
+    supplier_code: material.supplierCode || null,
+    supplier_name: material.supplierName || null,
+    unit_cost: material.unitCost ?? 0,
+    quantity_per_product: material.quantityPerProduct ?? 1,
+    notes: material.notes || null,
+    is_active: material.isActive ?? true
+  };
+  if (material.id) payload.id = material.id;
+  const result = await supabaseUpsert("product_materials", payload);
+  return result !== null;
+}
+
+export async function deleteProductMaterial(id: string): Promise<boolean> {
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/rest/v1/product_materials?id=eq.${id}`, {
+      method: "DELETE",
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+      }
+    });
+    return resp.ok;
+  } catch { return false; }
+}
+
+export async function saveProductHierarchy(
+  productId: string,
+  updates: { product_type?: string; base_sake_id?: string | null; parent_product_id?: string | null }
+): Promise<boolean> {
+  const result = await supabaseUpdate("products", `id=eq.${productId}`, updates);
+  return result !== null;
 }
 
 export async function fetchCustomerLedger(code: string): Promise<CustomerLedger> {

@@ -1,4 +1,4 @@
-import type { MasterCustomer, MasterProduct, MasterStatsSummary, MasterTab } from "../api";
+import type { MasterCustomer, MasterProduct, MasterStatsSummary, MasterTab, ProductMaterial } from "../api";
 import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 
 export function renderEditCustomerModal(c: MasterCustomer): string {
@@ -54,13 +54,78 @@ export function renderEditCustomerModal(c: MasterCustomer): string {
   `;
 }
 
-export function renderEditProductModal(p: MasterProduct): string {
+const PRODUCT_TYPE_LABELS: Record<string, string> = {
+  base_sake: "原酒",
+  standard: "マスター商品",
+  pb: "PB商品",
+  material: "資材",
+  misc: "その他"
+};
+
+const MATERIAL_TYPE_LABELS: Record<string, string> = {
+  bottle: "瓶",
+  cap: "キャップ",
+  label: "ラベル",
+  box: "箱・カートン",
+  other: "その他"
+};
+
+export function renderEditProductModal(
+  p: MasterProduct,
+  allProducts?: MasterProduct[],
+  materials?: ProductMaterial[] | null
+): string {
+  const baseSakeOptions = (allProducts ?? [])
+    .filter(pr => pr.id !== p.id && (pr.productType === "base_sake" || pr.name.includes("原酒")))
+    .map(pr => `<option value="${pr.id}" ${p.baseSakeId === pr.id ? "selected" : ""}>[${pr.code}] ${pr.name}</option>`)
+    .join("");
+
+  const parentOptions = (allProducts ?? [])
+    .filter(pr => pr.id !== p.id && pr.productType !== "pb" && pr.productType !== "material")
+    .map(pr => `<option value="${pr.id}" ${p.parentProductId === pr.id ? "selected" : ""}>[${pr.code}] ${pr.name}</option>`)
+    .join("");
+
+  const materialRows = (materials ?? []).map(m => `
+    <tr data-material-id="${m.id}">
+      <td>${MATERIAL_TYPE_LABELS[m.materialType] || m.materialType}</td>
+      <td>${m.materialName}</td>
+      <td class="mono">${m.materialCode || ""}</td>
+      <td>${m.supplierName || ""}</td>
+      <td class="numeric">${m.unitCost ? `¥${m.unitCost.toLocaleString()}` : "―"}</td>
+      <td class="numeric">${m.quantityPerProduct}</td>
+      <td><button type="button" class="button secondary small" data-delete-material="${m.id}">削除</button></td>
+    </tr>
+  `).join("");
+
   return `
     <div class="modal-overlay" id="edit-modal">
-      <div class="modal-content panel" style="max-width:600px;">
-        <h2>商品編集: ${p.code}</h2>
+      <div class="modal-content panel" style="max-width:720px;max-height:90vh;overflow-y:auto;">
+        <h2>商品編集: [${p.code}] ${p.name}</h2>
         <form id="edit-product-form" class="feature-form">
           <input type="hidden" id="ep-id" value="${p.id}" />
+
+          <fieldset style="border:1px solid var(--border);border-radius:6px;padding:12px;margin:0 0 12px;">
+            <legend style="font-weight:700;font-size:13px;">商品種別・階層</legend>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <div class="form-row">
+                <label>商品種別</label>
+                <select id="ep-product-type">
+                  ${Object.entries(PRODUCT_TYPE_LABELS).map(([k, v]) =>
+                    `<option value="${k}" ${p.productType === k ? "selected" : ""}>${v}</option>`
+                  ).join("")}
+                </select>
+              </div>
+              <div class="form-row">
+                <label>原酒リンク</label>
+                <select id="ep-base-sake"><option value="">―なし―</option>${baseSakeOptions}</select>
+              </div>
+              <div class="form-row" style="grid-column:1/-1;">
+                <label>親商品（PBの場合）</label>
+                <select id="ep-parent-product"><option value="">―なし―</option>${parentOptions}</select>
+              </div>
+            </div>
+          </fieldset>
+
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
             <div class="form-row" style="grid-column:1/-1;"><label>商品名</label><input type="text" id="ep-name" value="${p.name}" /></div>
             <div class="form-row"><label>カナ</label><input type="text" id="ep-kana" value="${p.kanaName || ""}" /></div>
@@ -90,6 +155,39 @@ export function renderEditProductModal(p: MasterProduct): string {
               <div class="form-row"><label>熟成年数</label><input type="number" id="ep-aging" value="${p.agingYears || ""}" /></div>
             </div>
           </fieldset>
+
+          <fieldset style="border:1px solid var(--border);border-radius:6px;padding:12px;margin:12px 0;">
+            <legend style="font-weight:700;font-size:13px;">資材（瓶・キャップ・ラベル）</legend>
+            ${materials === null
+              ? '<p style="color:var(--text-muted);font-size:0.85rem;">読み込み中...</p>'
+              : materials && materials.length > 0
+                ? `<div class="table-wrap"><table style="font-size:0.85rem;">
+                    <thead><tr><th>種別</th><th>資材名</th><th>品番</th><th>仕入先</th><th class="numeric">単価</th><th class="numeric">数量</th><th></th></tr></thead>
+                    <tbody>${materialRows}</tbody>
+                  </table></div>`
+                : '<p style="color:var(--text-muted);font-size:0.85rem;">資材未登録</p>'
+            }
+            <div style="margin-top:8px;padding:8px;background:var(--bg-subtle,#f9fafb);border-radius:6px;">
+              <div style="font-size:0.8rem;font-weight:600;margin-bottom:6px;">資材を追加</div>
+              <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:6px;align-items:end;">
+                <div class="form-row">
+                  <label>種別</label>
+                  <select id="mat-type" style="font-size:0.85rem;">
+                    ${Object.entries(MATERIAL_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}
+                  </select>
+                </div>
+                <div class="form-row"><label>資材名</label><input type="text" id="mat-name" placeholder="茶瓶 720ml" style="font-size:0.85rem;" /></div>
+                <div class="form-row"><label>仕入先</label><input type="text" id="mat-supplier" placeholder="東洋ガラス" style="font-size:0.85rem;" /></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;margin-top:6px;align-items:end;">
+                <div class="form-row"><label>品番</label><input type="text" id="mat-code" style="font-size:0.85rem;" /></div>
+                <div class="form-row"><label>単価</label><input type="number" id="mat-cost" value="0" style="font-size:0.85rem;" /></div>
+                <div class="form-row"><label>数量/本</label><input type="number" id="mat-qty" value="1" style="font-size:0.85rem;" /></div>
+                <button type="button" class="button primary small" data-action="add-material" style="height:32px;">追加</button>
+              </div>
+            </div>
+          </fieldset>
+
           <div style="display:flex;gap:8px;justify-content:flex-end;">
             <button type="button" class="button secondary" data-action="close-modal">キャンセル</button>
             <button type="submit" class="button primary">保存</button>
@@ -313,6 +411,18 @@ function fmtPrice(v: number): string {
   return v ? `¥${v.toLocaleString("ja-JP")}` : "―";
 }
 
+function productTypeBadge(pt: string): string {
+  const colors: Record<string, string> = {
+    base_sake: "#dc2626", standard: "#2563eb", pb: "#7c3aed", material: "#059669", misc: "#6b7280"
+  };
+  const labels: Record<string, string> = {
+    base_sake: "原酒", standard: "標準", pb: "PB", material: "資材", misc: "他"
+  };
+  const bg = colors[pt] ?? "#999";
+  const label = labels[pt] ?? pt;
+  return `<span style="display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;font-weight:700;color:#fff;background:${bg};">${label}</span>`;
+}
+
 function renderProductRows(products: MasterProduct[]): string {
   return products
     .map(
@@ -320,7 +430,7 @@ function renderProductRows(products: MasterProduct[]): string {
         <tr>
           <td class="mono">${product.code}</td>
           <td>${truncate(product.name, 20)}</td>
-          <td>${product.kanaName || ""}</td>
+          <td>${productTypeBadge(product.productType)}</td>
           <td>${product.category}</td>
           <td>${product.taxCategoryCode || ""}</td>
           <td class="numeric">${product.alcoholDegree != null ? `${product.alcoholDegree}` : ""}</td>
@@ -436,7 +546,7 @@ export function renderMasterStats(
               <tr>
                 ${makeSortableHeader("code", "コード", sortState)}
                 ${makeSortableHeader("name", "商品名", sortState)}
-                <th>カナ</th>
+                <th>種別</th>
                 ${makeSortableHeader("category", "分類", sortState)}
                 <th>酒税区分</th>
                 ${makeSortableHeader("alcoholDegree", "度数", sortState, "numeric")}

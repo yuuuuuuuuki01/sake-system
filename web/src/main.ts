@@ -129,7 +129,7 @@ import { supabaseDelete } from "./supabase";
 import { toggleSort, type SortState } from "./utils/tableSort";
 import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter, type ProductPeriod } from "./components/BusinessIntelligence";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
-import { fetchInvoiceLines, fetchSystemHealth, type InvoiceLineDetail, type SystemHealthItem } from "./api";
+import { fetchInvoiceLines, fetchSystemHealth, fetchProductMaterials, saveProductMaterial, deleteProductMaterial, saveProductHierarchy, type InvoiceLineDetail, type SystemHealthItem, type ProductMaterial } from "./api";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
 import { renderJikomi } from "./components/Jikomi";
 import { renderKentei } from "./components/Kentei";
@@ -3280,34 +3280,101 @@ function bindEvents(root: HTMLElement): void {
   });
 
   root.querySelectorAll<HTMLButtonElement>("[data-edit-product]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const id = btn.dataset.editProduct ?? "";
       const prod = state.masterStats?.products.find((p) => p.id === id);
       if (!prod) return;
-      const modal = document.createElement("div");
-      modal.innerHTML = renderEditProductModal(prod);
-      document.body.appendChild(modal.firstElementChild!);
-      document.querySelector("[data-action='close-modal']")?.addEventListener("click", () => {
+
+      // モーダル表示（資材は非同期ロード）
+      const allProducts = state.masterStats?.products ?? [];
+      const showModal = (mats: ProductMaterial[] | null) => {
         document.getElementById("edit-modal")?.remove();
-      });
-      document.getElementById("edit-product-form")?.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const r = document.getElementById("edit-result") as HTMLSpanElement;
-        const ok = await updateProduct(id, {
-          name: (document.getElementById("ep-name") as HTMLInputElement).value,
-          category_code: (document.getElementById("ep-category") as HTMLInputElement).value,
-          alcohol_degree: parseFloat((document.getElementById("ep-alcohol") as HTMLInputElement).value) || null,
-          volume_ml: parseInt((document.getElementById("ep-volume") as HTMLInputElement).value) || null,
-          bottle_type: (document.getElementById("ep-bottle") as HTMLInputElement).value,
-          purchase_price: parseInt((document.getElementById("ep-purchase") as HTMLInputElement).value) || null,
-          default_sale_price: parseInt((document.getElementById("ep-sale") as HTMLInputElement).value) || null,
-          manual_override: true,
-        });
-        if (r) { r.textContent = ok ? "保存しました" : "保存に失敗"; r.className = `fr-result ${ok ? "success" : "error"}`; }
-        if (ok) { document.getElementById("edit-modal")?.remove(); void loadData(); }
-      });
+        const modal = document.createElement("div");
+        modal.innerHTML = renderEditProductModal(prod, allProducts, mats);
+        document.body.appendChild(modal.firstElementChild!);
+        bindProductModalEvents(id, prod, allProducts);
+      };
+
+      showModal(null); // 先にモーダル表示
+      const mats = await fetchProductMaterials(id);
+      showModal(mats); // 資材ロード後に再描画
     });
   });
+
+  function bindProductModalEvents(productId: string, prod: MasterProduct, allProducts: MasterProduct[]): void {
+    document.querySelector("[data-action='close-modal']")?.addEventListener("click", () => {
+      document.getElementById("edit-modal")?.remove();
+    });
+
+    // 資材追加
+    document.querySelector("[data-action='add-material']")?.addEventListener("click", async () => {
+      const matName = (document.getElementById("mat-name") as HTMLInputElement)?.value?.trim();
+      if (!matName) return;
+      const ok = await saveProductMaterial({
+        productId: productId,
+        materialType: (document.getElementById("mat-type") as HTMLSelectElement)?.value || "other",
+        materialName: matName,
+        materialCode: (document.getElementById("mat-code") as HTMLInputElement)?.value || "",
+        supplierName: (document.getElementById("mat-supplier") as HTMLInputElement)?.value || "",
+        unitCost: parseInt((document.getElementById("mat-cost") as HTMLInputElement)?.value) || 0,
+        quantityPerProduct: parseInt((document.getElementById("mat-qty") as HTMLInputElement)?.value) || 1,
+      });
+      if (ok) {
+        const mats = await fetchProductMaterials(productId);
+        document.getElementById("edit-modal")?.remove();
+        const modal = document.createElement("div");
+        modal.innerHTML = renderEditProductModal(prod, allProducts, mats);
+        document.body.appendChild(modal.firstElementChild!);
+        bindProductModalEvents(productId, prod, allProducts);
+        showToast("資材を追加しました", "success");
+      }
+    });
+
+    // 資材削除
+    document.querySelectorAll<HTMLButtonElement>("[data-delete-material]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const matId = btn.dataset.deleteMaterial ?? "";
+        if (matId && await deleteProductMaterial(matId)) {
+          const mats = await fetchProductMaterials(productId);
+          document.getElementById("edit-modal")?.remove();
+          const modal = document.createElement("div");
+          modal.innerHTML = renderEditProductModal(prod, allProducts, mats);
+          document.body.appendChild(modal.firstElementChild!);
+          bindProductModalEvents(productId, prod, allProducts);
+          showToast("資材を削除しました", "success");
+        }
+      });
+    });
+
+    // 商品保存（階層含む）
+    document.getElementById("edit-product-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const r = document.getElementById("edit-result") as HTMLSpanElement;
+
+      // 基本情報
+      const ok1 = await updateProduct(productId, {
+        name: (document.getElementById("ep-name") as HTMLInputElement).value,
+        category_code: (document.getElementById("ep-category") as HTMLInputElement).value,
+        alcohol_degree: parseFloat((document.getElementById("ep-alcohol") as HTMLInputElement).value) || null,
+        volume_ml: parseInt((document.getElementById("ep-volume") as HTMLInputElement).value) || null,
+        bottle_type: (document.getElementById("ep-bottle") as HTMLInputElement).value,
+        purchase_price: parseInt((document.getElementById("ep-purchase") as HTMLInputElement).value) || null,
+        default_sale_price: parseInt((document.getElementById("ep-sale") as HTMLInputElement).value) || null,
+        manual_override: true,
+      });
+
+      // 階層情報
+      const ok2 = await saveProductHierarchy(productId, {
+        product_type: (document.getElementById("ep-product-type") as HTMLSelectElement)?.value || "standard",
+        base_sake_id: (document.getElementById("ep-base-sake") as HTMLSelectElement)?.value || null,
+        parent_product_id: (document.getElementById("ep-parent-product") as HTMLSelectElement)?.value || null,
+      });
+
+      const ok = ok1 && ok2;
+      if (r) { r.textContent = ok ? "保存しました" : "保存に失敗"; r.className = `fr-result ${ok ? "success" : "error"}`; }
+      if (ok) { document.getElementById("edit-modal")?.remove(); void loadData(); }
+    });
+  }
 
   // 得意先の見積履歴を表示するボタン（マスタ画面）
   root.querySelectorAll<HTMLButtonElement>("[data-view-customer-quotes]").forEach((btn) => {
