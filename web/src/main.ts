@@ -13,6 +13,9 @@ import {
   fetchInvoices,
   fetchJikomiList,
   fetchKenteiList,
+  fetchBaseSakes,
+  saveBaseSake,
+  deleteBaseSake,
   fetchMasterStats,
   fetchMaterialList,
   fetchPayableList,
@@ -105,6 +108,7 @@ import {
   fetchAnnouncements,
   type SystemAnnouncement,
   type ChurnNote,
+  type BaseSake,
 } from "./api";
 import { REQUIRE_AUTH } from "./config";
 import { renderBilling } from "./components/Billing";
@@ -602,6 +606,7 @@ interface AppState {
   invoiceFilter: InvoiceFilter;
   invoiceSelectedDocNo: string | null;
   invoiceSelectedLines: InvoiceLineDetail[] | null;
+  baseSakes: BaseSake[];
   productLinkageGroup: string | null;
   ledgerCustomerCode: string;
   salesPeriod: SalesPeriod;
@@ -973,6 +978,7 @@ const state: AppState = {
   invoiceFilter: { documentNo: "", startDate: "", endDate: "", customerCode: "" },
   invoiceSelectedDocNo: null,
   invoiceSelectedLines: null,
+  baseSakes: [] as BaseSake[],
   productLinkageGroup: null,
   ledgerCustomerCode: defaultLedgerCustomerCode,
   salesPeriod: "month",
@@ -1640,9 +1646,10 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
         state.analysisTab = "product";
         return;
       case "/product-linkage":
-        if (!state.masterStats) {
-          state.masterStats = await fetchMasterStats();
-        }
+        await Promise.all([
+          state.masterStats ? Promise.resolve() : fetchMasterStats().then(m => { state.masterStats = m; }),
+          fetchBaseSakes().then(bs => { state.baseSakes = bs; }),
+        ]);
         break;
       case "/customer-efficiency":
         state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear, state.customerEfficiencyGroupBy, state.customerEfficiencyFiscalType);
@@ -2202,7 +2209,7 @@ function renderView(): string {
       return renderProductPower(state.productPower, state.productFilter as ProductViewFilter, state.productDaily, state.productPeriod as ProductPeriod, state.productCustomStart, state.productCustomEnd, state.productSortState);
     case "/product-linkage":
       return state.masterStats
-        ? renderProductLinkage(state.masterStats.products, state.productLinkageGroup)
+        ? renderProductLinkage(state.masterStats.products, state.baseSakes, state.productLinkageGroup)
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p>読み込み中…</p></div></section>`;
     case "/customer-efficiency":
       return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState, state.customerEfficiencyYear, state.customerEfficiencyGroupBy, state.customerEfficiencyFiscalType);
@@ -3427,12 +3434,63 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
-  // 原酒紐付けページ: ワンクリック紐付け
-  root.querySelectorAll<HTMLButtonElement>("[data-link-sake]").forEach((btn) => {
+  // 原酒紐付けページ: 原酒登録
+  root.querySelectorAll<HTMLButtonElement>("[data-action='save-base-sake']").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const code = (document.getElementById("bs-code") as HTMLInputElement)?.value?.trim();
+      const name = (document.getElementById("bs-name") as HTMLInputElement)?.value?.trim();
+      const sakeType = (document.getElementById("bs-sake-type") as HTMLSelectElement)?.value;
+      const alcohol = (document.getElementById("bs-alcohol") as HTMLInputElement)?.value;
+      const rice = (document.getElementById("bs-rice") as HTMLInputElement)?.value?.trim();
+      const polish = (document.getElementById("bs-polish") as HTMLInputElement)?.value;
+      const year = (document.getElementById("bs-year") as HTMLInputElement)?.value?.trim();
+      const status = (document.getElementById("bs-status") as HTMLSelectElement)?.value;
+      if (!code || !name) { showToast("コードと名称は必須です", "error"); return; }
+      const ok = await saveBaseSake({
+        code, name, sakeType,
+        alcoholDegree: alcohol ? Number(alcohol) : null,
+        riceType: rice || "",
+        polishRate: polish ? Number(polish) : null,
+        brewingYear: year || "",
+        status: status || "active",
+      });
+      if (ok) {
+        showToast("原酒を登録しました", "success");
+        state.baseSakes = await fetchBaseSakes();
+        renderApp();
+      } else {
+        showToast("原酒の登録に失敗しました", "error");
+      }
+    });
+  });
+
+  // 原酒紐付けページ: 原酒削除
+  root.querySelectorAll<HTMLButtonElement>("[data-delete-base-sake]").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const productId = btn.dataset.linkSake ?? "";
-      const sakeId = btn.dataset.sakeId ?? "";
+      const id = btn.dataset.deleteBaseSake ?? "";
+      if (!id) return;
+      if (!confirm("この原酒を削除しますか？紐付けされた商品からも解除されます。")) return;
+      const ok = await deleteBaseSake(id);
+      if (ok) {
+        showToast("原酒を削除しました", "success");
+        state.baseSakes = await fetchBaseSakes();
+        state.masterStats = await fetchMasterStats();
+        renderApp();
+      } else {
+        showToast("原酒の削除に失敗しました", "error");
+      }
+    });
+  });
+
+  // 原酒紐付けページ: ワンクリック紐付け（base_sakesテーブル経由）
+  root.querySelectorAll<HTMLButtonElement>("[data-link-base-sake]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const productId = btn.dataset.linkBaseSake ?? "";
+      // セレクトがある場合はそちらの値を使う
+      const select = root.querySelector<HTMLSelectElement>(`[data-sake-select="${productId}"]`);
+      const sakeId = select ? select.value : (btn.dataset.sakeId ?? "");
       if (productId && sakeId) {
         const ok = await saveProductHierarchy(productId, { base_sake_id: sakeId });
         if (ok) {

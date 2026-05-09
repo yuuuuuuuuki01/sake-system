@@ -197,6 +197,27 @@ export interface MasterProduct {
   parentProductName: string | null;
 }
 
+export interface BaseSake {
+  id: string;
+  code: string;
+  name: string;
+  sakeType: string;
+  alcoholDegree: number | null;
+  acidity: number | null;
+  aminoAcid: number | null;
+  sakemeterValue: number | null;
+  riceType: string;
+  polishRate: number | null;
+  brewingYear: string;
+  brewingBatchId: string | null;
+  currentTankId: string | null;
+  currentTankNo: string;
+  currentVolumeL: number | null;
+  status: string;
+  pressedAt: string | null;
+  notes: string;
+}
+
 export interface ProductMaterial {
   id: string;
   productId: string;
@@ -1156,6 +1177,58 @@ export async function saveProductHierarchy(
 ): Promise<boolean> {
   const result = await supabaseUpdate("products", `id=eq.${productId}`, updates);
   return result !== null;
+}
+
+export async function fetchBaseSakes(): Promise<BaseSake[]> {
+  const rows = await supabaseQueryAll<LooseRow>("base_sakes", { order: "code.asc" });
+  return rows.map((row) => ({
+    id: getString(row, ["id"], ""),
+    code: getString(row, ["code"], ""),
+    name: getString(row, ["name"], ""),
+    sakeType: getString(row, ["sake_type"], ""),
+    alcoholDegree: row["alcohol_degree"] != null ? Number(row["alcohol_degree"]) : null,
+    acidity: row["acidity"] != null ? Number(row["acidity"]) : null,
+    aminoAcid: row["amino_acid"] != null ? Number(row["amino_acid"]) : null,
+    sakemeterValue: row["sakemeter_value"] != null ? Number(row["sakemeter_value"]) : null,
+    riceType: getString(row, ["rice_type"], ""),
+    polishRate: row["polish_rate"] != null ? Number(row["polish_rate"]) : null,
+    brewingYear: getString(row, ["brewing_year"], ""),
+    brewingBatchId: row["brewing_batch_id"] ? String(row["brewing_batch_id"]) : null,
+    currentTankId: row["current_tank_id"] ? String(row["current_tank_id"]) : null,
+    currentTankNo: getString(row, ["current_tank_no"], ""),
+    currentVolumeL: row["current_volume_l"] != null ? Number(row["current_volume_l"]) : null,
+    status: getString(row, ["status"], "active"),
+    pressedAt: row["pressed_at"] ? String(row["pressed_at"]) : null,
+    notes: getString(row, ["notes"], ""),
+  }));
+}
+
+export async function saveBaseSake(data: Partial<BaseSake>): Promise<boolean> {
+  const body: Record<string, unknown> = {};
+  if (data.id) body.id = data.id;
+  if (data.code !== undefined) body.code = data.code;
+  if (data.name !== undefined) body.name = data.name;
+  if (data.sakeType !== undefined) body.sake_type = data.sakeType;
+  if (data.alcoholDegree !== undefined) body.alcohol_degree = data.alcoholDegree;
+  if (data.acidity !== undefined) body.acidity = data.acidity;
+  if (data.aminoAcid !== undefined) body.amino_acid = data.aminoAcid;
+  if (data.sakemeterValue !== undefined) body.sakemeter_value = data.sakemeterValue;
+  if (data.riceType !== undefined) body.rice_type = data.riceType;
+  if (data.polishRate !== undefined) body.polish_rate = data.polishRate;
+  if (data.brewingYear !== undefined) body.brewing_year = data.brewingYear;
+  if (data.brewingBatchId !== undefined) body.brewing_batch_id = data.brewingBatchId;
+  if (data.currentTankId !== undefined) body.current_tank_id = data.currentTankId;
+  if (data.currentTankNo !== undefined) body.current_tank_no = data.currentTankNo;
+  if (data.currentVolumeL !== undefined) body.current_volume_l = data.currentVolumeL;
+  if (data.status !== undefined) body.status = data.status;
+  if (data.pressedAt !== undefined) body.pressed_at = data.pressedAt;
+  if (data.notes !== undefined) body.notes = data.notes;
+  const result = await supabaseUpsert("base_sakes", body);
+  return result !== null;
+}
+
+export async function deleteBaseSake(id: string): Promise<boolean> {
+  return supabaseDelete("base_sakes", id);
 }
 
 export async function fetchCustomerLedger(code: string): Promise<CustomerLedger> {
