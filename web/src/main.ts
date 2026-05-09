@@ -2503,7 +2503,7 @@ function renderView(): string {
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown, state.analyticsPeriodChartData, state.analyticsPrevYearChartData, state.analyticsChartMetric, state.analyticsFiscalMode);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown, state.analyticsPeriodChartData, state.analyticsPrevYearChartData, state.analyticsChartMetric, state.analyticsFiscalMode, state.masterStats?.products ?? []);
     case "/":
       return renderHome();
     default:
@@ -2648,6 +2648,11 @@ function renderHome(): string {
       cards: [
         card("/master", "⚙️", "マスタ管理", "商品・得意先マスタ"),
         card("/store", "🏪", "店舗・直売所", "直売所の販売管理"),
+        `<a href="https://yuuuuuuuuki01.github.io/kanei-loyalty/" target="_blank" rel="noopener" class="home-card">
+          <span class="home-card-icon">💳</span>
+          <span class="home-card-label">ポイントカード</span>
+          <span class="home-card-desc">スタンプカード発行・管理</span>
+        </a>`,
         card("/tour", "🏯", "酒蔵見学", "見学予約の管理"),
         card("/setup", "🔗", "連動設定", "酒仙iとの連動"),
         card("/import", "📤", "データ取込", "CSVデータ取込"),

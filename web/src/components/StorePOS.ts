@@ -82,6 +82,11 @@ export function renderStorePOS(
         <p class="eyebrow">店舗・直売所</p>
         <h1>店舗管理</h1>
       </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a href="https://yuuuuuuuuki01.github.io/kanei-loyalty/card" target="_blank" rel="noopener" class="button secondary" style="text-decoration:none;font-size:12px;">💳 カード発行</a>
+        <a href="https://yuuuuuuuuki01.github.io/kanei-loyalty/staff" target="_blank" rel="noopener" class="button primary" style="text-decoration:none;font-size:12px;">🔖 スタンプ付与</a>
+        <a href="https://yuuuuuuuuki01.github.io/kanei-loyalty/store-qr" target="_blank" rel="noopener" class="button secondary" style="text-decoration:none;font-size:12px;">📱 店頭QR</a>
+      </div>
     </section>
 
     <section class="kpi-grid compact">
