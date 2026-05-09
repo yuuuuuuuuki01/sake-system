@@ -46,8 +46,7 @@ const CATEGORIES = [
 ];
 
 function getCurrentRoute(): string {
-  const hash = location.hash.replace(/^#/, "") || "/";
-  return hash.split("?")[0];
+  return location.pathname.split("?")[0] || "/";
 }
 
 function getFeaturesForRoute(route: string): FeatureEntry[] {
