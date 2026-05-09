@@ -799,13 +799,20 @@ function renderShiftTab(
     const hasInventory  = dayPlans.some(p => p.notes?.includes('棚卸'));
     const hasWarning    = dayPlans.some(p => p.notes?.includes('⚠'));
 
-    const deptBadges = dayPlans.map(p => {
+    // 部門バッジ + メンバー名一覧
+    const deptSections = dayPlans.map(p => {
       const color = DEPT_COLOR[p.department];
-      const cnt   = p.staffMemberIds.length;
-      const names = p.staffMemberIds.map(id => staffMap.get(id)?.name ?? '?').join(', ');
-      return `<span style="display:inline-flex;align-items:center;gap:1px;font-size:9px;padding:1px 4px;border-radius:3px;margin:1px;background:${color}22;color:${color};font-weight:700;border:1px solid ${color}44;cursor:pointer;" title="${DEPT_LABEL[p.department]}: ${names}">
-        ${DEPT_SHORT[p.department]}<span style="font-size:8px;opacity:0.85;">${cnt}</span>
-      </span>`;
+      const members = p.staffMemberIds.map(id => staffMap.get(id)).filter(Boolean) as StaffMember[];
+      const nameList = members.map(s => {
+        const surname = s.name.replace(/\s+/g, '').slice(0, 2); // 姓2文字
+        return s.isDeptLeader
+          ? `<span style="font-weight:700;color:${color};">${surname}★</span>`
+          : `<span>${surname}</span>`;
+      }).join(' ');
+      return `<div style="display:flex;align-items:baseline;gap:2px;margin:1px 0;line-height:1.2;">
+        <span style="font-size:8px;font-weight:700;color:${color};flex-shrink:0;">${DEPT_SHORT[p.department]}</span>
+        <span style="font-size:8px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${nameList || '<span style="opacity:0.4;">-</span>'}</span>
+      </div>`;
     }).join('');
 
     const border = isSel
@@ -814,10 +821,13 @@ function renderShiftTab(
     const bg = isSun ? 'var(--surface-alt)' : 'var(--surface)';
 
     return `<div data-shift-day="${dateStr}" style="border:${border};border-radius:4px;padding:3px 4px;min-height:72px;background:${bg};cursor:pointer;position:relative;${isSun?'opacity:0.5;':''}${dayPlans.length===0&&!isSun?'opacity:0.35;':''}">
-      <div style="font-size:10px;font-weight:700;color:${dow===6?'#6b7280':isSun?'#ef4444':isToday?'#f59e0b':isSel?'var(--accent)':'var(--text-secondary)'};margin-bottom:2px;">
-        ${d}${isToday?' ●':''}
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1px;">
+        <span style="font-size:10px;font-weight:700;color:${dow===6?'#6b7280':isSun?'#ef4444':isToday?'#f59e0b':isSel?'var(--accent)':'var(--text-secondary)'};">
+          ${d}${isToday?' ●':''}
+        </span>
+        ${dayPlans.length > 0 ? `<span style="font-size:8px;color:var(--text-secondary);">${dayPlans.reduce((s, p) => s + p.staffMemberIds.length, 0)}名</span>` : ''}
       </div>
-      <div style="display:flex;flex-wrap:wrap;">${deptBadges}</div>
+      ${deptSections}
       ${hasInventory ? '<div style="font-size:7px;color:#7c3aed;font-weight:700;margin-top:1px;">棚卸</div>' : ''}
       ${hasWarning   ? '<div style="font-size:7px;color:#ef4444;font-weight:700;margin-top:1px;">⚠要確認</div>' : ''}
     </div>`;
