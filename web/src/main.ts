@@ -128,6 +128,7 @@ import { fetchQuoteList, fetchQuoteWithLines, fetchSystemSetting, upsertSystemSe
 import { supabaseDelete } from "./supabase";
 import { toggleSort, type SortState } from "./utils/tableSort";
 import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter, type ProductPeriod } from "./components/BusinessIntelligence";
+import { renderProductLinkage } from "./components/ProductLinkage";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
 import { fetchInvoiceLines, fetchSystemHealth, fetchProductMaterials, saveProductMaterial, deleteProductMaterial, saveProductHierarchy, type InvoiceLineDetail, type SystemHealthItem, type ProductMaterial } from "./api";
 import { renderJikomiCalendar } from "./components/JikomiCalendar";
@@ -231,6 +232,7 @@ type RoutePath =
   | "/analytics"
   | "/customer-analysis"
     | "/product-power"
+    | "/product-linkage"
   | "/customer-efficiency"
   | "/invoice-entry"
   | "/quote"
@@ -594,6 +596,7 @@ interface AppState {
   invoiceFilter: InvoiceFilter;
   invoiceSelectedDocNo: string | null;
   invoiceSelectedLines: InvoiceLineDetail[] | null;
+  productLinkageGroup: string | null;
   ledgerCustomerCode: string;
   salesPeriod: SalesPeriod;
   customRange: { start: string; end: string };
@@ -740,6 +743,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/analytics":
     case "/customer-analysis":
     case "/product-power":
+    case "/product-linkage":
     case "/customer-efficiency":
     case "/demand-forecast":
     case "/report":
@@ -961,6 +965,7 @@ const state: AppState = {
   invoiceFilter: { documentNo: "", startDate: "", endDate: "", customerCode: "" },
   invoiceSelectedDocNo: null,
   invoiceSelectedLines: null,
+  productLinkageGroup: null,
   ledgerCustomerCode: defaultLedgerCustomerCode,
   salesPeriod: "month",
   customRange: { start: "", end: "" },
@@ -1619,10 +1624,14 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
         break;
       case "/product-power":
       case "/product-abc":
-        // 商品力分析は /customer-analysis の商品タブに統合
         navigate("/customer-analysis");
-        state.analysisTab = "product"; // navigate内リセットを上書き
+        state.analysisTab = "product";
         return;
+      case "/product-linkage":
+        if (!state.masterStats) {
+          state.masterStats = await fetchMasterStats();
+        }
+        break;
       case "/customer-efficiency":
         state.customerEfficiency = await fetchCustomerEfficiencyByYear(state.customerEfficiencyYear, state.customerEfficiencyGroupBy, state.customerEfficiencyFiscalType);
         break;
@@ -2169,6 +2178,10 @@ function renderView(): string {
         : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p class="loading-text">データを読み込んでいます…</p></div></section>`;
     case "/product-power":
       return renderProductPower(state.productPower, state.productFilter as ProductViewFilter, state.productDaily, state.productPeriod as ProductPeriod, state.productCustomStart, state.productCustomEnd, state.productSortState);
+    case "/product-linkage":
+      return state.masterStats
+        ? renderProductLinkage(state.masterStats.products, state.productLinkageGroup)
+        : `<section class="panel"><div class="loading-overlay"><div class="loading-spinner"></div><p>読み込み中…</p></div></section>`;
     case "/customer-efficiency":
       return renderCustomerEfficiency(state.customerEfficiency, state.customerSortState, state.customerEfficiencyYear, state.customerEfficiencyGroupBy, state.customerEfficiencyFiscalType);
     case "/customer-analysis":
@@ -2647,6 +2660,7 @@ function renderSidebar(): string {
     { key: "analytics", icon: "📊", label: "分析", items: [
       { path: "/analytics",           label: "売上分析" },
       { path: "/product-power",       label: "商品パワー" },
+      { path: "/product-linkage",    label: "原酒紐付け" },
       { path: "/customer-analysis",   label: "ABC分析" },
       { path: "/customer-efficiency", label: "営業効率" },
       { path: "/demand-forecast",     label: "需要予測" },
@@ -2757,6 +2771,7 @@ function renderShell(): string {
     "/analytics": "売上分析",
     "/customer-analysis": "得意先分析",
     "/product-power": "商品力分析",
+    "/product-linkage": "原酒紐付け",
     "/customer-efficiency": "営業効率",
     "/churn-alert": "営業アクション",
     "/visit-planner": "訪問計画",
@@ -3375,6 +3390,31 @@ function bindEvents(root: HTMLElement): void {
       if (ok) { document.getElementById("edit-modal")?.remove(); void loadData(); }
     });
   }
+
+  // 原酒紐付けページ: グループ選択
+  root.querySelectorAll<HTMLElement>("[data-pl-group]").forEach((el) => {
+    el.addEventListener("click", () => {
+      state.productLinkageGroup = el.dataset.plGroup ?? null;
+      renderApp();
+    });
+  });
+
+  // 原酒紐付けページ: ワンクリック紐付け
+  root.querySelectorAll<HTMLButtonElement>("[data-link-sake]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const productId = btn.dataset.linkSake ?? "";
+      const sakeId = btn.dataset.sakeId ?? "";
+      if (productId && sakeId) {
+        const ok = await saveProductHierarchy(productId, { base_sake_id: sakeId });
+        if (ok) {
+          showToast("原酒を紐付けました", "success");
+          state.masterStats = await fetchMasterStats();
+          renderApp();
+        }
+      }
+    });
+  });
 
   // 得意先の見積履歴を表示するボタン（マスタ画面）
   root.querySelectorAll<HTMLButtonElement>("[data-view-customer-quotes]").forEach((btn) => {
