@@ -462,19 +462,22 @@ def main() -> int:
 
     data_only_count = len(batch)
 
-    # --- Pass2: 非データページから不足分を補完 ---
+    # --- Pass2: 非データページから不足分を補完（フルスキャン時のみ） ---
+    # 差分モードでは非データページのゴーストデータがデータページの正しい値を
+    # 上書きするリスクがあるため、フルスキャン時のみ補完する。
     # date_map に存在するinv_idのみ受け入れ（偽陽性排除）
-    for pn in target_pages:
-        page_data = data[pn * SHTOR_PAGE_SIZE : (pn + 1) * SHTOR_PAGE_SIZE]
-        if page_data[4] == 0x44:
-            continue  # データページは Pass1 で処理済み
-        rows = extract_page_records(page_data, date_map)
-        if rows:
-            index_page_count += 1
-        for row in rows:
-            inv_int = int(row["legacy_document_no"]) if row["legacy_document_no"].isdigit() else 0
-            if row["id"] not in batch and inv_int in date_map:
-                batch[row["id"]] = row
+    if args.full_scan:
+        for pn in target_pages:
+            page_data = data[pn * SHTOR_PAGE_SIZE : (pn + 1) * SHTOR_PAGE_SIZE]
+            if page_data[4] == 0x44:
+                continue  # データページは Pass1 で処理済み
+            rows = extract_page_records(page_data, date_map)
+            if rows:
+                index_page_count += 1
+            for row in rows:
+                inv_int = int(row["legacy_document_no"]) if row["legacy_document_no"].isdigit() else 0
+                if row["id"] not in batch and inv_int in date_map:
+                    batch[row["id"]] = row
 
     records = list(batch.values())
     dated = sum(1 for r in records if "date:unknown" not in r["note"])
