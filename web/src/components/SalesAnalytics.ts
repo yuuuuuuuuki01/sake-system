@@ -120,12 +120,70 @@ const PERIOD_LABELS: Record<AnalyticsPeriod, string> = {
 
 export type OverlaySeries = { label: string; values: number[]; color: string };
 
+function buildOverlayChart(
+  series: OverlaySeries[],
+  labels: string[],
+  metric: ChartMetric
+): string {
+  if (series.length === 0 || labels.length === 0) return `<div class="chart-empty">データなし</div>`;
+
+  const isPrice = metric === "pricePerLiter" || metric === "pricePerBottle" || metric === "amount";
+  const width = 760;
+  const height = 280;
+  const padding = { top: 16, right: 24, bottom: 36, left: isPrice ? 64 : 56 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  const allVals = series.flatMap(s => s.values);
+  const maxVal = Math.max(...allVals, 1);
+  const step = plotW / labels.length;
+
+  function axisLabel(value: number): string {
+    if (metric === "quantity") return value >= 10000 ? `${(value / 10000).toFixed(1)}万本` : `${Math.round(value).toLocaleString()}本`;
+    if (metric === "volume") { const l = value / 1000; return l >= 10000 ? `${(l / 1000).toFixed(0)}kL` : `${Math.round(l).toLocaleString()} L`; }
+    if (metric === "pricePerLiter" || metric === "pricePerBottle") return `¥${Math.round(value).toLocaleString("ja-JP")}`;
+    return `${Math.round(value / 10000).toLocaleString("ja-JP")}万円`;
+  }
+  function tipLabel(value: number): string {
+    if (metric === "quantity") return `${value.toLocaleString()}本`;
+    if (metric === "volume") return fmtVol(value);
+    if (metric === "pricePerLiter") return `¥${Math.round(value).toLocaleString("ja-JP")} /L`;
+    if (metric === "pricePerBottle") return `¥${Math.round(value).toLocaleString("ja-JP")} /本`;
+    return formatCurrency(value);
+  }
+
+  const toX = (i: number) => padding.left + i * step + step / 2;
+  const toY = (v: number) => padding.top + plotH - (v / maxVal) * plotH;
+
+  const axes = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
+    const y = padding.top + plotH - plotH * ratio;
+    return `<g><line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" class="chart-grid" />
+      <text x="4" y="${y + 4}" class="chart-axis">${axisLabel(maxVal * ratio)}</text></g>`;
+  }).join("");
+
+  const xLabels = labels.map((l, i) =>
+    `<text x="${toX(i)}" y="${height - 8}" class="chart-axis centered-axis">${formatMonth(l)}</text>`
+  ).join("");
+
+  const lines = series.map(s => {
+    const pts = s.values.map((v, i) => `${toX(i)},${toY(v)}`).join(" ");
+    const dots = s.values.map((v, i) =>
+      `<circle cx="${toX(i)}" cy="${toY(v)}" r="3.5" fill="${s.color}" opacity="0.9"><title>${s.label}: ${tipLabel(v)}</title></circle>`
+    ).join("");
+    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2" opacity="0.85" />${dots}`;
+  }).join("");
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" class="sales-chart" role="img" aria-label="製成別推移">
+      ${axes}${xLabels}${lines}
+    </svg>`;
+}
+
 function buildBars(
   points: { month: string; amount: number }[],
   color = "#0F5B8D",
   prevPoints: { month: string; amount: number }[] = [],
-  metric: ChartMetric = "amount",
-  overlay: OverlaySeries[] = []
+  metric: ChartMetric = "amount"
 ): string {
   if (points.length === 0) {
     return `<div class="chart-empty">データなし</div>`;
@@ -205,24 +263,9 @@ function buildBars(
       <text x="62" y="9" class="chart-axis" style="font-size:9px;">当年</text>
     </g>` : "";
 
-  // 折れ線オーバーレイ
-  const overlayLines = overlay.length > 0 ? overlay.map(s => {
-    const pts = s.values.map((v, i) => {
-      const cx = padding.left + i * step + step / 2;
-      const cy = padding.top + plotHeight - (v / maxValue) * plotHeight;
-      return `${cx},${cy}`;
-    }).join(" ");
-    const dots = s.values.map((v, i) => {
-      const cx = padding.left + i * step + step / 2;
-      const cy = padding.top + plotHeight - (v / maxValue) * plotHeight;
-      return `<circle cx="${cx}" cy="${cy}" r="3" fill="${s.color}"><title>${s.label}: ${tooltipLabel(v)}</title></circle>`;
-    }).join("");
-    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2" opacity="0.85" />${dots}`;
-  }).join("") : "";
-
   return `
     <svg viewBox="0 0 ${width} ${height}" class="sales-chart" role="img" aria-label="売上分析チャート">
-      ${axes}${bars}${legend}${overlayLines}
+      ${axes}${bars}${legend}
     </svg>
   `;
 }
@@ -928,14 +971,24 @@ export function renderSalesAnalytics(
             ${drilldown ? `<button class="button secondary small" data-action="close-analytics-drilldown">← 全体に戻す</button>` : ""}
           </div>
         </div>
-        ${chartOverlay.length > 0 ? `<div style="padding:0 8px 4px;line-height:1.8;">${chartOverlay.map(s =>
-          `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:12px;font-size:11px;color:var(--text-secondary);">
-            <span style="display:inline-block;width:10px;height:3px;border-radius:1px;background:${s.color};"></span>${s.label}
-          </span>`).join("")}</div>` : ""}
         <div class="chart-scroll">
-          ${buildBars(chartPoints, chartColor, chartPrevPoints, chartMetric, chartOverlay)}
+          ${buildBars(chartPoints, chartColor, chartPrevPoints, chartMetric)}
         </div>
       </article>
+
+      ${chartOverlay.length > 0 ? `
+      <article class="panel">
+        <div class="panel-header">
+          <h2>製成別 ${metricLabel}推移</h2>
+        </div>
+        <div style="padding:0 8px 4px;line-height:1.8;">${chartOverlay.map(s =>
+          `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:12px;font-size:11px;color:var(--text-secondary);">
+            <span style="display:inline-block;width:10px;height:3px;border-radius:1px;background:${s.color};"></span>${s.label}
+          </span>`).join("")}</div>
+        <div class="chart-scroll">
+          ${buildOverlayChart(chartOverlay, chartPoints.map(p => p.month), chartMetric)}
+        </div>
+      </article>` : ""}
 
       <article class="panel">
         <div class="panel-header tabs-header">
