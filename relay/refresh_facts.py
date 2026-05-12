@@ -371,6 +371,24 @@ def refresh_downstream(config: dict[str, Any], logger: logging.Logger) -> None:
     else:
         logger.warning("refresh_safety_stock_params: %s %s", resp.status_code, resp.text[:200])
 
+    # マテリアライズドビューのリフレッシュ
+    for mv in [
+        "mv_monthly_sales",
+        "mv_product_sales_totals",
+        "mv_customer_sales_totals",
+        "mv_staff_sales_totals",
+        "daily_sales_agg",
+    ]:
+        resp = sess.post(
+            f"{base}/rest/v1/rpc/refresh_matview",
+            json={"view_name": mv},
+            timeout=120,
+        )
+        if resp.ok:
+            logger.info("REFRESH %s: OK", mv)
+        else:
+            logger.warning("REFRESH %s: %s %s", mv, resp.status_code, resp.text[:200])
+
 
 # ---------------------------------------------------------------------------
 # Main
