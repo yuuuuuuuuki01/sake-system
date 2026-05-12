@@ -6,14 +6,21 @@ const ANALYTICS_COL_MAP: Record<string, keyof AnalyticsBreakdownRow> = {
 };
 
 export type ChartMetric = "amount" | "quantity" | "volume";
-export type FiscalMode = "calendar" | "fiscal";
+export type FiscalMode = "calendar" | "fiscal" | "fy43";
 const CHART_METRIC_LABELS: Record<ChartMetric, string> = { amount: "売上額", quantity: "出荷本数", volume: "移出量" };
 const FISCAL_START_MONTH = 10; // 決算期: 10月始まり
+const FY43_START_MONTH = 4;    // 年度: 4月始まり
 
 /** 月→決算年度に変換 (2026-01 → 2025, 2025-10 → 2025, 2025-09 → 2024) */
 export function monthToFiscalYear(ym: string): number {
   const [y, m] = ym.split("-").map(Number);
   return m >= FISCAL_START_MONTH ? y : y - 1;
+}
+
+/** 月→年度(4-3月)に変換 (2026-04 → 2026, 2026-03 → 2025) */
+export function monthToFY43(ym: string): number {
+  const [y, m] = ym.split("-").map(Number);
+  return m >= FY43_START_MONTH ? y : y - 1;
 }
 
 /** 決算年度→日付範囲 (2025 → 2025-10-01 ~ 2026-09-30) */
@@ -26,6 +33,14 @@ export function fiscalYearToDateRange(fy: number): { from: string; to: string } 
   };
 }
 
+/** 年度(4-3月)→日付範囲 (2025 → 2025-04-01 ~ 2026-03-31) */
+export function fy43ToDateRange(fy: number): { from: string; to: string } {
+  return {
+    from: `${fy}-04-01`,
+    to: `${fy + 1}-03-31`
+  };
+}
+
 export type AnalyticsDrilldown = {
   tab: "products" | "customers";
   code: string;
@@ -34,24 +49,30 @@ export type AnalyticsDrilldown = {
   breakdownRows: DrilldownBreakdownRow[];
 } | null;
 
+/** 月→年キーに変換（fiscalモードに応じて） */
+function monthToYearKey(ym: string, fiscal: FiscalMode): string {
+  if (fiscal === "fiscal") return `${monthToFiscalYear(ym)}年度`;
+  if (fiscal === "fy43") return `${monthToFY43(ym)}年度`;
+  return ym.slice(0, 4);
+}
+
 /** 月別データから年別に集約して全年チャートを生成 */
 function buildYearlyFromMonthly(all: AnalyticsMonthlyPoint[], metric: ChartMetric, fiscal: FiscalMode): { curr: { month: string; amount: number }[] } {
   const getValue = (p: AnalyticsMonthlyPoint) => metric === "quantity" ? p.quantity : metric === "volume" ? p.volumeMl : p.amount;
   const yearMap = new Map<string, number>();
   for (const p of all) {
-    const key = fiscal === "fiscal"
-      ? `${monthToFiscalYear(p.month)}年度`
-      : p.month.slice(0, 4);
+    const key = monthToYearKey(p.month, fiscal);
     yearMap.set(key, (yearMap.get(key) ?? 0) + getValue(p));
   }
   const years = [...yearMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   return { curr: years.map(([y, v]) => ({ month: y, amount: v })) };
 }
 
-/** 月別データから決算年度の選択肢を生成 */
-function buildFiscalYearOptions(all: AnalyticsMonthlyPoint[]): string[] {
+/** 月別データから決算年度/年度の選択肢を生成 */
+function buildFiscalYearOptions(all: AnalyticsMonthlyPoint[], fiscal: FiscalMode = "fiscal"): string[] {
   const fySet = new Set<number>();
-  for (const p of all) fySet.add(monthToFiscalYear(p.month));
+  const toYear = fiscal === "fy43" ? monthToFY43 : monthToFiscalYear;
+  for (const p of all) fySet.add(toYear(p.month));
   return [...fySet].sort((a, b) => b - a).map(String);
 }
 
@@ -245,6 +266,62 @@ function renderDrilldownTable(rows: StaffBreakdownRow[], tagFilter: string, colL
 
 // ─── 年別・製成別 移出量 vs 単価 ────────────────────────────────────────────────
 
+/** 年別単価推移チャート（/L と /本 の2系列） */
+function buildUnitPriceChart(
+  yearRows: { label: string; pricePerL: number; pricePerBottle: number }[]
+): string {
+  if (yearRows.length === 0) return `<div class="chart-empty">データなし</div>`;
+
+  const width = 760;
+  const height = 280;
+  const padding = { top: 20, right: 24, bottom: 36, left: 56 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const step = plotWidth / yearRows.length;
+
+  const maxVal = Math.max(...yearRows.map(r => Math.max(r.pricePerL, r.pricePerBottle)), 1);
+
+  const axes = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
+    const y = padding.top + plotHeight - plotHeight * ratio;
+    const label = `¥${Math.round(maxVal * ratio).toLocaleString("ja-JP")}`;
+    return `<g>
+      <line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" class="chart-grid" />
+      <text x="4" y="${y + 4}" class="chart-axis">${label}</text>
+    </g>`;
+  }).join("");
+
+  const bars = yearRows.map((r, i) => {
+    const barWidth = Math.max((step - 18) / 2, 10);
+    const gap = 2;
+    const x = padding.left + i * step + (step - barWidth * 2 - gap) / 2;
+
+    const hL = (r.pricePerL / maxVal) * plotHeight;
+    const yL = padding.top + plotHeight - hL;
+    const hB = (r.pricePerBottle / maxVal) * plotHeight;
+    const yB = padding.top + plotHeight - hB;
+
+    return `<g>
+      <rect x="${x}" y="${yL}" width="${barWidth}" height="${hL}" rx="3" fill="#0F5B8D" opacity="0.75"><title>/L: ¥${Math.round(r.pricePerL).toLocaleString("ja-JP")}</title></rect>
+      <rect x="${x + barWidth + gap}" y="${yB}" width="${barWidth}" height="${hB}" rx="3" fill="#d97706" opacity="0.75"><title>/本: ¥${Math.round(r.pricePerBottle).toLocaleString("ja-JP")}</title></rect>
+      <text x="${padding.left + i * step + step / 2}" y="${height - 8}" class="chart-axis centered-axis">${r.label}</text>
+    </g>`;
+  }).join("");
+
+  const legend = `
+    <g transform="translate(${width - 180}, 6)">
+      <rect width="10" height="10" fill="#0F5B8D" rx="2" opacity="0.75" />
+      <text x="14" y="9" class="chart-axis" style="font-size:9px;">移出量あたり(/L)</text>
+      <rect x="110" width="10" height="10" fill="#d97706" rx="2" opacity="0.75" />
+      <text x="124" y="9" class="chart-axis" style="font-size:9px;">本数あたり</text>
+    </g>`;
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" class="sales-chart" role="img" aria-label="年別単価推移">
+      ${axes}${bars}${legend}
+    </svg>
+  `;
+}
+
 function renderVolumeSection(
   summary: SalesAnalytics,
   products: MasterProduct[],
@@ -255,30 +332,40 @@ function renderVolumeSection(
   const fmtPrice = (v: number) => "¥" + Math.round(v).toLocaleString("ja-JP");
 
   // ── 年別集計 ──
-  type YearRow = { label: string; volumeMl: number; amount: number };
+  type YearRow = { label: string; volumeMl: number; amount: number; quantity: number };
   const yearMap = new Map<string, YearRow>();
   for (const p of summary.monthlySales) {
-    const label = fiscalMode === "fiscal"
-      ? `${monthToFiscalYear(p.month)}年度`
-      : p.month.slice(0, 4) + "年";
-    const existing = yearMap.get(label) ?? { label, volumeMl: 0, amount: 0 };
+    const label = monthToYearKey(p.month, fiscalMode)
+      + (fiscalMode === "calendar" ? "年" : "");
+    const existing = yearMap.get(label) ?? { label, volumeMl: 0, amount: 0, quantity: 0 };
     existing.volumeMl += p.volumeMl;
     existing.amount   += p.amount;
+    existing.quantity += p.quantity;
     yearMap.set(label, existing);
   }
   const yearRows = [...yearMap.values()].sort((a, b) => a.label.localeCompare(b.label));
 
   const yearTableBody = yearRows.length === 0
-    ? `<tr><td colspan="4" class="empty-row">データなし</td></tr>`
+    ? `<tr><td colspan="6" class="empty-row">データなし</td></tr>`
     : yearRows.map(r => {
         const pricePerL = r.volumeMl > 0 ? (r.amount / (r.volumeMl / 1000)) : 0;
+        const pricePerBottle = r.quantity > 0 ? (r.amount / r.quantity) : 0;
         return `<tr>
           <td>${r.label}</td>
           <td class="numeric">${fmtL(r.volumeMl)}</td>
+          <td class="numeric">${r.quantity.toLocaleString("ja-JP")} 本</td>
           <td class="numeric">${fmtPrice(r.amount)}</td>
           <td class="numeric" style="font-weight:600;">${pricePerL > 0 ? fmtPrice(pricePerL) + " /L" : "―"}</td>
+          <td class="numeric" style="font-weight:600;">${pricePerBottle > 0 ? fmtPrice(pricePerBottle) + " /本" : "―"}</td>
         </tr>`;
       }).join("");
+
+  // チャート用データ
+  const chartRows = yearRows.map(r => ({
+    label: r.label,
+    pricePerL: r.volumeMl > 0 ? r.amount / (r.volumeMl / 1000) : 0,
+    pricePerBottle: r.quantity > 0 ? r.amount / r.quantity : 0,
+  }));
 
   // ── 製成別集計 ──
   const prodTypeMap = new Map<string, string>(); // code → productionTypeName
@@ -312,21 +399,35 @@ function renderVolumeSection(
         </tr>`;
       }).join("");
 
+  const yearColLabel = fiscalMode === "calendar" ? "年" : "年度";
+
   return `
     <section class="analytics-grid" style="margin-top:0;">
       <article class="panel">
         <div class="panel-header">
-          <h2>年別 移出量 vs 単価</h2>
-          <p class="panel-caption">年ごとの移出量と平均単価（売上額 ÷ 移出量）</p>
+          <h2>${yearColLabel}別 単価推移</h2>
+          <p class="panel-caption">移出量あたり(/L)と本数あたりの平均単価を年比較</p>
+        </div>
+        <div class="chart-scroll">
+          ${buildUnitPriceChart(chartRows)}
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-header">
+          <h2>${yearColLabel}別 移出量・本数 vs 単価</h2>
+          <p class="panel-caption">${yearColLabel}ごとの移出量・本数と平均単価</p>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>${fiscalMode === "fiscal" ? "年度" : "年"}</th>
+                <th>${yearColLabel}</th>
                 <th class="numeric">移出量</th>
+                <th class="numeric">本数</th>
                 <th class="numeric">売上額</th>
                 <th class="numeric">単価(/L)</th>
+                <th class="numeric">単価(/本)</th>
               </tr>
             </thead>
             <tbody>${yearTableBody}</tbody>
@@ -422,7 +523,7 @@ export function renderSalesAnalytics(
     chartPoints = yearly.curr;
     chartPrevPoints = [];
     const total = chartPoints.reduce((s, p) => s + p.amount, 0);
-    const yearLabel = fiscalMode === "fiscal" ? "決算年度別" : "暦年別";
+    const yearLabel = fiscalMode === "fiscal" ? "決算年度別" : fiscalMode === "fy43" ? "年度別" : "暦年別";
     chartTitle = `${yearLabel}${metricLabel}`;
     chartCaption = `累計 ${metricFmt(total)}（${chartPoints.length}${fiscalMode === "fiscal" ? "期" : "年"}）`;
     chartColor = "#0F5B8D";
@@ -437,16 +538,17 @@ export function renderSalesAnalytics(
     .map((p) => `<button class="button ${p === activePeriod ? "primary" : "secondary"} small" type="button" data-analytics-period="${p}">${PERIOD_LABELS[p]}</button>`)
     .join("");
 
-  // 決算期+年次のときは決算年度オプションを上書き
-  const effectiveOptions = (fiscalMode === "fiscal" && activePeriod === "yearly")
-    ? buildFiscalYearOptions(summary.monthlySales)
+  // 決算期/年度+年次のときは年度オプションを上書き
+  const isFiscalYearlyView = (fiscalMode === "fiscal" || fiscalMode === "fy43") && activePeriod === "yearly";
+  const effectiveOptions = isFiscalYearlyView
+    ? buildFiscalYearOptions(summary.monthlySales, fiscalMode)
     : periodOptions;
-  const effectiveFilter = (fiscalMode === "fiscal" && activePeriod === "yearly" && !effectiveOptions.includes(periodFilter))
+  const effectiveFilter = (isFiscalYearlyView && !effectiveOptions.includes(periodFilter))
     ? effectiveOptions[0] ?? "" : periodFilter;
 
   const periodSelect = activePeriod !== "all" && effectiveOptions.length > 0 && activeTab !== "staff"
     ? `<select id="analytics-period-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
-        ${effectiveOptions.map((o) => `<option value="${o}" ${o === effectiveFilter ? "selected" : ""}>${fiscalMode === "fiscal" && activePeriod === "yearly" ? o + "年度" : o}</option>`).join("")}
+        ${effectiveOptions.map((o) => `<option value="${o}" ${o === effectiveFilter ? "selected" : ""}>${(fiscalMode === "fiscal" || fiscalMode === "fy43") && activePeriod === "yearly" ? o + "年度" : o}</option>`).join("")}
       </select>`
     : "";
 
@@ -554,6 +656,7 @@ export function renderSalesAnalytics(
       <div class="meta-stack">
         <div class="tab-group" style="font-size:12px;">
           <button class="tab-button ${fiscalMode === "calendar" ? "active" : ""}" data-fiscal-mode="calendar">暦年（1〜12月）</button>
+          <button class="tab-button ${fiscalMode === "fy43" ? "active" : ""}" data-fiscal-mode="fy43">年度（4〜3月）</button>
           <button class="tab-button ${fiscalMode === "fiscal" ? "active" : ""}" data-fiscal-mode="fiscal">決算期（10〜9月）</button>
         </div>
       </div>

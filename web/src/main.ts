@@ -5190,14 +5190,14 @@ function bindEvents(root: HTMLElement): void {
     state.analyticsPeriodFilter = (e.target as HTMLSelectElement).value;
     state.analyticsDrilldown = null;
     const pf = state.analyticsPeriodFilter;
-    const isFiscalYearly = state.analyticsFiscalMode === "fiscal" && state.analyticsPeriod === "yearly";
+    const isFiscalYearly = (state.analyticsFiscalMode === "fiscal" || state.analyticsFiscalMode === "fy43") && state.analyticsPeriod === "yearly";
 
     if (isFiscalYearly) {
-      // 決算年度: 日付範囲に変換してRPC呼び出し
-      const { fiscalYearToDateRange } = await import("./components/SalesAnalytics");
+      // 決算年度/年度(4-3月): 日付範囲に変換してRPC呼び出し
+      const { fiscalYearToDateRange, fy43ToDateRange } = await import("./components/SalesAnalytics");
       const fy = parseInt(pf);
-      const range = fiscalYearToDateRange(fy);
-      const prevRange = fiscalYearToDateRange(fy - 1);
+      const toRange = state.analyticsFiscalMode === "fy43" ? fy43ToDateRange : fiscalYearToDateRange;
+      const range = toRange(fy);
       const rpcName = state.analyticsTab === "customers" ? "get_customer_totals_by_period" : "get_product_totals_by_period";
       const { supabaseRpc } = await import("./supabase");
       const [rpcResult, chart, prevChart] = await Promise.all([
@@ -5235,11 +5235,12 @@ function bindEvents(root: HTMLElement): void {
         state.analyticsPeriodChartData = [];
         state.analyticsPrevYearChartData = [];
         state.analyticsPeriodFilter = "";
-        // 決算モードなら決算年度オプションを生成
-        if (state.analyticsFiscalMode === "fiscal") {
-          const { monthToFiscalYear } = await import("./components/SalesAnalytics");
+        // 決算モード/年度モードなら年度オプションを生成
+        if (state.analyticsFiscalMode === "fiscal" || state.analyticsFiscalMode === "fy43") {
+          const { monthToFiscalYear, monthToFY43 } = await import("./components/SalesAnalytics");
+          const toYear = state.analyticsFiscalMode === "fy43" ? monthToFY43 : monthToFiscalYear;
           const fySet = new Set<number>();
-          for (const m of state.salesAnalytics.monthlySales) fySet.add(monthToFiscalYear(m.month));
+          for (const m of state.salesAnalytics.monthlySales) fySet.add(toYear(m.month));
           state.analyticsPeriodOptions = [...fySet].sort((a, b) => b - a).map(String);
         } else {
           const { fetchAvailablePeriods } = await import("./api");
