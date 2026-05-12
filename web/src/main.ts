@@ -1611,17 +1611,18 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
           state.invoiceRecords = await fetchInvoices(state.invoiceFilter);
         }
         break;
-      case "/analytics":
+      case "/analytics": {
+        const promises: Promise<unknown>[] = [];
         if (!state.salesAnalytics || state.salesAnalytics.monthlySales.length === 0) {
-          const { fetchProductionTypeMonthly } = await import("./api");
-          const [analytics, ptm] = await Promise.all([
-            fetchSalesAnalytics(),
-            fetchProductionTypeMonthly()
-          ]);
-          state.salesAnalytics = analytics;
-          state.productionTypeMonthly = ptm;
+          promises.push(fetchSalesAnalytics().then(a => { state.salesAnalytics = a; }));
         }
+        if (state.productionTypeMonthly.length === 0) {
+          const { fetchProductionTypeMonthly } = await import("./api");
+          promises.push(fetchProductionTypeMonthly().then(ptm => { state.productionTypeMonthly = ptm; }));
+        }
+        await Promise.all(promises);
         break;
+      }
       case "/delivery":
         if (!state.deliveryNote) {
           state.deliveryNote = await fetchDeliveryNote(state.deliverySearchDocNo);

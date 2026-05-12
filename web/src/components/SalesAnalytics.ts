@@ -875,7 +875,6 @@ export function renderSalesAnalytics(
           <div style="display:flex;gap:8px;align-items:center;">
             <div class="tab-group">${chartMetricTabs}</div>
             ${drilldown ? `<button class="button secondary small" data-action="close-analytics-drilldown">← 全体に戻す</button>` : ""}
-        </div>
           </div>
         </div>
         <div class="chart-scroll">

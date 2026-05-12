@@ -1357,16 +1357,20 @@ export interface ProductionTypeMonthly {
 }
 
 export async function fetchProductionTypeMonthly(): Promise<ProductionTypeMonthly[]> {
-  const rows = await supabaseQueryAll<LooseRow>("v_production_type_monthly", {
-    order: "year_month.asc,amount.desc"
-  });
-  return rows.map(r => ({
-    productionType: getString(r, ["production_type_name"], "その他"),
-    month: getString(r, ["year_month"], ""),
-    amount: getNumber(r, ["amount"], 0),
-    quantity: getNumber(r, ["quantity"], 0),
-    volumeMl: getNumber(r, ["volume_ml"], 0),
-  }));
+  try {
+    const rows = await supabaseQueryAll<LooseRow>("v_production_type_monthly", {
+      order: "year_month.asc,amount.desc"
+    });
+    return rows.map(r => ({
+      productionType: getString(r, ["production_type_name"], "その他"),
+      month: getString(r, ["year_month"], ""),
+      amount: getNumber(r, ["amount"], 0),
+      quantity: getNumber(r, ["quantity"], 0),
+      volumeMl: getNumber(r, ["volume_ml"], 0),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export interface PeriodBreakdownRow {
