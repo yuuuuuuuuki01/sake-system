@@ -1360,7 +1360,7 @@ export async function fetchProductionTypeMonthly(): Promise<ProductionTypeMonthl
   try {
     const rows = await supabaseQueryAll<LooseRow>("v_production_type_monthly", {
       order: "year_month.asc,amount.desc"
-    }, 5000);
+    });
     return rows.map(r => ({
       productionType: getString(r, ["production_type_name"], "その他"),
       month: getString(r, ["year_month"], ""),

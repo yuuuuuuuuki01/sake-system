@@ -953,7 +953,6 @@ export function renderSalesAnalytics(
 
     ${drilldownHtml}
 
-    <!-- ptm=${productionTypeMonthly.length} -->
     ${renderVolumeSection(summary, products, fiscalMode, chartMetric, productionTypeMonthly)}
   `;
 }
