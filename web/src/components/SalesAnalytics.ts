@@ -303,7 +303,7 @@ function renderProductionTypeChart(
   fiscalMode: FiscalMode,
   chartMetric: ChartMetric
 ): string {
-  if (ptm.length === 0) return "";
+  if (ptm.length === 0) return `<section class="analytics-grid" style="margin-top:0;"><article class="panel"><div class="panel-header"><h2>製成別チャート: データ0件</h2></div></article></section>`;
 
   const metricLabel = CHART_METRIC_LABELS[chartMetric];
   const getValue = (r: ProductionTypeMonthly) => {
@@ -419,7 +419,7 @@ function renderProductionTypeChart(
       <article class="panel">
         <div class="panel-header">
           <h2>製成別 ${metricLabel}推移</h2>
-          <p class="panel-caption">上位8製成種別の年次推移（メトリックタブ連動）</p>
+          <p class="panel-caption">ptm=${ptm.length}件 / periods=${allPeriods.length} / series=${series.length} / maxVal=${Math.round(maxVal)}</p>
         </div>
         <div style="padding:0 8px 4px;line-height:1.8;">${legendItems}</div>
         <div class="chart-scroll">
