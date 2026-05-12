@@ -1611,18 +1611,15 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
           state.invoiceRecords = await fetchInvoices(state.invoiceFilter);
         }
         break;
-      case "/analytics": {
-        const promises: Promise<unknown>[] = [];
+      case "/analytics":
         if (!state.salesAnalytics || state.salesAnalytics.monthlySales.length === 0) {
-          promises.push(fetchSalesAnalytics().then(a => { state.salesAnalytics = a; }));
+          state.salesAnalytics = await fetchSalesAnalytics();
         }
         if (state.productionTypeMonthly.length === 0) {
           const { fetchProductionTypeMonthly } = await import("./api");
-          promises.push(fetchProductionTypeMonthly().then(ptm => { state.productionTypeMonthly = ptm; }));
+          state.productionTypeMonthly = await fetchProductionTypeMonthly();
         }
-        await Promise.all(promises);
         break;
-      }
       case "/delivery":
         if (!state.deliveryNote) {
           state.deliveryNote = await fetchDeliveryNote(state.deliverySearchDocNo);
@@ -9419,6 +9416,7 @@ async function loadData(): Promise<void> {
   state.loading = !cached;
   if (!cached) renderApp();
   try {
+    const { fetchProductionTypeMonthly } = await import("./api");
     const [
       salesSummary,
       paymentStatus,
@@ -9427,6 +9425,7 @@ async function loadData(): Promise<void> {
       invoiceRecords,
       salesAnalytics,
       dbCompanySettings,
+      productionTypeMonthly,
     ] = await Promise.all([
       fetchSalesSummary(),
       fetchPaymentStatus(),
@@ -9435,6 +9434,7 @@ async function loadData(): Promise<void> {
       fetchInvoices(state.invoiceFilter),
       fetchSalesAnalytics(),
       fetchSystemSetting<QuoteCompanySettings>("quote_company"),
+      fetchProductionTypeMonthly(),
     ]);
 
     state.salesSummary = salesSummary;
@@ -9443,6 +9443,7 @@ async function loadData(): Promise<void> {
     state.pipelineMeta = pipelineMeta;
     state.invoiceRecords = invoiceRecords;
     state.salesAnalytics = salesAnalytics;
+    state.productionTypeMonthly = productionTypeMonthly;
     // customerLedger は /ledger 遷移時のみ取得
     // syncDashboard は /setup 遷移時のみ取得
 
