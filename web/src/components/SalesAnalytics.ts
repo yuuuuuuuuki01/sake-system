@@ -118,11 +118,14 @@ const PERIOD_LABELS: Record<AnalyticsPeriod, string> = {
   daily: "日次"
 };
 
+export type OverlaySeries = { label: string; values: number[]; color: string };
+
 function buildBars(
   points: { month: string; amount: number }[],
   color = "#0F5B8D",
   prevPoints: { month: string; amount: number }[] = [],
-  metric: ChartMetric = "amount"
+  metric: ChartMetric = "amount",
+  overlay: OverlaySeries[] = []
 ): string {
   if (points.length === 0) {
     return `<div class="chart-empty">データなし</div>`;
@@ -202,9 +205,24 @@ function buildBars(
       <text x="62" y="9" class="chart-axis" style="font-size:9px;">当年</text>
     </g>` : "";
 
+  // 折れ線オーバーレイ
+  const overlayLines = overlay.length > 0 ? overlay.map(s => {
+    const pts = s.values.map((v, i) => {
+      const cx = padding.left + i * step + step / 2;
+      const cy = padding.top + plotHeight - (v / maxValue) * plotHeight;
+      return `${cx},${cy}`;
+    }).join(" ");
+    const dots = s.values.map((v, i) => {
+      const cx = padding.left + i * step + step / 2;
+      const cy = padding.top + plotHeight - (v / maxValue) * plotHeight;
+      return `<circle cx="${cx}" cy="${cy}" r="3" fill="${s.color}"><title>${s.label}: ${tooltipLabel(v)}</title></circle>`;
+    }).join("");
+    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2" opacity="0.85" />${dots}`;
+  }).join("") : "";
+
   return `
     <svg viewBox="0 0 ${width} ${height}" class="sales-chart" role="img" aria-label="売上分析チャート">
-      ${axes}${bars}${legend}
+      ${axes}${bars}${legend}${overlayLines}
     </svg>
   `;
 }
@@ -627,7 +645,6 @@ function renderVolumeSection(
       </article>
     </section>
 
-    ${renderProductionTypeChart(productionTypeMonthly, fiscalMode, chartMetric)}
   `;
 }
 
@@ -730,6 +747,40 @@ export function renderSalesAnalytics(
       chartCaption = `累計 ${metricFmt(total)}（${chartPoints.length}${fiscalMode === "fiscal" ? "期" : "年"}）`;
     }
     chartColor = "#0F5B8D";
+  }
+
+  // 製成別折れ線オーバーレイ（全期間 年別チャートのみ）
+  let chartOverlay: OverlaySeries[] = [];
+  if (activePeriod === "all" && !drilldown && productionTypeMonthly.length > 0) {
+    const yearLabels = chartPoints.map(p => p.month); // "2015", "2016年", "2025年度" etc
+    // ptmデータを同じ年キーで集約
+    type Acc = { amount: number; quantity: number; volumeMl: number };
+    const ptGrouped = new Map<string, Map<string, Acc>>();
+    for (const r of productionTypeMonthly) {
+      const period = monthToYearKey(r.month, fiscalMode) + (fiscalMode === "calendar" ? "" : "");
+      if (!ptGrouped.has(r.productionType)) ptGrouped.set(r.productionType, new Map());
+      const m = ptGrouped.get(r.productionType)!;
+      const a = m.get(period) ?? { amount: 0, quantity: 0, volumeMl: 0 };
+      a.amount += r.amount; a.quantity += r.quantity; a.volumeMl += r.volumeMl;
+      m.set(period, a);
+    }
+    // 上位8種別
+    const ranked = [...ptGrouped.entries()]
+      .map(([t, m]) => ({ type: t, total: [...m.values()].reduce((s, a) => s + a.amount, 0) }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8);
+    chartOverlay = ranked.map(({ type }, ci) => {
+      const m = ptGrouped.get(type)!;
+      const values = yearLabels.map(label => {
+        const a = m.get(label) ?? { amount: 0, quantity: 0, volumeMl: 0 };
+        if (chartMetric === "pricePerLiter") return a.volumeMl > 0 ? a.amount / (a.volumeMl / 1000) : 0;
+        if (chartMetric === "pricePerBottle") return a.quantity > 0 ? a.amount / a.quantity : 0;
+        if (chartMetric === "quantity") return a.quantity;
+        if (chartMetric === "volume") return a.volumeMl;
+        return a.amount;
+      });
+      return { label: type, values, color: PROD_TYPE_COLORS[ci % PROD_TYPE_COLORS.length] };
+    });
   }
 
   // チャートメトリック切替タブ
@@ -877,8 +928,12 @@ export function renderSalesAnalytics(
             ${drilldown ? `<button class="button secondary small" data-action="close-analytics-drilldown">← 全体に戻す</button>` : ""}
           </div>
         </div>
+        ${chartOverlay.length > 0 ? `<div style="padding:0 8px 4px;line-height:1.8;">${chartOverlay.map(s =>
+          `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:12px;font-size:11px;color:var(--text-secondary);">
+            <span style="display:inline-block;width:10px;height:3px;border-radius:1px;background:${s.color};"></span>${s.label}
+          </span>`).join("")}</div>` : ""}
         <div class="chart-scroll">
-          ${buildBars(chartPoints, chartColor, chartPrevPoints, chartMetric)}
+          ${buildBars(chartPoints, chartColor, chartPrevPoints, chartMetric, chartOverlay)}
         </div>
       </article>
 
