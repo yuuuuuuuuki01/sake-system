@@ -1,13 +1,16 @@
-import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow, DrilldownBreakdownRow, PeriodChartPoint, AnalyticsMonthlyPoint, MasterProduct } from "../api";
+import type { AnalyticsBreakdownRow, AnalyticsTab, AnalyticsPeriod, SalesAnalytics, StaffBreakdownRow, DrilldownBreakdownRow, PeriodChartPoint, AnalyticsMonthlyPoint, MasterProduct, ProductionTypeMonthly } from "../api";
 import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 
 const ANALYTICS_COL_MAP: Record<string, keyof AnalyticsBreakdownRow> = {
   code: "code", name: "name", amount: "amount", quantity: "quantity", documents: "documents", volumeMl: "volumeMl"
 };
 
-export type ChartMetric = "amount" | "quantity" | "volume";
+export type ChartMetric = "amount" | "quantity" | "volume" | "pricePerLiter" | "pricePerBottle";
 export type FiscalMode = "calendar" | "fiscal" | "fy43";
-const CHART_METRIC_LABELS: Record<ChartMetric, string> = { amount: "売上額", quantity: "出荷本数", volume: "移出量" };
+const CHART_METRIC_LABELS: Record<ChartMetric, string> = {
+  amount: "売上額", quantity: "出荷本数", volume: "移出量",
+  pricePerLiter: "単価(/L)", pricePerBottle: "単価(/本)"
+};
 const FISCAL_START_MONTH = 10; // 決算期: 10月始まり
 const FY43_START_MONTH = 4;    // 年度: 4月始まり
 
@@ -58,14 +61,30 @@ function monthToYearKey(ym: string, fiscal: FiscalMode): string {
 
 /** 月別データから年別に集約して全年チャートを生成 */
 function buildYearlyFromMonthly(all: AnalyticsMonthlyPoint[], metric: ChartMetric, fiscal: FiscalMode): { curr: { month: string; amount: number }[] } {
-  const getValue = (p: AnalyticsMonthlyPoint) => metric === "quantity" ? p.quantity : metric === "volume" ? p.volumeMl : p.amount;
-  const yearMap = new Map<string, number>();
+  // 派生指標は合計3値を集めてから割り算
+  const isDerived = metric === "pricePerLiter" || metric === "pricePerBottle";
+  type Acc = { amount: number; quantity: number; volumeMl: number };
+  const yearAcc = new Map<string, Acc>();
   for (const p of all) {
     const key = monthToYearKey(p.month, fiscal);
-    yearMap.set(key, (yearMap.get(key) ?? 0) + getValue(p));
+    const a = yearAcc.get(key) ?? { amount: 0, quantity: 0, volumeMl: 0 };
+    a.amount += p.amount;
+    a.quantity += p.quantity;
+    a.volumeMl += p.volumeMl;
+    yearAcc.set(key, a);
   }
-  const years = [...yearMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  return { curr: years.map(([y, v]) => ({ month: y, amount: v })) };
+  const years = [...yearAcc.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  return {
+    curr: years.map(([y, a]) => {
+      let value: number;
+      if (metric === "pricePerLiter") value = a.volumeMl > 0 ? a.amount / (a.volumeMl / 1000) : 0;
+      else if (metric === "pricePerBottle") value = a.quantity > 0 ? a.amount / a.quantity : 0;
+      else if (metric === "quantity") value = a.quantity;
+      else if (metric === "volume") value = a.volumeMl;
+      else value = a.amount;
+      return { month: y, amount: value };
+    })
+  };
 }
 
 /** 月別データから決算年度/年度の選択肢を生成 */
@@ -85,7 +104,10 @@ function formatCurrency(amount: number): string {
 }
 
 function formatMonth(value: string): string {
-  return value.replace("-", "/");
+  // "2026-05-12" → "12日", "2026-05" → "5月", "2026" → "2026", "2025年度" → "2025年度"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${parseInt(value.slice(8))}`;
+  if (/^\d{4}-\d{2}$/.test(value)) return `${parseInt(value.slice(5))}月`;
+  return value;
 }
 
 const PERIOD_LABELS: Record<AnalyticsPeriod, string> = {
@@ -109,7 +131,7 @@ function buildBars(
   const hasPrev = prevPoints.length > 0 && prevPoints.some(p => p.amount > 0);
   const width = 760;
   const height = 280;
-  const padding = { top: 16, right: 24, bottom: 36, left: metric === "amount" ? 64 : 56 };
+  const padding = { top: 16, right: 24, bottom: 36, left: (metric === "amount" || metric === "pricePerLiter" || metric === "pricePerBottle") ? 64 : 56 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const allAmounts = [...points.map(p => p.amount), ...prevPoints.map(p => p.amount)];
@@ -124,12 +146,17 @@ function buildBars(
       const liters = value / 1000;
       return liters >= 10000 ? `${(liters / 1000).toFixed(0)}kL` : `${Math.round(liters).toLocaleString()} L`;
     }
+    if (metric === "pricePerLiter" || metric === "pricePerBottle") {
+      return `¥${Math.round(value).toLocaleString("ja-JP")}`;
+    }
     return `${Math.round(value / 10000).toLocaleString("ja-JP")}万円`;
   }
 
   function tooltipLabel(value: number): string {
     if (metric === "quantity") return `${value.toLocaleString()}本`;
     if (metric === "volume") return fmtVol(value);
+    if (metric === "pricePerLiter") return `¥${Math.round(value).toLocaleString("ja-JP")} /L`;
+    if (metric === "pricePerBottle") return `¥${Math.round(value).toLocaleString("ja-JP")} /本`;
     return formatCurrency(value);
   }
 
@@ -264,6 +291,147 @@ function renderDrilldownTable(rows: StaffBreakdownRow[], tagFilter: string, colL
   `;
 }
 
+// ─── 製成別推移 折れ線チャート ──────────────────────────────────────────────────
+
+const PROD_TYPE_COLORS = [
+  "#0F5B8D", "#d97706", "#059669", "#dc2626", "#7c3aed",
+  "#0891b2", "#c026d3", "#65a30d", "#ea580c", "#4f46e5"
+];
+
+function renderProductionTypeChart(
+  ptm: ProductionTypeMonthly[],
+  fiscalMode: FiscalMode,
+  chartMetric: ChartMetric
+): string {
+  if (ptm.length === 0) return "";
+
+  const metricLabel = CHART_METRIC_LABELS[chartMetric];
+  const getValue = (r: ProductionTypeMonthly) => {
+    if (chartMetric === "quantity") return r.quantity;
+    if (chartMetric === "volume") return r.volumeMl;
+    if (chartMetric === "pricePerLiter") return r.volumeMl > 0 ? r.amount / (r.volumeMl / 1000) : 0;
+    if (chartMetric === "pricePerBottle") return r.quantity > 0 ? r.amount / r.quantity : 0;
+    return r.amount;
+  };
+  const isUnitPrice = chartMetric === "pricePerLiter" || chartMetric === "pricePerBottle";
+
+  // 年度別に集約
+  type Acc = { amount: number; quantity: number; volumeMl: number };
+  const grouped = new Map<string, Map<string, Acc>>(); // type → period → acc
+  for (const r of ptm) {
+    const period = monthToYearKey(r.month, fiscalMode)
+      + (fiscalMode === "calendar" ? "年" : "");
+    if (!grouped.has(r.productionType)) grouped.set(r.productionType, new Map());
+    const pMap = grouped.get(r.productionType)!;
+    const a = pMap.get(period) ?? { amount: 0, quantity: 0, volumeMl: 0 };
+    a.amount += r.amount;
+    a.quantity += r.quantity;
+    a.volumeMl += r.volumeMl;
+    pMap.set(period, a);
+  }
+
+  // 全期間ラベル（ソート済み）
+  const allPeriods = [...new Set([...grouped.values()].flatMap(m => [...m.keys()]))].sort();
+
+  // 上位製成種別（全期間合計で上位8）
+  const typeRanking = [...grouped.entries()]
+    .map(([type, pMap]) => {
+      const totalAmt = [...pMap.values()].reduce((s, a) => s + a.amount, 0);
+      return { type, totalAmt };
+    })
+    .sort((a, b) => b.totalAmt - a.totalAmt)
+    .slice(0, 8);
+
+  // 各種別の値系列
+  const series = typeRanking.map(({ type }, ci) => {
+    const pMap = grouped.get(type)!;
+    const values = allPeriods.map(p => {
+      const a = pMap.get(p) ?? { amount: 0, quantity: 0, volumeMl: 0 };
+      if (isUnitPrice) {
+        if (chartMetric === "pricePerLiter") return a.volumeMl > 0 ? a.amount / (a.volumeMl / 1000) : 0;
+        return a.quantity > 0 ? a.amount / a.quantity : 0;
+      }
+      if (chartMetric === "quantity") return a.quantity;
+      if (chartMetric === "volume") return a.volumeMl;
+      return a.amount;
+    });
+    return { type, values, color: PROD_TYPE_COLORS[ci % PROD_TYPE_COLORS.length] };
+  });
+
+  // SVG折れ線チャート
+  const width = 760;
+  const height = 320;
+  const padding = { top: 20, right: 16, bottom: 40, left: 64 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  const allVals = series.flatMap(s => s.values);
+  const maxVal = Math.max(...allVals, 1);
+
+  const toX = (i: number) => padding.left + (allPeriods.length > 1 ? i / (allPeriods.length - 1) * plotW : plotW / 2);
+  const toY = (v: number) => padding.top + plotH - (v / maxVal) * plotH;
+
+  // Y軸
+  const yAxes = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
+    const y = padding.top + plotH - plotH * ratio;
+    const v = maxVal * ratio;
+    let label: string;
+    if (chartMetric === "quantity") label = v >= 10000 ? `${(v / 10000).toFixed(1)}万本` : `${Math.round(v).toLocaleString()}本`;
+    else if (chartMetric === "volume") { const l = v / 1000; label = l >= 10000 ? `${(l / 1000).toFixed(0)}kL` : `${Math.round(l).toLocaleString()} L`; }
+    else if (isUnitPrice) label = `¥${Math.round(v).toLocaleString("ja-JP")}`;
+    else label = `${Math.round(v / 10000).toLocaleString("ja-JP")}万円`;
+    return `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" class="chart-grid" />
+      <text x="4" y="${y + 4}" class="chart-axis">${label}</text>`;
+  }).join("");
+
+  // X軸ラベル（間引き）
+  const maxLabels = 15;
+  const labelStep = allPeriods.length > maxLabels ? Math.ceil(allPeriods.length / maxLabels) : 1;
+  const xLabels = allPeriods.map((p, i) => {
+    if (i % labelStep !== 0 && i !== allPeriods.length - 1) return "";
+    const short = formatMonth(p);
+    return `<text x="${toX(i)}" y="${height - 8}" class="chart-axis centered-axis">${short}</text>`;
+  }).join("");
+
+  // 折れ線
+  const lines = series.map(s => {
+    const pts = s.values.map((v, i) => `${toX(i)},${toY(v)}`).join(" ");
+    const dots = s.values.map((v, i) => {
+      let tip: string;
+      if (chartMetric === "quantity") tip = `${v.toLocaleString()}本`;
+      else if (chartMetric === "volume") tip = fmtVol(v);
+      else if (isUnitPrice) tip = `¥${Math.round(v).toLocaleString("ja-JP")}`;
+      else tip = formatCurrency(v);
+      return `<circle cx="${toX(i)}" cy="${toY(v)}" r="3" fill="${s.color}"><title>${s.type} ${allPeriods[i]}: ${tip}</title></circle>`;
+    }).join("");
+    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2" opacity="0.8" />${dots}`;
+  }).join("");
+
+  // 凡例
+  const legendItems = series.map((s, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:12px;font-size:11px;color:var(--text-secondary);">
+      <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${s.color};opacity:0.8;"></span>${s.type}
+    </span>`
+  ).join("");
+
+  return `
+    <section class="analytics-grid" style="margin-top:0;">
+      <article class="panel">
+        <div class="panel-header">
+          <h2>製成別 ${metricLabel}推移</h2>
+          <p class="panel-caption">上位8製成種別の年次推移（メトリックタブ連動）</p>
+        </div>
+        <div style="padding:0 8px 4px;line-height:1.8;">${legendItems}</div>
+        <div class="chart-scroll">
+          <svg viewBox="0 0 ${width} ${height}" class="sales-chart" role="img" aria-label="製成別推移">
+            ${yAxes}${xLabels}${lines}
+          </svg>
+        </div>
+      </article>
+    </section>
+  `;
+}
+
 // ─── 年別・製成別 移出量 vs 単価 ────────────────────────────────────────────────
 
 /** 年別単価推移チャート（/L と /本 の2系列） */
@@ -325,7 +493,9 @@ function buildUnitPriceChart(
 function renderVolumeSection(
   summary: SalesAnalytics,
   products: MasterProduct[],
-  fiscalMode: FiscalMode
+  fiscalMode: FiscalMode,
+  chartMetric: ChartMetric = "amount",
+  productionTypeMonthly: ProductionTypeMonthly[] = []
 ): string {
   const fmtKl = (ml: number) => (ml / 1_000_000).toFixed(2) + " kL";
   const fmtL  = (ml: number) => (ml / 1000).toLocaleString("ja-JP", { maximumFractionDigits: 1 }) + " L";
@@ -456,6 +626,8 @@ function renderVolumeSection(
         </div>
       </article>
     </section>
+
+    ${renderProductionTypeChart(productionTypeMonthly, fiscalMode, chartMetric)}
   `;
 }
 
@@ -479,7 +651,8 @@ export function renderSalesAnalytics(
   prevYearChartData: PeriodChartPoint[] = [],
   chartMetric: ChartMetric = "amount",
   fiscalMode: FiscalMode = "calendar",
-  products: MasterProduct[] = []
+  products: MasterProduct[] = [],
+  productionTypeMonthly: ProductionTypeMonthly[] = []
 ): string {
   const tableTitle = activeTab === "products" ? "商品別集計" : activeTab === "customers" ? "得意先別集計" : "担当別集計";
   const baseRows = activeTab === "products" ? summary.productTotals : activeTab === "customers" ? summary.customerTotals : summary.staffTotals;
@@ -493,8 +666,20 @@ export function renderSalesAnalytics(
     all: "月別", yearly: "月別推移", monthly: "日別推移", weekly: "日別推移", daily: "当日"
   };
   const metricLabel = CHART_METRIC_LABELS[chartMetric];
-  const metricPick = (p: PeriodChartPoint) => chartMetric === "quantity" ? p.quantity : chartMetric === "volume" ? p.volumeMl : p.amount;
-  const metricFmt = (v: number) => chartMetric === "quantity" ? `${v.toLocaleString()}本` : chartMetric === "volume" ? fmtVol(v) : formatCurrency(v);
+  const isUnitPrice = chartMetric === "pricePerLiter" || chartMetric === "pricePerBottle";
+  const metricPick = (p: PeriodChartPoint) => {
+    if (chartMetric === "quantity") return p.quantity;
+    if (chartMetric === "volume") return p.volumeMl;
+    if (chartMetric === "pricePerLiter") return p.volumeMl > 0 ? p.amount / (p.volumeMl / 1000) : 0;
+    if (chartMetric === "pricePerBottle") return p.quantity > 0 ? p.amount / p.quantity : 0;
+    return p.amount;
+  };
+  const metricFmt = (v: number) => {
+    if (chartMetric === "quantity") return `${v.toLocaleString()}本`;
+    if (chartMetric === "volume") return fmtVol(v);
+    if (isUnitPrice) return `¥${Math.round(v).toLocaleString("ja-JP")}`;
+    return formatCurrency(v);
+  };
 
   let chartPoints: { month: string; amount: number }[];
   let chartPrevPoints: { month: string; amount: number }[] = [];
@@ -510,27 +695,45 @@ export function renderSalesAnalytics(
   } else if (periodChartData.length > 0 && activePeriod !== "all") {
     chartPoints = periodChartData.map(p => ({ month: p.month, amount: metricPick(p) }));
     chartPrevPoints = prevYearChartData.map(p => ({ month: p.month, amount: metricPick(p) }));
-    const currTotal = chartPoints.reduce((s, p) => s + p.amount, 0);
-    const prevTotal = chartPrevPoints.reduce((s, p) => s + p.amount, 0);
-    const yoyPct = prevTotal > 0 ? ((currTotal - prevTotal) / prevTotal * 100) : 0;
-    const yoySign = yoyPct > 0 ? "+" : "";
-    chartTitle = `${PERIOD_CHART_LABELS[activePeriod]} ${metricLabel}（${periodFilter}）`;
-    chartCaption = `${metricFmt(currTotal)}${prevTotal > 0 ? ` / 前年比 ${yoySign}${yoyPct.toFixed(1)}%` : ""}`;
+    if (isUnitPrice) {
+      // 単価は平均で表示
+      const validPoints = chartPoints.filter(p => p.amount > 0);
+      const avg = validPoints.length > 0 ? validPoints.reduce((s, p) => s + p.amount, 0) / validPoints.length : 0;
+      const validPrev = chartPrevPoints.filter(p => p.amount > 0);
+      const prevAvg = validPrev.length > 0 ? validPrev.reduce((s, p) => s + p.amount, 0) / validPrev.length : 0;
+      const yoyPct = prevAvg > 0 ? ((avg - prevAvg) / prevAvg * 100) : 0;
+      const yoySign = yoyPct > 0 ? "+" : "";
+      chartTitle = `${PERIOD_CHART_LABELS[activePeriod]} ${metricLabel}（${periodFilter}）`;
+      chartCaption = `平均 ${metricFmt(avg)}${prevAvg > 0 ? ` / 前年比 ${yoySign}${yoyPct.toFixed(1)}%` : ""}`;
+    } else {
+      const currTotal = chartPoints.reduce((s, p) => s + p.amount, 0);
+      const prevTotal = chartPrevPoints.reduce((s, p) => s + p.amount, 0);
+      const yoyPct = prevTotal > 0 ? ((currTotal - prevTotal) / prevTotal * 100) : 0;
+      const yoySign = yoyPct > 0 ? "+" : "";
+      chartTitle = `${PERIOD_CHART_LABELS[activePeriod]} ${metricLabel}（${periodFilter}）`;
+      chartCaption = `${metricFmt(currTotal)}${prevTotal > 0 ? ` / 前年比 ${yoySign}${yoyPct.toFixed(1)}%` : ""}`;
+    }
     chartColor = "#2f855a";
   } else {
     // 全期間: 年別バーチャート（暦年 or 決算年度）
     const yearly = buildYearlyFromMonthly(summary.monthlySales, chartMetric, fiscalMode);
     chartPoints = yearly.curr;
     chartPrevPoints = [];
-    const total = chartPoints.reduce((s, p) => s + p.amount, 0);
     const yearLabel = fiscalMode === "fiscal" ? "決算年度別" : fiscalMode === "fy43" ? "年度別" : "暦年別";
     chartTitle = `${yearLabel}${metricLabel}`;
-    chartCaption = `累計 ${metricFmt(total)}（${chartPoints.length}${fiscalMode === "fiscal" ? "期" : "年"}）`;
+    if (isUnitPrice) {
+      const validPoints = chartPoints.filter(p => p.amount > 0);
+      const latest = validPoints.length > 0 ? validPoints[validPoints.length - 1].amount : 0;
+      chartCaption = `直近 ${metricFmt(latest)}（${chartPoints.length}${fiscalMode === "fiscal" ? "期" : "年"}）`;
+    } else {
+      const total = chartPoints.reduce((s, p) => s + p.amount, 0);
+      chartCaption = `累計 ${metricFmt(total)}（${chartPoints.length}${fiscalMode === "fiscal" ? "期" : "年"}）`;
+    }
     chartColor = "#0F5B8D";
   }
 
   // チャートメトリック切替タブ
-  const chartMetricTabs = (["amount", "quantity", "volume"] as ChartMetric[])
+  const chartMetricTabs = (["amount", "quantity", "volume", "pricePerLiter", "pricePerBottle"] as ChartMetric[])
     .map(m => `<button class="tab-button ${m === chartMetric ? "active" : ""}" data-chart-metric="${m}">${CHART_METRIC_LABELS[m]}</button>`)
     .join("");
 
@@ -751,6 +954,6 @@ export function renderSalesAnalytics(
 
     ${drilldownHtml}
 
-    ${renderVolumeSection(summary, products, fiscalMode)}
+    ${renderVolumeSection(summary, products, fiscalMode, chartMetric, productionTypeMonthly)}
   `;
 }

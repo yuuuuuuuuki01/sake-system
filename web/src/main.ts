@@ -500,6 +500,7 @@ interface AppState {
   invoiceRecords: InvoiceRecord[];
   customerLedger: CustomerLedger | null;
   salesAnalytics: SalesAnalytics | null;
+  productionTypeMonthly: import("./api").ProductionTypeMonthly[];
   customerAnalysis: CustomerAnalysisData | null;
   productABC: ProductABCData | null;
   analysisTab: "customer" | "product";
@@ -832,6 +833,7 @@ const state: AppState = {
   invoiceRecords: [],
   customerLedger: null,
   salesAnalytics: null,
+  productionTypeMonthly: [],
   customerAnalysis: null,
   productABC: null,
   analysisTab: "customer" as "customer" | "product",
@@ -1611,7 +1613,13 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
         break;
       case "/analytics":
         if (!state.salesAnalytics || state.salesAnalytics.monthlySales.length === 0) {
-          state.salesAnalytics = await fetchSalesAnalytics();
+          const { fetchProductionTypeMonthly } = await import("./api");
+          const [analytics, ptm] = await Promise.all([
+            fetchSalesAnalytics(),
+            fetchProductionTypeMonthly()
+          ]);
+          state.salesAnalytics = analytics;
+          state.productionTypeMonthly = ptm;
         }
         break;
       case "/delivery":
@@ -2511,7 +2519,7 @@ function renderView(): string {
     case "/ledger":
       return renderCustomerLedger(state.customerLedger, state.ledgerCustomerCode);
     case "/analytics":
-      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown, state.analyticsPeriodChartData, state.analyticsPrevYearChartData, state.analyticsChartMetric, state.analyticsFiscalMode, state.masterStats?.products ?? []);
+      return renderSalesAnalytics(state.salesAnalytics, state.analyticsTab, state.analyticsPeriod, state.analyticsPeriodFilter, state.analyticsPeriodRows, state.analyticsPeriodOptions, state.analyticsStaffFilter, state.analyticsTagFilter, state.analyticsStaffDrilldown, state.analyticsStaffPeriod, state.analyticsStaffPeriodFilter, state.analyticsStaffPeriodOptions, state.analyticsStaffTotals, state.analyticsSortState, state.analyticsDrilldown, state.analyticsPeriodChartData, state.analyticsPrevYearChartData, state.analyticsChartMetric, state.analyticsFiscalMode, state.masterStats?.products ?? [], state.productionTypeMonthly);
     case "/":
       return renderHome();
     default:
