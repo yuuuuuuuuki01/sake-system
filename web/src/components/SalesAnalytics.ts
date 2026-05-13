@@ -5,11 +5,11 @@ const ANALYTICS_COL_MAP: Record<string, keyof AnalyticsBreakdownRow> = {
   code: "code", name: "name", amount: "amount", quantity: "quantity", documents: "documents", volumeMl: "volumeMl"
 };
 
-export type ChartMetric = "amount" | "quantity" | "volume" | "pricePerLiter" | "pricePerBottle";
+export type ChartMetric = "amount" | "quantity" | "volume" | "pricePerLiter" | "pricePerBottle" | "pricePerDoc";
 export type FiscalMode = "calendar" | "fiscal" | "fy43";
 const CHART_METRIC_LABELS: Record<ChartMetric, string> = {
   amount: "売上額", quantity: "出荷本数", volume: "移出量",
-  pricePerLiter: "単価(/L)", pricePerBottle: "単価(/本)"
+  pricePerLiter: "単価(/L)", pricePerBottle: "単価(/本)", pricePerDoc: "伝票単価"
 };
 const FISCAL_START_MONTH = 10; // 決算期: 10月始まり
 const FY43_START_MONTH = 4;    // 年度: 4月始まり
@@ -61,16 +61,16 @@ function monthToYearKey(ym: string, fiscal: FiscalMode): string {
 
 /** 月別データから年別に集約して全年チャートを生成 */
 function buildYearlyFromMonthly(all: AnalyticsMonthlyPoint[], metric: ChartMetric, fiscal: FiscalMode): { curr: { month: string; amount: number }[] } {
-  // 派生指標は合計3値を集めてから割り算
-  const isDerived = metric === "pricePerLiter" || metric === "pricePerBottle";
-  type Acc = { amount: number; quantity: number; volumeMl: number };
+  // 派生指標は合計値を集めてから割り算
+  type Acc = { amount: number; quantity: number; volumeMl: number; docCount: number };
   const yearAcc = new Map<string, Acc>();
   for (const p of all) {
     const key = monthToYearKey(p.month, fiscal);
-    const a = yearAcc.get(key) ?? { amount: 0, quantity: 0, volumeMl: 0 };
+    const a = yearAcc.get(key) ?? { amount: 0, quantity: 0, volumeMl: 0, docCount: 0 };
     a.amount += p.amount;
     a.quantity += p.quantity;
     a.volumeMl += p.volumeMl;
+    a.docCount += p.documentCount;
     yearAcc.set(key, a);
   }
   const years = [...yearAcc.entries()].sort((a, b) => a[0].localeCompare(b[0]));
@@ -79,6 +79,7 @@ function buildYearlyFromMonthly(all: AnalyticsMonthlyPoint[], metric: ChartMetri
       let value: number;
       if (metric === "pricePerLiter") value = a.volumeMl > 0 ? a.amount / (a.volumeMl / 1000) : 0;
       else if (metric === "pricePerBottle") value = a.quantity > 0 ? a.amount / a.quantity : 0;
+      else if (metric === "pricePerDoc") value = a.docCount > 0 ? a.amount / a.docCount : 0;
       else if (metric === "quantity") value = a.quantity;
       else if (metric === "volume") value = a.volumeMl;
       else value = a.amount;
@@ -149,6 +150,7 @@ function buildOverlayChart(
     if (metric === "volume") return fmtVol(value);
     if (metric === "pricePerLiter") return `¥${Math.round(value).toLocaleString("ja-JP")} /L`;
     if (metric === "pricePerBottle") return `¥${Math.round(value).toLocaleString("ja-JP")} /本`;
+    if (metric === "pricePerDoc") return `¥${Math.round(value).toLocaleString("ja-JP")} /伝票`;
     return formatCurrency(value);
   }
 
@@ -218,6 +220,7 @@ function buildBars(
     if (metric === "volume") return fmtVol(value);
     if (metric === "pricePerLiter") return `¥${Math.round(value).toLocaleString("ja-JP")} /L`;
     if (metric === "pricePerBottle") return `¥${Math.round(value).toLocaleString("ja-JP")} /本`;
+    if (metric === "pricePerDoc") return `¥${Math.round(value).toLocaleString("ja-JP")} /伝票`;
     return formatCurrency(value);
   }
 
@@ -374,7 +377,7 @@ function renderProductionTypeChart(
     if (chartMetric === "pricePerBottle") return r.quantity > 0 ? r.amount / r.quantity : 0;
     return r.amount;
   };
-  const isUnitPrice = chartMetric === "pricePerLiter" || chartMetric === "pricePerBottle";
+  const isUnitPrice = chartMetric === "pricePerLiter" || chartMetric === "pricePerBottle" || chartMetric === "pricePerDoc";
 
   // 年度別に集約
   type Acc = { amount: number; quantity: number; volumeMl: number };
@@ -726,12 +729,13 @@ export function renderSalesAnalytics(
     all: "月別", yearly: "月別推移", monthly: "日別推移", weekly: "日別推移", daily: "当日"
   };
   const metricLabel = CHART_METRIC_LABELS[chartMetric];
-  const isUnitPrice = chartMetric === "pricePerLiter" || chartMetric === "pricePerBottle";
+  const isUnitPrice = chartMetric === "pricePerLiter" || chartMetric === "pricePerBottle" || chartMetric === "pricePerDoc";
   const metricPick = (p: PeriodChartPoint) => {
     if (chartMetric === "quantity") return p.quantity;
     if (chartMetric === "volume") return p.volumeMl;
     if (chartMetric === "pricePerLiter") return p.volumeMl > 0 ? p.amount / (p.volumeMl / 1000) : 0;
     if (chartMetric === "pricePerBottle") return p.quantity > 0 ? p.amount / p.quantity : 0;
+    if (chartMetric === "pricePerDoc") return 0; // PeriodChartPointにdocCountがないため全期間のみ
     return p.amount;
   };
   const metricFmt = (v: number) => {
@@ -827,7 +831,7 @@ export function renderSalesAnalytics(
   }
 
   // チャートメトリック切替タブ
-  const chartMetricTabs = (["amount", "quantity", "volume", "pricePerLiter", "pricePerBottle"] as ChartMetric[])
+  const chartMetricTabs = (["amount", "quantity", "volume", "pricePerLiter", "pricePerBottle", "pricePerDoc"] as ChartMetric[])
     .map(m => `<button class="tab-button ${m === chartMetric ? "active" : ""}" data-chart-metric="${m}">${CHART_METRIC_LABELS[m]}</button>`)
     .join("");
 

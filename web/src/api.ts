@@ -283,6 +283,7 @@ export interface AnalyticsMonthlyPoint {
   amount: number;
   quantity: number;
   volumeMl: number;
+  documentCount: number;
 }
 
 export interface AnalyticsBreakdownRow {
@@ -1316,7 +1317,8 @@ export async function fetchSalesAnalytics(): Promise<SalesAnalytics> {
         month: getString(r, ["month"], ""),
         amount: getNumber(r, ["amount"], 0),
         quantity: getNumber(r, ["quantity"], 0),
-        volumeMl: getNumber(r, ["volume_ml"], 0)
+        volumeMl: getNumber(r, ["volume_ml"], 0),
+        documentCount: getNumber(r, ["document_count"], 0)
       })),
       productTotals: productRows.map((r) => ({
         code: getString(r, ["code"], ""),
