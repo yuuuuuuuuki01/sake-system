@@ -37,9 +37,8 @@ function buildKpiCards(data: DailyKpiData): string {
   const covered = prevYearCusts.filter(c => c.amountThisMonth > 0).length;
   const coverageRate = prevYearCusts.length > 0 ? covered / prevYearCusts.length : 0;
 
-  const uncoveredImpact = prevYearCusts
-    .filter(c => c.amountThisMonth === 0)
-    .reduce((s, c) => s + c.amountLastYearSameMonth, 0);
+  const uncovered = prevYearCusts.filter(c => c.amountThisMonth === 0);
+  const uncoveredImpact = uncovered.reduce((s, c) => s + c.amountLastYearSameMonth, 0);
 
   const achieveColor = achievementRate >= 1 ? "var(--green-600, #059669)" : achievementRate >= 0.8 ? "var(--amber-600, #d97706)" : "var(--red-600, #dc2626)";
   const coverColor = coverageRate >= 0.8 ? "var(--green-600, #059669)" : coverageRate >= 0.5 ? "var(--amber-600, #d97706)" : "var(--red-600, #dc2626)";
@@ -52,14 +51,14 @@ function buildKpiCards(data: DailyKpiData): string {
         <div style="font-size:12px;color:var(--text-secondary);">¥${fmtCompact(currTotal)} / ¥${fmtCompact(prevTotal)}</div>
       </div>
       <div class="panel" style="padding:16px;">
-        <div style="font-size:12px;color:var(--text-secondary);">前年実績先 カバー率</div>
-        <div style="font-size:24px;font-weight:700;color:${coverColor};">${fmtPct(coverageRate)}</div>
-        <div style="font-size:12px;color:var(--text-secondary);">${covered} / ${prevYearCusts.length} 先</div>
+        <div style="font-size:12px;color:var(--text-secondary);">注文済み / 前年実績先</div>
+        <div style="font-size:24px;font-weight:700;color:${coverColor};">${covered} / ${prevYearCusts.length}</div>
+        <div style="font-size:12px;color:var(--text-secondary);">アプローチ率 ${fmtPct(coverageRate)}</div>
       </div>
       <div class="panel" style="padding:16px;">
-        <div style="font-size:12px;color:var(--text-secondary);">未カバー推定インパクト</div>
+        <div style="font-size:12px;color:var(--text-secondary);">未注文先の前年売上</div>
         <div style="font-size:24px;font-weight:700;">¥${fmtCompact(uncoveredImpact)}</div>
-        <div style="font-size:12px;color:var(--text-secondary);">${prevYearCusts.length - covered} 先分</div>
+        <div style="font-size:12px;color:var(--text-secondary);">${uncovered.length} 先が未注文</div>
       </div>
       <div class="panel" style="padding:16px;">
         <div style="font-size:12px;color:var(--text-secondary);">本日出荷件数</div>

@@ -2642,6 +2642,7 @@ function renderHome(): string {
       title: "営業・顧客管理",
       color: "#0e9f6e",
       cards: [
+        card("/daily-kpi", "📊", "日次KPI", "前年同月対比・カバー状況"),
         card("/churn-alert", "🎯", "営業アクション", "離反リスク・フォロー"),
         card("/visit-planner", "📅", "訪問計画", "訪問スケジュール"),
         card("/shipment-calendar", "🚚", "配送カレンダー", "伝票日付で配送を確認"),

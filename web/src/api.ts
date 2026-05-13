@@ -3453,9 +3453,13 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
       and: `(sales_date.gte.${prevYearMonthFrom},sales_date.lte.${prevYearMonthTo})`
     }),
     // 本日ヘッダー数
-    supabaseCount("sales_document_headers", { sales_date: `eq.${todayStr}` }),
+    supabaseQuery<LooseRow>("sales_document_headers", {
+      select: "id", sales_date: `eq.${todayStr}`, limit: "1000"
+    }).then(r => r.length),
     // 前年同日ヘッダー数
-    supabaseCount("sales_document_headers", { sales_date: `eq.${prevYearTodayStr}` }),
+    supabaseQuery<LooseRow>("sales_document_headers", {
+      select: "id", sales_date: `eq.${prevYearTodayStr}`, limit: "1000"
+    }).then(r => r.length),
   ]);
 
   // 得意先マスタから担当コードを取得
