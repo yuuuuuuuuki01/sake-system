@@ -735,7 +735,7 @@ export function renderSalesAnalytics(
     if (chartMetric === "volume") return p.volumeMl;
     if (chartMetric === "pricePerLiter") return p.volumeMl > 0 ? p.amount / (p.volumeMl / 1000) : 0;
     if (chartMetric === "pricePerBottle") return p.quantity > 0 ? p.amount / p.quantity : 0;
-    if (chartMetric === "pricePerDoc") return 0; // PeriodChartPointにdocCountがないため全期間のみ
+    if (chartMetric === "pricePerDoc") return p.documentCount > 0 ? p.amount / p.documentCount : 0;
     return p.amount;
   };
   const metricFmt = (v: number) => {

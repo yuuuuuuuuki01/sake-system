@@ -1538,6 +1538,7 @@ export interface PeriodChartPoint {
   amount: number;
   quantity: number;
   volumeMl: number;
+  documentCount: number;
 }
 
 export async function fetchPeriodChartData(
@@ -1554,7 +1555,8 @@ export async function fetchPeriodChartData(
     month: getString(r, ["label"], ""),
     amount: getNumber(r, ["amount"], 0),
     quantity: getNumber(r, ["quantity"], 0),
-    volumeMl: getNumber(r, ["volume_ml"], 0)
+    volumeMl: getNumber(r, ["volume_ml"], 0),
+    documentCount: getNumber(r, ["document_count"], 0)
   }));
 }
 
