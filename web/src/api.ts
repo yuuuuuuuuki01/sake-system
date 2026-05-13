@@ -3401,6 +3401,12 @@ export interface DailyKpiStaffRow {
   prevYearAmount: number;
 }
 
+export interface WeeklyMdPoint {
+  week: number;  // 1-53
+  amount: number;
+  docs: number;
+}
+
 export interface DailyKpiData {
   customers: DailyKpiCustomerRow[];
   dailyCurrent: DailyKpiDayPoint[];
@@ -3408,6 +3414,8 @@ export interface DailyKpiData {
   staffComparison: DailyKpiStaffRow[];
   todayDocCount: number;
   prevYearTodayDocCount: number;
+  weeklyCurrent: WeeklyMdPoint[];
+  weeklyPrevYear: WeeklyMdPoint[];
 }
 
 export async function fetchDailyKpi(): Promise<DailyKpiData> {
@@ -3423,7 +3431,12 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
   const todayStr = `${y}-${pad(m)}-${pad(d)}`;
   const prevYearTodayStr = `${y - 1}-${pad(m)}-${pad(d)}`;
 
-  const [custRows, dailyCurr, dailyPrev, staffCurr, staffPrev, todayHeaders, prevTodayHeaders] = await Promise.all([
+  const currentYearFrom = `${y}-01-01`;
+  const currentYearTo = `${y}-12-31`;
+  const prevYearFrom = `${y - 1}-01-01`;
+  const prevYearTo = `${y - 1}-12-31`;
+
+  const [custRows, dailyCurr, dailyPrev, staffCurr, staffPrev, todayHeaders, prevTodayHeaders, yearHeaders, prevYearHeaders] = await Promise.all([
     // 得意先別 当月/前年同月
     supabaseQueryAll<LooseRow>("customer_sales_summary", {
       select: "customer_code,customer_name,business_type,area_code,amount_this_month,amount_last_year_same_month,last_order_date",
@@ -3460,6 +3473,18 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     supabaseQuery<LooseRow>("sales_document_headers", {
       select: "id", sales_date: `eq.${prevYearTodayStr}`, limit: "1000"
     }).then(r => r.length),
+    // 52週MD: 当年全伝票
+    supabaseQueryAll<LooseRow>("sales_document_headers", {
+      select: "sales_date,total_amount",
+      and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${currentYearTo})`,
+      order: "sales_date.asc"
+    }),
+    // 52週MD: 前年全伝票
+    supabaseQueryAll<LooseRow>("sales_document_headers", {
+      select: "sales_date,total_amount",
+      and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearTo})`,
+      order: "sales_date.asc"
+    }),
   ]);
 
   // 得意先マスタから担当コードを取得
@@ -3518,7 +3543,31 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     staffComparison,
     todayDocCount: todayHeaders,
     prevYearTodayDocCount: prevTodayHeaders,
+    weeklyCurrent: aggregateWeekly(yearHeaders),
+    weeklyPrevYear: aggregateWeekly(prevYearHeaders),
   };
+
+  function aggregateWeekly(rows: LooseRow[]): WeeklyMdPoint[] {
+    const weekMap = new Map<number, { amount: number; docs: number }>();
+    for (const r of rows) {
+      const dateStr = getString(r, ["sales_date"], "");
+      if (!dateStr) continue;
+      const dt = new Date(dateStr + "T00:00:00");
+      // ISO week calculation
+      const jan4 = new Date(dt.getFullYear(), 0, 4);
+      const dayOfYear = Math.floor((dt.getTime() - new Date(dt.getFullYear(), 0, 1).getTime()) / 86400000) + 1;
+      const weekDay = (dt.getDay() + 6) % 7; // Mon=0
+      const week = Math.floor((dayOfYear - weekDay + 10) / 7);
+      const w = Math.max(1, Math.min(53, week));
+      const entry = weekMap.get(w) ?? { amount: 0, docs: 0 };
+      entry.amount += getNumber(r, ["total_amount"], 0);
+      entry.docs += 1;
+      weekMap.set(w, entry);
+    }
+    return [...weekMap.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([week, v]) => ({ week, amount: v.amount, docs: v.docs }));
+  }
 }
 
 export interface VisitPriorityRow {

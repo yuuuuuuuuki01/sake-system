@@ -3,7 +3,7 @@
    前年同月対比で得意先カバー状況を日次追跡
    ───────────────────────────────────────────── */
 
-import type { DailyKpiData, DailyKpiCustomerRow, DailyKpiDayPoint } from "../api";
+import type { DailyKpiData, DailyKpiCustomerRow, DailyKpiDayPoint, WeeklyMdPoint } from "../api";
 import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 
 const COL_MAP: Record<string, keyof DailyKpiCustomerRow> = {
@@ -131,6 +131,159 @@ function buildCumulativeChart(current: DailyKpiDayPoint[], prevYear: DailyKpiDay
 
 // ── 担当別達成率バー ──
 
+// ── 52週MDカレンダー ──
+
+function buildWeeklyMdChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoint[]): string {
+  if (current.length === 0 && prevYear.length === 0) return `<div class="chart-empty">データなし</div>`;
+
+  const width = 760, height = 300;
+  const padding = { top: 16, right: 24, bottom: 52, left: 64 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  // 1-53週のマップを作成
+  const currMap = new Map(current.map(p => [p.week, p]));
+  const prevMap = new Map(prevYear.map(p => [p.week, p]));
+  const maxWeek = Math.max(...current.map(p => p.week), ...prevYear.map(p => p.week), 52);
+  const weeks = Array.from({ length: maxWeek }, (_, i) => i + 1);
+
+  const allAmounts = [
+    ...current.map(p => p.amount),
+    ...prevYear.map(p => p.amount)
+  ];
+  const maxVal = Math.max(...allAmounts, 1);
+
+  const toX = (w: number) => padding.left + ((w - 1) / (maxWeek - 1)) * plotW;
+  const toY = (v: number) => padding.top + plotH - (v / maxVal) * plotH;
+
+  // 現在の週を特定
+  const now = new Date();
+  const jan4 = new Date(now.getFullYear(), 0, 4);
+  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000) + 1;
+  const weekDay = (now.getDay() + 6) % 7;
+  const currentWeek = Math.max(1, Math.min(53, Math.floor((dayOfYear - weekDay + 10) / 7)));
+
+  // Y軸
+  const yAxes = [0, 0.25, 0.5, 0.75, 1].map(r => {
+    const y = padding.top + plotH - plotH * r;
+    const v = maxVal * r;
+    const label = v >= 10_000 ? `${Math.round(v / 10_000)}万` : `${Math.round(v).toLocaleString()}`;
+    return `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" class="chart-grid" />
+      <text x="4" y="${y + 4}" class="chart-axis">${label}</text>`;
+  }).join("");
+
+  // X軸ラベル（月の変わり目を表示）
+  const monthLabels: string[] = [];
+  const monthStarts = [1, 5, 9, 14, 18, 22, 27, 31, 35, 40, 44, 48]; // 各月のおおよその週
+  const monthNames = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+  monthStarts.forEach((w, i) => {
+    if (w <= maxWeek) {
+      monthLabels.push(`<text x="${toX(w)}" y="${height - 24}" class="chart-axis centered-axis">${monthNames[i]}</text>`);
+    }
+  });
+  // 週番号（4週ごと）
+  const weekLabels = weeks
+    .filter(w => w % 4 === 0 || w === 1)
+    .map(w => `<text x="${toX(w)}" y="${height - 8}" class="chart-axis centered-axis" style="font-size:9px;fill:#94a3b8;">W${w}</text>`)
+    .join("");
+
+  // 現在週のマーカー
+  const weekMarker = `<line x1="${toX(currentWeek)}" y1="${padding.top}" x2="${toX(currentWeek)}" y2="${padding.top + plotH}" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3" opacity="0.6" />
+    <text x="${toX(currentWeek)}" y="${padding.top - 4}" class="chart-axis centered-axis" style="font-size:9px;fill:#dc2626;">今週</text>`;
+
+  // 折れ線
+  const makeLine = (map: Map<number, WeeklyMdPoint>, color: string, dash = false, yearLabel: string) => {
+    const pts = weeks.filter(w => map.has(w));
+    if (pts.length === 0) return "";
+    const d = pts.map(w => `${toX(w)},${toY(map.get(w)!.amount)}`).join(" ");
+    const dashAttr = dash ? ` stroke-dasharray="6 4"` : "";
+    const dots = pts.map(w => {
+      const p = map.get(w)!;
+      return `<circle cx="${toX(w)}" cy="${toY(p.amount)}" r="2" fill="${color}" opacity="0.7"><title>W${w}(${yearLabel}): ${fmtCurrency(p.amount)} / ${p.docs}件</title></circle>`;
+    }).join("");
+    return `<polyline points="${d}" fill="none" stroke="${color}" stroke-width="2"${dashAttr} opacity="0.8" />${dots}`;
+  };
+
+  // 累積差分バー（当年-前年を週ごとに薄く表示）
+  let cumCurr = 0, cumPrev = 0;
+  const diffBars = weeks.map(w => {
+    cumCurr += currMap.get(w)?.amount ?? 0;
+    cumPrev += prevMap.get(w)?.amount ?? 0;
+    return null; // 差分バーは省略（チャートが見づらくなるため）
+  });
+
+  const now_y = now.getFullYear();
+  const legend = `
+    <g transform="translate(${width - 200}, 6)">
+      <line x1="0" y1="5" x2="16" y2="5" stroke="#0F5B8D" stroke-width="2" />
+      <text x="20" y="9" class="chart-axis" style="font-size:9px;">${now_y}年</text>
+      <line x1="70" y1="5" x2="86" y2="5" stroke="#94a3b8" stroke-width="2" stroke-dasharray="6 4" />
+      <text x="90" y="9" class="chart-axis" style="font-size:9px;">${now_y - 1}年</text>
+    </g>`;
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" class="sales-chart" role="img" aria-label="52週MD">
+      ${yAxes}${monthLabels.join("")}${weekLabels}${weekMarker}
+      ${makeLine(prevMap, "#94a3b8", true, String(now_y - 1))}
+      ${makeLine(currMap, "#0F5B8D", false, String(now_y))}
+      ${legend}
+    </svg>`;
+}
+
+// 52週MDテーブル
+function buildWeeklyMdTable(current: WeeklyMdPoint[], prevYear: WeeklyMdPoint[]): string {
+  const currMap = new Map(current.map(p => [p.week, p]));
+  const prevMap = new Map(prevYear.map(p => [p.week, p]));
+  const now = new Date();
+  const jan4 = new Date(now.getFullYear(), 0, 4);
+  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000) + 1;
+  const weekDay = (now.getDay() + 6) % 7;
+  const currentWeek = Math.max(1, Math.min(53, Math.floor((dayOfYear - weekDay + 10) / 7)));
+
+  const maxWeek = Math.max(...current.map(p => p.week), ...prevYear.map(p => p.week), currentWeek);
+
+  let cumCurr = 0, cumPrev = 0;
+  const rows = Array.from({ length: maxWeek }, (_, i) => i + 1).map(w => {
+    const c = currMap.get(w);
+    const p = prevMap.get(w);
+    cumCurr += c?.amount ?? 0;
+    cumPrev += p?.amount ?? 0;
+    const rate = p && p.amount > 0 ? (c?.amount ?? 0) / p.amount : -1;
+    const isCurrent = w === currentWeek;
+    const isFuture = w > currentWeek;
+    const bgStyle = isCurrent ? "background:#eff6ff;" : isFuture ? "opacity:0.4;" : "";
+    let badge = "";
+    if (!isFuture && p && p.amount > 0) {
+      if (!c || c.amount === 0) badge = `<span style="color:#dc2626;font-size:11px;">—</span>`;
+      else if (rate >= 1) badge = `<span style="color:#059669;font-size:11px;">${Math.round(rate * 100)}%</span>`;
+      else badge = `<span style="color:#d97706;font-size:11px;">${Math.round(rate * 100)}%</span>`;
+    }
+    return `<tr style="${bgStyle}">
+      <td class="mono" style="font-size:12px;">${isCurrent ? "▶" : ""}W${w}</td>
+      <td class="numeric" style="font-size:12px;">${c ? fmtCurrency(c.amount) : "—"}</td>
+      <td class="numeric" style="font-size:12px;">${p ? fmtCurrency(p.amount) : "—"}</td>
+      <td class="numeric" style="font-size:12px;">${badge}</td>
+      <td class="numeric" style="font-size:12px;">${fmtCurrency(cumCurr)}</td>
+      <td class="numeric" style="font-size:12px;">${fmtCurrency(cumPrev)}</td>
+    </tr>`;
+  }).join("");
+
+  return `
+    <div class="table-wrap" style="max-height:400px;overflow-y:auto;">
+      <table>
+        <thead><tr>
+          <th style="font-size:12px;">週</th>
+          <th class="numeric" style="font-size:12px;">当年</th>
+          <th class="numeric" style="font-size:12px;">前年</th>
+          <th class="numeric" style="font-size:12px;">前年比</th>
+          <th class="numeric" style="font-size:12px;">累計(当)</th>
+          <th class="numeric" style="font-size:12px;">累計(前)</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
 function buildStaffBars(staff: DailyKpiData["staffComparison"]): string {
   if (staff.length === 0) return "";
   const maxVal = Math.max(...staff.map(s => Math.max(s.currentAmount, s.prevYearAmount)), 1);
@@ -245,6 +398,25 @@ export function renderDailyKpi(
         <div class="chart-scroll">
           ${buildStaffBars(data.staffComparison)}
         </div>
+      </article>
+    </section>
+
+    <section class="analytics-grid" style="margin-top:0;">
+      <article class="panel">
+        <div class="panel-header">
+          <h2>52週MDカレンダー</h2>
+          <p class="panel-caption">週別売上の年間推移 — 当年 vs 前年</p>
+        </div>
+        <div class="chart-scroll">
+          ${buildWeeklyMdChart(data.weeklyCurrent, data.weeklyPrevYear)}
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-header">
+          <h2>週別 前年対比</h2>
+        </div>
+        ${buildWeeklyMdTable(data.weeklyCurrent, data.weeklyPrevYear)}
       </article>
     </section>
 
