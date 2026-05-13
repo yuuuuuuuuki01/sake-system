@@ -3377,6 +3377,146 @@ export async function fetchChurnAlerts(): Promise<ChurnAlertRow[]> {
   return [];
 }
 
+// ─── 日次営業KPI ──────────────────────────────────────────────────────────────
+
+export interface DailyKpiCustomerRow {
+  customerCode: string;
+  customerName: string;
+  staffCode: string;
+  businessType: string;
+  areaCode: string;
+  amountThisMonth: number;
+  amountLastYearSameMonth: number;
+  lastOrderDate: string;
+}
+
+export interface DailyKpiDayPoint {
+  day: number;  // 1-31
+  amount: number;
+}
+
+export interface DailyKpiStaffRow {
+  staffCode: string;
+  currentAmount: number;
+  prevYearAmount: number;
+}
+
+export interface DailyKpiData {
+  customers: DailyKpiCustomerRow[];
+  dailyCurrent: DailyKpiDayPoint[];
+  dailyPrevYear: DailyKpiDayPoint[];
+  staffComparison: DailyKpiStaffRow[];
+  todayDocCount: number;
+  prevYearTodayDocCount: number;
+}
+
+export async function fetchDailyKpi(): Promise<DailyKpiData> {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const d = now.getDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const currentMonthFrom = `${y}-${pad(m)}-01`;
+  const currentMonthTo = `${y}-${pad(m)}-31`;
+  const prevYearMonthFrom = `${y - 1}-${pad(m)}-01`;
+  const prevYearMonthTo = `${y - 1}-${pad(m)}-31`;
+  const todayStr = `${y}-${pad(m)}-${pad(d)}`;
+  const prevYearTodayStr = `${y - 1}-${pad(m)}-${pad(d)}`;
+
+  const [custRows, dailyCurr, dailyPrev, staffCurr, staffPrev, todayHeaders, prevTodayHeaders] = await Promise.all([
+    // 得意先別 当月/前年同月
+    supabaseQueryAll<LooseRow>("customer_sales_summary", {
+      select: "customer_code,customer_name,business_type,area_code,amount_this_month,amount_last_year_same_month,last_order_date",
+      or: "(amount_this_month.gt.0,amount_last_year_same_month.gt.0)",
+      order: "amount_last_year_same_month.desc"
+    }),
+    // 日次: 当月
+    supabaseQueryAll<LooseRow>("daily_sales_fact", {
+      select: "sales_date,sales_amount",
+      and: `(sales_date.gte.${currentMonthFrom},sales_date.lte.${currentMonthTo})`,
+      order: "sales_date.asc"
+    }),
+    // 日次: 前年同月
+    supabaseQueryAll<LooseRow>("daily_sales_fact", {
+      select: "sales_date,sales_amount",
+      and: `(sales_date.gte.${prevYearMonthFrom},sales_date.lte.${prevYearMonthTo})`,
+      order: "sales_date.asc"
+    }),
+    // 担当別: 当月
+    supabaseQueryAll<LooseRow>("sales_document_headers", {
+      select: "staff_code,total_amount",
+      and: `(sales_date.gte.${currentMonthFrom},sales_date.lte.${currentMonthTo})`
+    }),
+    // 担当別: 前年同月
+    supabaseQueryAll<LooseRow>("sales_document_headers", {
+      select: "staff_code,total_amount",
+      and: `(sales_date.gte.${prevYearMonthFrom},sales_date.lte.${prevYearMonthTo})`
+    }),
+    // 本日ヘッダー数
+    supabaseCount("sales_document_headers", { sales_date: `eq.${todayStr}` }),
+    // 前年同日ヘッダー数
+    supabaseCount("sales_document_headers", { sales_date: `eq.${prevYearTodayStr}` }),
+  ]);
+
+  // 得意先マスタから担当コードを取得
+  const custMaster = await supabaseQueryAll<LooseRow>("customers", {
+    select: "legacy_customer_code,staff_code"
+  });
+  const staffMap = new Map<string, string>();
+  for (const c of custMaster) {
+    const code = getString(c, ["legacy_customer_code"], "");
+    const sc = getString(c, ["staff_code"], "");
+    if (code && sc) staffMap.set(code, sc);
+  }
+
+  const customers: DailyKpiCustomerRow[] = custRows.map(r => ({
+    customerCode: getString(r, ["customer_code"], ""),
+    customerName: getString(r, ["customer_name"], ""),
+    staffCode: staffMap.get(getString(r, ["customer_code"], "")) ?? "",
+    businessType: getString(r, ["business_type"], ""),
+    areaCode: getString(r, ["area_code"], ""),
+    amountThisMonth: getNumber(r, ["amount_this_month"], 0),
+    amountLastYearSameMonth: getNumber(r, ["amount_last_year_same_month"], 0),
+    lastOrderDate: getString(r, ["last_order_date"], ""),
+  }));
+
+  // 日別集計
+  const aggregateDaily = (rows: LooseRow[]): DailyKpiDayPoint[] => {
+    const dayMap = new Map<number, number>();
+    for (const r of rows) {
+      const dateStr = getString(r, ["sales_date"], "");
+      const day = parseInt(dateStr.slice(8));
+      if (day > 0) dayMap.set(day, (dayMap.get(day) ?? 0) + getNumber(r, ["sales_amount"], 0));
+    }
+    return [...dayMap.entries()].sort((a, b) => a[0] - b[0]).map(([day, amount]) => ({ day, amount }));
+  };
+
+  // 担当別集計
+  const aggregateStaff = (rows: LooseRow[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const r of rows) {
+      const sc = getString(r, ["staff_code"], "");
+      if (sc) m.set(sc, (m.get(sc) ?? 0) + getNumber(r, ["total_amount"], 0));
+    }
+    return m;
+  };
+  const staffCurrMap = aggregateStaff(staffCurr);
+  const staffPrevMap = aggregateStaff(staffPrev);
+  const allStaffCodes = new Set([...staffCurrMap.keys(), ...staffPrevMap.keys()]);
+  const staffComparison: DailyKpiStaffRow[] = [...allStaffCodes]
+    .map(sc => ({ staffCode: sc, currentAmount: staffCurrMap.get(sc) ?? 0, prevYearAmount: staffPrevMap.get(sc) ?? 0 }))
+    .sort((a, b) => b.prevYearAmount - a.prevYearAmount);
+
+  return {
+    customers,
+    dailyCurrent: aggregateDaily(dailyCurr),
+    dailyPrevYear: aggregateDaily(dailyPrev),
+    staffComparison,
+    todayDocCount: todayHeaders,
+    prevYearTodayDocCount: prevTodayHeaders,
+  };
+}
+
 export interface VisitPriorityRow {
   customer_code: string;
   customer_name: string;

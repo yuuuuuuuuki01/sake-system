@@ -131,6 +131,7 @@ import { renderQuoteBuilder, makeDefaultQuoteState, generateQuotePdf, syncQuoteF
 import { fetchQuoteList, fetchQuoteWithLines, fetchSystemSetting, upsertSystemSetting, type QuoteListItem } from "./api";
 import { supabaseDelete } from "./supabase";
 import { toggleSort, type SortState } from "./utils/tableSort";
+import { renderDailyKpi } from "./components/DailyKpi";
 import { renderProductPower, renderCustomerEfficiency, type ProductViewFilter, type ProductPeriod } from "./components/BusinessIntelligence";
 import { renderProductLinkage } from "./components/ProductLinkage";
 import { renderInvoiceSearch } from "./components/InvoiceSearch";
@@ -278,6 +279,7 @@ type RoutePath =
   | "/raw-browser"
   | "/demand-forecast"
   | "/churn-alert"
+  | "/daily-kpi"
   | "/seasonal-calendar"
   | "/visit-planner"
   | "/demand"
@@ -359,6 +361,7 @@ const ALL_ROUTES: RoutePath[] = [
   "/raw-browser",
   "/demand-forecast",
   "/churn-alert",
+  "/daily-kpi",
   "/seasonal-calendar",
   "/visit-planner",
   "/demand",
@@ -431,6 +434,7 @@ const PAGE_SEARCH_ITEMS: PageSearchItem[] = [
   { path: "/list-builder", title: "リスト取得ツール" },
   { path: "/raw-browser", title: "データブラウザ" },
   { path: "/churn-alert", title: "離反アラート・休眠顧客" },
+  { path: "/daily-kpi", title: "日次KPI・前年同月対比" },
   { path: "/seasonal-calendar", title: "季節提案カレンダー" },
   { path: "/visit-planner", title: "訪問計画・ルート最適化" },
   { path: "/demand", title: "需要分析・安全在庫・生産計画" },
@@ -666,6 +670,9 @@ interface AppState {
   demandForecast: DemandForecastState;
   churnAlert: ChurnAlertData | null;
   churnNotes: ChurnNote[];
+  dailyKpi: import("./api").DailyKpiData | null;
+  dailyKpiFilter: import("./components/DailyKpi").DailyKpiFilter;
+  dailyKpiSort: import("./utils/tableSort").SortState;
   seasonalCalendar: SeasonalCalendarState | null;
   visitPlanner: VisitPlannerState | null;
   demandAnalysis: import("./api").DemandAnalysis | null;
@@ -772,6 +779,7 @@ function inferCurrentCategory(route: RoutePath): CategoryKey {
     case "/shopify":
     case "/fax":
     case "/churn-alert":
+    case "/daily-kpi":
     case "/seasonal-calendar":
     case "/visit-planner":
       return "crm";
@@ -1044,6 +1052,9 @@ const state: AppState = {
   shipmentCalendarYearMonth: new Date().toISOString().slice(0, 7),
   shipmentCalendarSelectedDate: null,
   churnAlert: null,
+  dailyKpi: null,
+  dailyKpiFilter: { staffCode: "", status: "" } as import("./components/DailyKpi").DailyKpiFilter,
+  dailyKpiSort: [] as import("./utils/tableSort").SortState,
   churnNotes: [],
   seasonalCalendar: null,
   visitPlanner: null,
@@ -1690,6 +1701,12 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
           state.demandForecast.deliveries = buildDeliveriesFromSchedule(schedule);
         }
         break;
+      case "/daily-kpi":
+        if (!state.dailyKpi) {
+          const { fetchDailyKpi } = await import("./api");
+          state.dailyKpi = await fetchDailyKpi();
+        }
+        break;
       case "/churn-alert": {
         const { fetchChurnAlerts, fetchChurnNotes } = await import("./api");
         if (!state.churnAlert) {
@@ -2294,6 +2311,8 @@ function renderView(): string {
       }
       return renderProcurement(needByCategory, state.brewingRiceParams, state.brewingCustomCategories, state.brewingSchedule, state.brewingPlanFY, state.riceVarieties, state.ricePurchaseCommitments, state.procurementDecisions);
     }
+    case "/daily-kpi":
+      return renderDailyKpi(state.dailyKpi, state.dailyKpiFilter, state.dailyKpiSort);
     case "/churn-alert":
       return state.churnAlert
         ? renderChurnAlert(state.churnAlert, state.churnNotes)
@@ -2719,6 +2738,7 @@ function renderSidebar(): string {
       { path: "/shipment-calendar",   label: "出荷カレンダー" },
     ]},
     { key: "crm", icon: "🤝", label: "CRM・営業", items: [
+      { path: "/daily-kpi",           label: "日次KPI" },
       { path: "/churn-alert",         label: "営業アクション" },
       { path: "/map",                 label: "取引先マップ" },
       { path: "/visit-planner",       label: "訪問計画" },
@@ -2828,6 +2848,7 @@ function renderShell(): string {
     "/product-linkage": "原酒紐付け",
     "/customer-efficiency": "営業効率",
     "/churn-alert": "営業アクション",
+    "/daily-kpi": "日次KPI",
     "/visit-planner": "訪問計画",
     "/seasonal-calendar": "季節提案",
     "/map": "取引先マップ",
@@ -4875,6 +4896,8 @@ function bindEvents(root: HTMLElement): void {
         state.masterSortState = toggleSort(state.masterSortState, col, multi);
       } else if (state.route === "/analytics") {
         state.analyticsSortState = toggleSort(state.analyticsSortState, col, multi);
+      } else if (state.route === "/daily-kpi") {
+        state.dailyKpiSort = toggleSort(state.dailyKpiSort, col, multi);
       }
       renderApp();
     });
@@ -6426,6 +6449,16 @@ function bindEvents(root: HTMLElement): void {
     };
     tryInit();
   }
+
+  // ── 日次KPI フィルタ ────────────────────────────────
+  root.querySelector<HTMLSelectElement>("#kpi-staff-filter")?.addEventListener("change", (e) => {
+    state.dailyKpiFilter.staffCode = (e.target as HTMLSelectElement).value;
+    renderApp();
+  });
+  root.querySelector<HTMLSelectElement>("#kpi-status-filter")?.addEventListener("change", (e) => {
+    state.dailyKpiFilter.status = (e.target as HTMLSelectElement).value as typeof state.dailyKpiFilter.status;
+    renderApp();
+  });
 
   // ── 離反理由 選択 → 保存 ────────────────────────────
   root.querySelectorAll<HTMLSelectElement>(".churn-reason-select").forEach((sel) => {
