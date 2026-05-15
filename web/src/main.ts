@@ -204,7 +204,7 @@ import { renderDemandPlanning, buildDefaultShifts, optimizeShifts, DEFAULT_PART_
 import { renderBrewingPlan } from "./components/BrewingPlan";
 import { renderProcurement } from "./components/Procurement";
 import { renderBrewingProcess } from "./components/BrewingProcess";
-import { renderWorkforce, renderStaffModal, generateAutoShifts, DEFAULT_DEPT_WORKING_DAYS, type WorkforceTab, type DeptWorkingDays } from "./components/Workforce";
+import { renderWorkforce, renderStaffModal, generateAutoShifts, DEFAULT_DEPT_WORKING_DAYS, type WorkforceTab, type DeptWorkingDays, type EventDay, type EventType } from "./components/Workforce";
 import { fetchStaffMembers, upsertStaffMember, deleteStaffMember, fetchWorkforceMetrics, fetchDailyShiftPlans, saveDailyShiftPlans, type StaffMember, type WorkforceMetrics, type DailyShiftPlan } from "./api";
 import { renderChurnAlert, buildChurnAlertFromRows, type ChurnAlertData } from "./components/ChurnAlert";
 import { CHURN_REASONS } from "./api";
@@ -706,6 +706,7 @@ interface AppState {
   workforceSelectedDay: string | null;
   bottlingSchedule: import("./api").BottlingScheduleItem[];
   deptWorkingDays: DeptWorkingDays;
+  eventDays: EventDay[];
   brewingProductDetail: import("./api").BrewingProductDetail[];
   brewingExcludedProducts: Set<string>;
   brewingCustomCategories: import("./api").BrewingCustomCategory[];
@@ -1091,6 +1092,7 @@ const state: AppState = {
   workforceSelectedDay: null as string | null,
   bottlingSchedule: [] as import("./api").BottlingScheduleItem[],
   deptWorkingDays: { ...DEFAULT_DEPT_WORKING_DAYS } as DeptWorkingDays,
+  eventDays: [] as import("./components/Workforce").EventDay[],
   brewingProductDetail: [] as import("./api").BrewingProductDetail[],
   brewingExcludedProducts: new Set<string>(),
   brewingCustomCategories: [] as import("./api").BrewingCustomCategory[],
@@ -1927,6 +1929,10 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
         state.dailyShiftPlans  = plans;
         if (state.brewingSchedule.length === 0) state.brewingSchedule = schedule;
         if (savedDeptDays) state.deptWorkingDays = { ...DEFAULT_DEPT_WORKING_DAYS, ...savedDeptDays };
+        try {
+          const savedEvents = localStorage.getItem("sake_event_days");
+          if (savedEvents) state.eventDays = JSON.parse(savedEvents);
+        } catch { /* ignore */ }
         break;
       }
       case "/jikomi":
@@ -2362,7 +2368,8 @@ function renderView(): string {
         state.workforceSelectedDay,
         state.productionPlan,
         state.bottlingSchedule ?? [],
-        state.deptWorkingDays
+        state.deptWorkingDays,
+        state.eventDays ?? []
       );
     case "/jikomi":
       return state.jikomiView === "calendar"
@@ -9339,6 +9346,40 @@ function bindEvents(root: HTMLElement): void {
     renderApp();
   });
 
+  // イベント保存
+  root.querySelector<HTMLButtonElement>("[data-action='event-save']")?.addEventListener("click", async () => {
+    if (!state.workforceSelectedDay) return;
+    const eventType = (document.getElementById("event-type-select") as HTMLSelectElement)?.value as EventType | '';
+    const cups = parseInt((document.getElementById("event-cups-input") as HTMLInputElement)?.value) || 300;
+    const notes = (document.getElementById("event-notes-input") as HTMLInputElement)?.value ?? '';
+
+    if (!eventType) {
+      // イベント種別「なし」→ 削除と同じ
+      state.eventDays = state.eventDays.filter(e => e.date !== state.workforceSelectedDay);
+    } else {
+      const existing = state.eventDays.findIndex(e => e.date === state.workforceSelectedDay);
+      const ev: EventDay = { date: state.workforceSelectedDay, eventType, expectedCups: cups, notes };
+      if (existing >= 0) {
+        state.eventDays[existing] = ev;
+      } else {
+        state.eventDays.push(ev);
+      }
+    }
+    // localStorage に永続化
+    localStorage.setItem("sake_event_days", JSON.stringify(state.eventDays));
+    showToast(eventType ? "イベントを設定しました" : "イベントを解除しました", "success");
+    renderApp();
+  });
+
+  // イベント解除
+  root.querySelector<HTMLButtonElement>("[data-action='event-remove']")?.addEventListener("click", () => {
+    if (!state.workforceSelectedDay) return;
+    state.eventDays = state.eventDays.filter(e => e.date !== state.workforceSelectedDay);
+    localStorage.setItem("sake_event_days", JSON.stringify(state.eventDays));
+    showToast("イベントを解除しました", "success");
+    renderApp();
+  });
+
   // 詰口計画本数入力
   root.querySelector<HTMLInputElement>("#shift-bottling-target")?.addEventListener("change", e => {
     state.shiftBottlingTarget = parseInt((e.target as HTMLInputElement).value) || 0;
@@ -9372,7 +9413,8 @@ function bindEvents(root: HTMLElement): void {
         wfProdPlan,
         wfCalShifts,
         state.deptWorkingDays,
-        prevYearFacts
+        prevYearFacts,
+        state.eventDays.filter(e => e.date.startsWith(state.workforceYearMonth))
       );
       const ok = await saveDailyShiftPlans(state.workforceYearMonth, plans);
       if (ok) {

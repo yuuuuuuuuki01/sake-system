@@ -17,6 +17,39 @@ export const DEFAULT_DEPT_WORKING_DAYS: DeptWorkingDays = {
   labeling:    [4, 5],                     // 木金
 };
 
+// ── イベント ─────────────────────────────────────────────────────────────────
+
+export type EventType = 'tasting' | 'kurabiraki' | 'marche' | 'festival' | 'other';
+
+export const EVENT_TYPE_LABEL: Record<EventType, string> = {
+  tasting:    '試飲販売',
+  kurabiraki: '蔵開き',
+  marche:     'マルシェ',
+  festival:   '祭り・催事',
+  other:      'その他',
+};
+
+export const EVENT_TYPE_COLOR: Record<EventType, string> = {
+  tasting:    '#f59e0b',
+  kurabiraki: '#8b5cf6',
+  marche:     '#10b981',
+  festival:   '#ef4444',
+  other:      '#6b7280',
+};
+
+export interface EventDay {
+  date: string;           // YYYY-MM-DD
+  eventType: EventType;
+  expectedCups: number;   // 見込み杯数（500超で3名体制）
+  notes: string;
+}
+
+/** 杯数→必要人数: 基本2名、500杯超で3名 */
+const EVENT_CUPS_THRESHOLD = 500;
+function eventHeadcount(cups: number): number {
+  return cups > EVENT_CUPS_THRESHOLD ? 3 : 2;
+}
+
 const BOTTLING_LINE_SIZE             = 4;       // 詰口ライン定員（最低4名）
 const LABELING_MIN                   = 1;       // 貼場最小人数（1名〜）
 const LINE_MAX_DAILY                 = 4000;    // 日産最大本数（1800ml換算）
@@ -494,6 +527,7 @@ export function generateAutoShifts(
   calendarShifts: { date: string; partTimers: number; employees: number }[] = [],
   deptWorkingDays: DeptWorkingDays = DEFAULT_DEPT_WORKING_DAYS,
   prevYearDailyFacts: PrevYearDailyFact[] = [],
+  eventDays: EventDay[] = [],
 ): DailyShiftPlan[] {
   const [y, m] = yearMonth.split('-').map(Number);
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -529,10 +563,16 @@ export function generateAutoShifts(
     return availableOn(leaders, dayNum).length > 0;
   }
 
-  // ── 業務日リスト
+  // ── イベント日マップ
+  const eventDayMap = new Map<string, EventDay>();
+  for (const ev of eventDays) eventDayMap.set(ev.date, ev);
+
+  // ── 業務日リスト（日曜でもイベントがあれば含める）
   const businessDays: number[] = [];
   for (let d = 1; d <= daysInMonth; d++) {
-    if (new Date(y, m - 1, d).getDay() !== 0) businessDays.push(d);
+    const dateStr = `${y}-${pad(m)}-${pad(d)}`;
+    const dow = new Date(y, m - 1, d).getDay();
+    if (dow !== 0 || eventDayMap.has(dateStr)) businessDays.push(d);
   }
   const inventorySet = new Set(businessDays.slice(-5));
 
@@ -638,39 +678,50 @@ export function generateAutoShifts(
   // ── 部門×日の必要人数マトリクスを構築
   function calcDeptDemand(d: number): Map<StaffDepartment, { need: number; reasons: string[]; active: boolean }> {
     const fact = dailyFactMap.get(d) ?? { docs: 0, sales: 0, qty: 0, basis: 'データなし' };
+    const dateStr = `${y}-${pad(m)}-${pad(d)}`;
     const isInventory = inventorySet.has(d);
     const bottlingRun = bottlingDayMap.get(d);
     const dow = new Date(y, m - 1, d).getDay();
+    const event = eventDayMap.get(dateStr);
+    const isSunday = dow === 0;
     const result = new Map<StaffDepartment, { need: number; reasons: string[]; active: boolean }>();
 
-    // 総務: 伝票数ベース + 棚卸補正
+    // 総務: 伝票数ベース + 棚卸補正 + イベント対応
+    // 日曜イベントの場合は通常業務なし → イベント人員のみ
     {
-      const docNeed = Math.max(1, Math.ceil(fact.docs / DOCS_PER_PERSON_DAY));
+      const baseDocs = isSunday ? 0 : fact.docs;
+      const docNeed = baseDocs > 0 ? Math.max(1, Math.ceil(baseDocs / DOCS_PER_PERSON_DAY)) : (isSunday ? 0 : 1);
       const inventoryAdd = isInventory ? 1 : 0;
-      const need = docNeed + inventoryAdd;
+      const eventNeed = event ? eventHeadcount(event.expectedCups) : 0;
+      const need = Math.max(docNeed + inventoryAdd, eventNeed);
+      const reasons: string[] = [];
+      if (!isSunday) reasons.push(`需要: 伝票${baseDocs}件→${docNeed}名（${fact.basis}）`);
+      if (isInventory) reasons.push('棚卸週+1名');
+      if (event) {
+        const evLabel = EVENT_TYPE_LABEL[event.eventType];
+        reasons.push(`🎪${evLabel} ${event.expectedCups > 0 ? event.expectedCups + '杯見込' : ''}→${eventNeed}名`);
+      }
       result.set('soumu', {
-        need,
+        need: Math.max(need, event ? eventNeed : 0),
         active: true,
-        reasons: [
-          `需要: 伝票${fact.docs}件→${docNeed}名（${fact.basis}）`,
-          isInventory ? '棚卸週+1名' : '',
-        ].filter(Boolean),
+        reasons,
       });
     }
 
     // 配送: ルート売上金額ベース（直売分を除外）
+    // 日曜イベント日は配送なし
     {
-      const routeSales = Math.round(fact.sales * routeRatio);
+      const routeSales = isSunday ? 0 : Math.round(fact.sales * routeRatio);
       const vehiclesNeeded = routeSales > 0
         ? Math.max(1, Math.ceil(routeSales / DELIVERY_CAPACITY_PER_VEHICLE))
-        : 1;
+        : (isSunday ? 0 : 1);
       const need = Math.min(vehiclesNeeded, MAX_DELIVERY_VEHICLES);
       result.set('route_sales', {
         need,
-        active: true,
-        reasons: [
-          `需要: ${fmtYen(routeSales)}（ルート${Math.round(routeRatio * 100)}%）→${vehiclesNeeded}台（${fact.basis}）`,
-        ],
+        active: !isSunday,
+        reasons: isSunday
+          ? ['日曜・配送なし']
+          : [`需要: ${fmtYen(routeSales)}（ルート${Math.round(routeRatio * 100)}%）→${vehiclesNeeded}台（${fact.basis}）`],
       });
     }
 
@@ -987,7 +1038,8 @@ function renderShiftTab(
   metrics: WorkforceMetrics | null,
   dailyPlans: DailyShiftPlan[],
   selectedDay: string | null,
-  deptWorkingDays: DeptWorkingDays = DEFAULT_DEPT_WORKING_DAYS
+  deptWorkingDays: DeptWorkingDays = DEFAULT_DEPT_WORKING_DAYS,
+  eventDays: EventDay[] = [],
 ): string {
   const [y, m] = yearMonth.split('-').map(Number);
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -998,6 +1050,7 @@ function renderShiftTab(
   const todayStr = new Date().toISOString().slice(0, 10);
 
   const staffMap = new Map(staff.map(s => [s.id, s]));
+  const eventMap = new Map(eventDays.map(e => [e.date, e]));
 
   // plans を日付→部門リストに変換
   const planByDate = new Map<string, DailyShiftPlan[]>();
@@ -1036,6 +1089,7 @@ function renderShiftTab(
     const dayPlans      = planByDate.get(dateStr) ?? [];
     const hasInventory  = dayPlans.some(p => p.notes?.includes('棚卸'));
     const hasWarning    = dayPlans.some(p => p.notes?.includes('⚠'));
+    const event         = eventMap.get(dateStr);
 
     // 部門バッジ + メンバー名一覧
     const deptSections = dayPlans.map(p => {
@@ -1056,15 +1110,17 @@ function renderShiftTab(
     const border = isSel
       ? '2px solid var(--accent)'
       : isToday ? '2px solid #f59e0b' : '1px solid var(--border)';
-    const bg = isSun ? 'var(--surface-alt)' : 'var(--surface)';
+    const bg = event ? `${EVENT_TYPE_COLOR[event.eventType]}10` : isSun ? 'var(--surface-alt)' : 'var(--surface)';
+    const eventBorder = event ? `2px solid ${EVENT_TYPE_COLOR[event.eventType]}` : '';
 
-    return `<div data-shift-day="${dateStr}" style="border:${border};border-radius:4px;padding:3px 4px;min-height:72px;background:${bg};cursor:pointer;position:relative;${isSun?'opacity:0.5;':''}${dayPlans.length===0&&!isSun?'opacity:0.35;':''}">
+    return `<div data-shift-day="${dateStr}" style="border:${isSel ? '2px solid var(--accent)' : isToday ? '2px solid #f59e0b' : eventBorder || '1px solid var(--border)'};border-radius:4px;padding:3px 4px;min-height:72px;background:${bg};cursor:pointer;position:relative;${isSun && !event ?'opacity:0.5;':''}${dayPlans.length===0&&!isSun&&!event?'opacity:0.35;':''}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1px;">
         <span style="font-size:10px;font-weight:700;color:${dow===6?'#6b7280':isSun?'#ef4444':isToday?'#f59e0b':isSel?'var(--accent)':'var(--text-secondary)'};">
           ${d}${isToday?' ●':''}
         </span>
         ${dayPlans.length > 0 ? `<span style="font-size:8px;color:var(--text-secondary);">${dayPlans.reduce((s, p) => s + p.staffMemberIds.length, 0)}名</span>` : ''}
       </div>
+      ${event ? `<div style="font-size:7px;font-weight:700;color:${EVENT_TYPE_COLOR[event.eventType]};margin:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🎪${EVENT_TYPE_LABEL[event.eventType]}${event.expectedCups > 0 ? ' ' + event.expectedCups + '杯' : ''}</div>` : ''}
       ${deptSections}
       ${hasInventory ? '<div style="font-size:7px;color:#7c3aed;font-weight:700;margin-top:1px;">棚卸</div>' : ''}
       ${hasWarning   ? '<div style="font-size:7px;color:#ef4444;font-weight:700;margin-top:1px;">⚠要確認</div>' : ''}
@@ -1077,11 +1133,47 @@ function renderShiftTab(
     const [dy, dm, dd] = selectedDay.split('-').map(Number);
     const dowLabel = DOW_JP[new Date(dy, dm - 1, dd).getDay()];
     const dayPlans = planByDate.get(selectedDay) ?? [];
+    const selEvent = eventMap.get(selectedDay);
+
+    // イベント設定UI（全日表示）
+    const eventTypeOptions = (Object.keys(EVENT_TYPE_LABEL) as EventType[]).map(t =>
+      `<option value="${t}" ${selEvent?.eventType === t ? 'selected' : ''}>${EVENT_TYPE_LABEL[t]}</option>`
+    ).join('');
+    const eventSection = `
+      <div style="padding:10px 0;border-bottom:1px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+          <span style="font-size:13px;font-weight:700;">🎪 イベント設定</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="event-type-select" class="form-input" style="width:140px;font-size:12px;">
+            <option value="">なし</option>
+            ${eventTypeOptions}
+          </select>
+          <div style="display:flex;align-items:center;gap:4px;">
+            <label style="font-size:11px;white-space:nowrap;">見込み杯数</label>
+            <input type="number" id="event-cups-input" class="form-input" style="width:80px;font-size:12px;"
+              value="${selEvent?.expectedCups ?? 300}" min="0" step="50" placeholder="300" />
+          </div>
+          <input type="text" id="event-notes-input" class="form-input" style="flex:1;min-width:100px;font-size:12px;"
+            value="${selEvent?.notes ?? ''}" placeholder="備考（場所等）" />
+          <button class="button ${selEvent ? 'primary' : 'secondary'} small" data-action="event-save">
+            ${selEvent ? '更新' : '設定'}
+          </button>
+          ${selEvent ? `<button class="button secondary small danger" data-action="event-remove">解除</button>` : ''}
+        </div>
+        ${selEvent ? `<p style="font-size:10px;color:var(--text-secondary);margin:6px 0 0;">
+          ${selEvent.expectedCups > EVENT_CUPS_THRESHOLD ? '500杯超→3名体制' : '基本2名体制'}
+          （自動生成に反映されます）
+        </p>` : `<p style="font-size:10px;color:var(--text-secondary);margin:6px 0 0;">
+          イベントを設定すると日曜でも人員が配置されます
+        </p>`}
+      </div>`;
 
     if (dayPlans.length === 0) {
       return `<div class="panel" style="margin-top:12px;padding:14px 16px;">
         <p style="font-weight:700;margin:0 0 6px;">${dy}年${dm}月${dd}日（${dowLabel}）</p>
-        <p style="font-size:12px;color:var(--text-secondary);">この日のシフト計画はありません（日曜または未生成）。</p>
+        ${eventSection}
+        <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">この日のシフト計画はありません（日曜または未生成）。</p>
       </div>`;
     }
 
@@ -1119,6 +1211,7 @@ function renderShiftTab(
         <p style="font-weight:700;margin:0;font-size:14px;">${dy}年${dm}月${dd}日（${dowLabel}）の配置</p>
         <button class="button secondary small" data-action="shift-day-close">閉じる</button>
       </div>
+      ${eventSection}
       ${sections}
     </div>`;
   })() : `<div style="margin-top:8px;padding:10px 14px;font-size:11px;color:var(--text-secondary);background:var(--surface-alt);border-radius:6px;">
@@ -1451,13 +1544,14 @@ export function renderWorkforce(
   selectedDay: string | null = null,
   productionPlan: ProductionPlanRow[] = [],
   bottlingSchedule: BottlingScheduleItem[] = [],
-  deptWorkingDays: DeptWorkingDays = DEFAULT_DEPT_WORKING_DAYS
+  deptWorkingDays: DeptWorkingDays = DEFAULT_DEPT_WORKING_DAYS,
+  eventDays: EventDay[] = [],
 ): string {
   const tabContent =
     activeTab === 'staff'    ? renderStaffTab(staff, deptFilter) :
     activeTab === 'cost'     ? renderCostTab(staff, yearMonth) :
     activeTab === 'bottling' ? renderBottlingTab(productionPlan, yearMonth, bottlingSchedule) :
-    renderShiftTab(staff, yearMonth, brewingSchedule, bottlingTargetQty, metrics, dailyPlans, selectedDay, deptWorkingDays);
+    renderShiftTab(staff, yearMonth, brewingSchedule, bottlingTargetQty, metrics, dailyPlans, selectedDay, deptWorkingDays, eventDays);
 
   return `
     <section class="page-head">
