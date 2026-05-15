@@ -627,18 +627,37 @@ export async function upsertSystemSetting<T>(key: string, value: T): Promise<voi
 }
 
 export async function fetchSalesSummary(): Promise<SalesSummary> {
-  // daily_sales_fact から直接集計（MVリフレッシュ不要）
-  // daily_sales_detail (MV) は旧データのみ、daily_sales_fact は常に最新
-  // 直近365日分のみ取得（全件取得だとページネートが多発するため）
+  // daily_sales_fact + daily_sales_agg を併用
+  // fact: 金額・伝票数（常に最新）、agg: 本数・液量（MV、FK紐付け済み）
+  // 年間累積チャート用に2年分取得
   const since = new Date();
-  since.setFullYear(since.getFullYear() - 1);
+  since.setFullYear(since.getFullYear() - 2);
   const sinceStr = since.toISOString().slice(0, 10);
-  const factRows = await supabaseQuery<Record<string, unknown>>("daily_sales_fact", {
-    select: "sales_date,sales_amount,total_quantity,document_count",
-    order: "sales_date.desc",
-    sales_date: `gte.${sinceStr}`,
-    limit: "400"
-  });
+  const [factRows, aggRows] = await Promise.all([
+    supabaseQuery<Record<string, unknown>>("daily_sales_fact", {
+      select: "sales_date,sales_amount,total_quantity,document_count",
+      order: "sales_date.desc",
+      sales_date: `gte.${sinceStr}`,
+      limit: "800"
+    }),
+    supabaseQuery<Record<string, unknown>>("daily_sales_agg", {
+      select: "sales_date,bottles,volume_ml",
+      order: "sales_date.desc",
+      sales_date: `gte.${sinceStr}`,
+      limit: "800"
+    }),
+  ]);
+
+  // agg の本数/液量をマップ化
+  const aggMap = new Map<string, { bottles: number; volumeMl: number }>();
+  for (const row of aggRows) {
+    const sd = String(row.sales_date ?? "");
+    if (!sd) continue;
+    aggMap.set(sd, {
+      bottles: toNumber(row.bottles),
+      volumeMl: toNumber(row.volume_ml),
+    });
+  }
 
   // 日別に集計
   const dailyMap = new Map<string, { amount: number; qty: number; docs: number }>();
@@ -653,16 +672,21 @@ export async function fetchSalesSummary(): Promise<SalesSummary> {
   }
 
   const salesRows: DailySalesFactRow[] = Array.from(dailyMap.entries())
-    .map(([sd, v]) => ({
-      sales_date: sd,
-      sales_amount: v.amount,
-      amount: v.amount,
-      document_count: v.docs,
-      bottles: v.qty,
-      volume_ml: 0,
-      price_per_bottle: v.qty > 0 ? Math.round(v.amount / v.qty) : 0,
-      price_per_liter: 0,
-    } as unknown as DailySalesFactRow))
+    .map(([sd, v]) => {
+      const agg = aggMap.get(sd);
+      const bottles = agg?.bottles ?? v.qty;
+      const volumeMl = agg?.volumeMl ?? 0;
+      return {
+        sales_date: sd,
+        sales_amount: v.amount,
+        amount: v.amount,
+        document_count: v.docs,
+        bottles,
+        volume_ml: volumeMl,
+        price_per_bottle: bottles > 0 ? Math.round(v.amount / bottles) : 0,
+        price_per_liter: volumeMl > 0 ? Math.round(v.amount / (volumeMl / 1000)) : 0,
+      } as unknown as DailySalesFactRow;
+    })
     .sort((a, b) => b.sales_date.localeCompare(a.sales_date));
 
   if (salesRows.length > 0) {
