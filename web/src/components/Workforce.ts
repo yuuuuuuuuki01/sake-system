@@ -591,7 +591,9 @@ export function generateAutoShifts(
     const dow = new Date(y, m - 1, d).getDay();
     if (dow !== 0 || eventDayMap.has(dateStr)) businessDays.push(d);
   }
-  const inventorySet = new Set(businessDays.slice(-5));
+  // 棚卸は月末最終営業日の1日のみ
+  const inventoryDay = businessDays.length > 0 ? businessDays[businessDays.length - 1] : 0;
+  const inventorySet = new Set(inventoryDay > 0 ? [inventoryDay] : []);
 
   // ── 需要・生産計画集計（詰口・貼場用）
   const planDemandTotal   = productionPlan.reduce((s, r) => s + r.demandForecast, 0);
@@ -745,10 +747,11 @@ export function generateAutoShifts(
   const pyDocCount = metrics?.prevYearDocumentCount ?? metrics?.monthlyDocumentCount ?? 1;
   const directSalesRatio = pyDocCount > 0 ? pyDirectCount / pyDocCount : 0.05;
 
-  // ── 送り業務比率（伝票のうち発送を伴う割合）
-  // 酒造の場合、ルート配送以外の伝票の多くが宅配送り
-  // 直売+ルート以外 ≒ 送り業務と推定（デフォルト20%）
-  const shippingRatio = Math.max(0.05, 1 - routeRatio - directSalesRatio);
+  // ── 送り業務比率（件数ベース: ルートでも直売でもない伝票 = 宅配送り）
+  const pyRouteDocCount = metrics?.prevYearRouteDocCount ?? 0;
+  const routeDocRatio = pyDocCount > 0 ? pyRouteDocCount / pyDocCount : 0.6;
+  // 送り = 全伝票 - ルート伝票 - 直売伝票（残りが宅配送り）
+  const shippingRatio = Math.max(0, 1 - routeDocRatio - directSalesRatio);
 
   // ── 部門×日の必要人数マトリクスを構築
   function calcDeptDemand(d: number): Map<StaffDepartment, { need: number; reasons: string[]; active: boolean }> {
@@ -761,9 +764,9 @@ export function generateAutoShifts(
     const isSunday = dow === 0;
     const result = new Map<StaffDepartment, { need: number; reasons: string[]; active: boolean }>();
 
-    // 総務: 伝票数ベース + 直売来客 + 送り準備 + 棚卸補正 + イベント対応
-    // 日曜イベントの場合は通常業務なし → イベント人員のみ
+    // 総務: 伝票数 + 直売来客 + 送り準備 + 棚卸 + イベント（別枠加算）
     {
+      // ── 通常業務（日曜は0）
       const baseDocs = isSunday ? 0 : fact.docs;
       const docNeed = baseDocs > 0 ? Math.max(1, Math.ceil(baseDocs / DOCS_PER_PERSON_DAY)) : (isSunday ? 0 : 1);
 
@@ -779,19 +782,22 @@ export function generateAutoShifts(
       const shippingPrepNeed = nextDayShipping > 0 ? Math.ceil(nextDayShipping / SHIPPING_PREP_PER_PERSON) : 0;
 
       const inventoryAdd = isInventory ? 1 : 0;
+      const normalNeed = docNeed + visitorNeed + shippingPrepNeed + inventoryAdd;
+
+      // ── イベント（通常業務とは別枠: イベント要員は事務所不在）
       const eventNeed = event ? eventHeadcount(event.expectedCups) : 0;
-      const baseNeed = docNeed + visitorNeed + shippingPrepNeed + inventoryAdd;
-      const need = Math.max(baseNeed, eventNeed);
+      const need = normalNeed + eventNeed; // 加算（別枠）
+
       const reasons: string[] = [];
       if (!isSunday) {
         reasons.push(`伝票${baseDocs}件→${docNeed}名（${fact.basis}）`);
         if (visitorNeed > 0) reasons.push(`直売${dailyVisitors}件→${visitorNeed}名`);
         if (shippingPrepNeed > 0) reasons.push(`送り準備${nextDayShipping}件→${shippingPrepNeed}名`);
       }
-      if (isInventory) reasons.push('棚卸週+1名');
+      if (isInventory) reasons.push('棚卸+1名');
       if (event) {
         const evLabel = EVENT_TYPE_LABEL[event.eventType];
-        reasons.push(`🎪${evLabel} ${event.expectedCups > 0 ? event.expectedCups + '杯見込' : ''}→${eventNeed}名`);
+        reasons.push(`🎪${evLabel} ${event.expectedCups > 0 ? event.expectedCups + '杯見込' : ''}→${eventNeed}名【別枠】`);
       }
       result.set('soumu', {
         need,
