@@ -283,6 +283,86 @@ def sync_headers_from_lines(config: dict[str, Any],
         logger.info("Headers up to date")
 
 
+NOTE_INV_RE = re.compile(r"inv:(\d+)")
+
+
+def link_lines_to_headers(config: dict[str, Any],
+                          logger: logging.Logger) -> None:
+    """sales_document_lines.sales_document_header_id が NULL の行を
+    note内の inv:NNNNNN と sales_document_headers.legacy_document_no で紐付ける。
+    daily_sales_agg の bottles/volume_ml 集計に必要。"""
+    base = config["supabase_url"].rstrip("/")
+    sess = _session(config)
+
+    # NULL FK の明細から inv番号を収集（直近6ヶ月分に限定）
+    from datetime import date, timedelta
+    cutoff = (date.today() - timedelta(days=180)).isoformat()
+
+    orphan_inv: dict[str, list[str]] = {}  # inv_no -> [line_id, ...]
+    offset = 0
+    while True:
+        url = (f"{base}/rest/v1/sales_document_lines"
+               f"?select=id,note"
+               f"&sales_document_header_id=is.null"
+               f"&note=like.*inv:*"
+               f"&note=like.*date:*"
+               f"&order=id&limit=1000&offset={offset}")
+        resp = sess.get(url, timeout=60)
+        if not resp.ok or not resp.json():
+            break
+        for r in resp.json():
+            note = r.get("note") or ""
+            dm = NOTE_DATE_RE.search(note)
+            im = NOTE_INV_RE.search(note)
+            if not dm or not im:
+                continue
+            # 期間フィルタ
+            if dm.group(1) < cutoff:
+                continue
+            inv_no = im.group(1)
+            orphan_inv.setdefault(inv_no, []).append(r["id"])
+        offset += 1000
+        if len(resp.json()) < 1000:
+            break
+
+    if not orphan_inv:
+        logger.info("FK link: no orphan lines to link")
+        return
+
+    # ヘッダの legacy_document_no -> id マッピング取得
+    header_map: dict[str, str] = {}
+    inv_list = list(orphan_inv.keys())
+    for i in range(0, len(inv_list), 100):
+        batch = inv_list[i:i + 100]
+        inv_filter = ",".join(batch)
+        resp = sess.get(
+            f"{base}/rest/v1/sales_document_headers"
+            f"?select=id,legacy_document_no"
+            f"&legacy_document_no=in.({inv_filter})"
+            f"&limit=1000",
+            timeout=30)
+        if resp.ok:
+            for h in resp.json():
+                header_map[h["legacy_document_no"]] = h["id"]
+
+    # PATCH で FK を設定
+    linked = 0
+    for inv_no, line_ids in orphan_inv.items():
+        hid = header_map.get(inv_no)
+        if not hid:
+            continue
+        for lid in line_ids:
+            resp = sess.patch(
+                f"{base}/rest/v1/sales_document_lines?id=eq.{lid}",
+                json={"sales_document_header_id": hid},
+                timeout=15)
+            if resp.ok:
+                linked += 1
+
+    logger.info("FK link: %d lines linked to headers (out of %d orphans)",
+                linked, sum(len(v) for v in orphan_inv.values()))
+
+
 def refresh_product_monthly_sales(config: dict[str, Any],
                                    logger: logging.Logger) -> None:
     """product_monthly_sales をPython側で集計して再構築する。"""
@@ -428,6 +508,9 @@ def main() -> int:
 
     # Step 3: Sync headers from lines (for dashboard recent transactions)
     sync_headers_from_lines(config, logger)
+
+    # Step 3.5: FK補完 — lines の sales_document_header_id を伝票番号で紐付け
+    link_lines_to_headers(config, logger)
 
     # Step 4: Downstream refreshes
     refresh_downstream(config, logger)
