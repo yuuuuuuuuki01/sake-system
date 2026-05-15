@@ -186,6 +186,123 @@ function buildBars(dailySales: SalesSummary["dailySales"]): string {
   `;
 }
 
+/** 年間売上累積チャート（当年 vs 前年） */
+function buildYtdChart(allDays: SalesDayPoint[]): string {
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const lastYear = thisYear - 1;
+
+  // 月次集計: { "YYYY-MM": amount }
+  const monthlyMap = new Map<string, number>();
+  for (const d of allDays) {
+    const ym = d.date.slice(0, 7);
+    monthlyMap.set(ym, (monthlyMap.get(ym) ?? 0) + d.amount);
+  }
+
+  // 当年1月〜当月、前年1月〜12月
+  const months: string[] = [];
+  for (let m = 1; m <= 12; m++) months.push(String(m).padStart(2, '0'));
+
+  const thisYearMonthly = months.map(m => monthlyMap.get(`${thisYear}-${m}`) ?? 0);
+  const lastYearMonthly = months.map(m => monthlyMap.get(`${lastYear}-${m}`) ?? 0);
+
+  // 累積
+  const thisYearCum: number[] = [];
+  const lastYearCum: number[] = [];
+  let sumThis = 0, sumLast = 0;
+  for (let i = 0; i < 12; i++) {
+    sumThis += thisYearMonthly[i];
+    sumLast += lastYearMonthly[i];
+    thisYearCum.push(sumThis);
+    lastYearCum.push(sumLast);
+  }
+
+  // 当月まで（データがある月まで）
+  const currentMonth = now.getMonth(); // 0-indexed
+  const thisYearVisible = thisYearCum.slice(0, currentMonth + 1);
+
+  const width = 760;
+  const height = 280;
+  const padding = { top: 30, right: 30, bottom: 40, left: 70 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  const maxVal = Math.max(...lastYearCum, ...thisYearVisible, 1);
+
+  function toX(i: number, total: number): number {
+    return padding.left + (i / (total - 1 || 1)) * plotW;
+  }
+  function toY(val: number): number {
+    return padding.top + plotH - (val / maxVal) * plotH;
+  }
+
+  // 前年折れ線（12ヶ月）
+  const lastYearPath = lastYearCum.map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i, 12).toFixed(1)},${toY(v).toFixed(1)}`).join(' ');
+  // 当年折れ線
+  const thisYearPath = thisYearVisible.map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i, 12).toFixed(1)},${toY(v).toFixed(1)}`).join(' ');
+
+  // Y軸
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
+  const yAxisSvg = yTicks.map(ratio => {
+    const yy = padding.top + plotH - plotH * ratio;
+    const label = Math.round(maxVal * ratio / 10000);
+    return `<line x1="${padding.left}" y1="${yy}" x2="${width - padding.right}" y2="${yy}" stroke="var(--border)" stroke-dasharray="3,3" />
+      <text x="${padding.left - 8}" y="${yy + 4}" text-anchor="end" style="font-size:10px;fill:var(--text-secondary);">${label.toLocaleString('ja-JP')}万</text>`;
+  }).join('');
+
+  // X軸（月ラベル）
+  const xLabels = months.map((m, i) => {
+    const x = toX(i, 12);
+    return `<text x="${x}" y="${height - 10}" text-anchor="middle" style="font-size:10px;fill:var(--text-secondary);">${parseInt(m)}月</text>`;
+  }).join('');
+
+  // ドット（当年）
+  const thisYearDots = thisYearVisible.map((v, i) =>
+    `<circle cx="${toX(i, 12).toFixed(1)}" cy="${toY(v).toFixed(1)}" r="4" fill="#0F5B8D" />`
+  ).join('');
+
+  // 当月の値ラベル
+  const latestVal = thisYearVisible[thisYearVisible.length - 1] ?? 0;
+  const latestX = toX(thisYearVisible.length - 1, 12);
+  const latestY = toY(latestVal);
+  const latestLabel = `<text x="${latestX + 8}" y="${latestY - 8}" style="font-size:11px;font-weight:700;fill:#0F5B8D;">${(latestVal / 10000).toFixed(0)}万</text>`;
+
+  // 前年最終値ラベル
+  const lyFinal = lastYearCum[11];
+  const lyLabel = `<text x="${toX(11, 12) + 8}" y="${toY(lyFinal) - 8}" style="font-size:10px;fill:#9ca3af;">${(lyFinal / 10000).toFixed(0)}万</text>`;
+
+  // 進捗率
+  const progressPct = lyFinal > 0 ? ((latestVal / lyFinal) * 100).toFixed(1) : '—';
+
+  return `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="display:inline-block;width:20px;height:3px;background:#0F5B8D;border-radius:2px;"></span>
+        <span style="font-size:11px;font-weight:600;">${thisYear}年</span>
+        <span style="font-size:12px;font-weight:700;color:#0F5B8D;">${formatCurrency(latestVal)}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="display:inline-block;width:20px;height:3px;background:#d1d5db;border-radius:2px;"></span>
+        <span style="font-size:11px;color:var(--text-secondary);">${lastYear}年</span>
+        <span style="font-size:12px;color:var(--text-secondary);">${formatCurrency(lyFinal)}</span>
+      </div>
+      <div style="margin-left:auto;font-size:12px;">
+        対前年進捗 <strong style="color:${Number(progressPct) >= 100 ? '#2f855a' : parseFloat(progressPct) >= 80 ? '#d69e2e' : '#c53d3d'};">${progressPct}%</strong>
+        <span style="font-size:10px;color:var(--text-secondary);">（${currentMonth + 1}月時点）</span>
+      </div>
+    </div>
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">
+      ${yAxisSvg}
+      ${xLabels}
+      <path d="${lastYearPath}" fill="none" stroke="#d1d5db" stroke-width="2" stroke-dasharray="6,4" />
+      <path d="${thisYearPath}" fill="none" stroke="#0F5B8D" stroke-width="2.5" />
+      ${thisYearDots}
+      ${latestLabel}
+      ${lyLabel}
+    </svg>
+  `;
+}
+
 export interface DashboardExtras {
   prospects: Prospect[];
   upcomingEvents: CalendarEvent[];
@@ -384,6 +501,18 @@ export function renderDashboard(
       </article>
     </section>
     ` : ""}
+
+    <section class="panel" style="margin-bottom:16px;">
+      <div class="panel-header">
+        <div>
+          <h2>年間売上累積</h2>
+          <p class="panel-caption">月次累積の推移（当年 vs 前年）</p>
+        </div>
+      </div>
+      <div class="chart-scroll">
+        ${buildYtdChart(summary.allDailySales)}
+      </div>
+    </section>
 
     <section class="content-grid">
       <article class="panel">
