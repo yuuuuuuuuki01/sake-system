@@ -118,7 +118,27 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
   const prevFinal = prevCum.length > 0 ? prevCum[prevCum.length - 1].amount : 0;
   const progressPct = prevFinal > 0 ? ((cumCurr / prevFinal) * 100).toFixed(1) : '—';
 
-  const maxVal = Math.max(cumCurr, cumPrev, prevFinal, 1);
+  // ── 着地予測（前年の季節パターンベース）──
+  // 前年の現在週以降の売上合計を「残り分」として、当年の対前年比率で按分
+  const remainingSlots = totalWeeks - 1 - currentSlot;
+
+  // 前年: 現在slot以降の売上（季節パターンを保持）
+  const prevRemainingAmount = prevFinal - prevAtSameSlot;
+  // 当年の対前年ペース比率（同時期比）
+  const paceRatio = prevAtSameSlot > 0 ? cumCurr / prevAtSameSlot : 1;
+
+  // 基本: 前年の残り分を当年ペース比率で按分
+  const forecastBase = cumCurr + prevRemainingAmount * paceRatio;
+  // 楽観: +10%の勢いで伸びる
+  const forecastOptimistic = cumCurr + prevRemainingAmount * paceRatio * 1.10;
+  // 悲観: -10%に落ちる
+  const forecastPessimistic = cumCurr + prevRemainingAmount * paceRatio * 0.90;
+
+  const avgWeekly = remainingSlots > 0 ? (forecastBase - cumCurr) / remainingSlots : 0;
+  const optimisticWeekly = remainingSlots > 0 ? (forecastOptimistic - cumCurr) / remainingSlots : 0;
+  const pessimisticWeekly = remainingSlots > 0 ? (forecastPessimistic - cumCurr) / remainingSlots : 0;
+
+  const maxVal = Math.max(forecastOptimistic, cumPrev, prevFinal, 1);
   const width = 760, height = 280;
   const padding = { top: 30, right: 30, bottom: 40, left: 70 };
   const plotW = width - padding.left - padding.right;
@@ -176,6 +196,23 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
   // 今週マーカー
   const weekMarker = `<line x1="${toX(currentSlot)}" y1="${padding.top}" x2="${toX(currentSlot)}" y2="${padding.top + plotH}" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3" opacity="0.5" />`;
 
+  // ── 予測線（現在点→年末の3パターン）
+  const lastSlot = totalWeeks - 1;
+  const forecastLines = (latestCurr && remainingSlots > 0) ? `
+    <path d="M${toX(latestCurr.slot).toFixed(1)},${toY(latestCurr.amount).toFixed(1)} L${toX(lastSlot).toFixed(1)},${toY(forecastOptimistic).toFixed(1)}"
+      fill="none" stroke="#059669" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5" />
+    <path d="M${toX(latestCurr.slot).toFixed(1)},${toY(latestCurr.amount).toFixed(1)} L${toX(lastSlot).toFixed(1)},${toY(forecastBase).toFixed(1)}"
+      fill="none" stroke="#0F5B8D" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5" />
+    <path d="M${toX(latestCurr.slot).toFixed(1)},${toY(latestCurr.amount).toFixed(1)} L${toX(lastSlot).toFixed(1)},${toY(forecastPessimistic).toFixed(1)}"
+      fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.5" />
+    <circle cx="${toX(lastSlot)}" cy="${toY(forecastOptimistic)}" r="3" fill="#059669" opacity="0.6" />
+    <circle cx="${toX(lastSlot)}" cy="${toY(forecastBase)}" r="3" fill="#0F5B8D" opacity="0.6" />
+    <circle cx="${toX(lastSlot)}" cy="${toY(forecastPessimistic)}" r="3" fill="#dc2626" opacity="0.6" />
+    <text x="${toX(lastSlot) - 4}" y="${toY(forecastOptimistic) - 6}" text-anchor="end" style="font-size:9px;fill:#059669;">${fmtCompact(forecastOptimistic)}</text>
+    <text x="${toX(lastSlot) - 4}" y="${toY(forecastBase) + 4}" text-anchor="end" style="font-size:9px;fill:#0F5B8D;">${fmtCompact(forecastBase)}</text>
+    <text x="${toX(lastSlot) - 4}" y="${toY(forecastPessimistic) + 14}" text-anchor="end" style="font-size:9px;fill:#dc2626;">${fmtCompact(forecastPessimistic)}</text>
+  ` : '';
+
   const pctColor = Number(progressPct) >= 100 ? '#059669' : Number(progressPct) >= 80 ? '#d97706' : '#dc2626';
   const gapColor = gap >= 0 ? '#059669' : '#dc2626';
 
@@ -185,6 +222,26 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
   const prevFiscalLabel = mode === 'fiscal'
     ? `${thisYear - 2}年10月〜${thisYear - 1}年9月`
     : `${thisYear - 1}年`;
+
+  // 着地見込みカード
+  const forecastCards = remainingSlots > 0 ? `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px;">
+      <div style="padding:10px 14px;border-radius:8px;background:#05966910;border:1px solid #05966930;">
+        <div style="font-size:10px;color:#059669;font-weight:600;">楽観シナリオ</div>
+        <div style="font-size:18px;font-weight:700;color:#059669;">${fmtCompact(forecastOptimistic)}</div>
+        <div style="font-size:10px;color:var(--text-secondary);">上位週ペース ${fmtCompact(optimisticWeekly)}/週</div>
+      </div>
+      <div style="padding:10px 14px;border-radius:8px;background:#0F5B8D10;border:1px solid #0F5B8D30;">
+        <div style="font-size:10px;color:#0F5B8D;font-weight:600;">基本シナリオ</div>
+        <div style="font-size:18px;font-weight:700;color:#0F5B8D;">${fmtCompact(forecastBase)}</div>
+        <div style="font-size:10px;color:var(--text-secondary);">平均ペース ${fmtCompact(avgWeekly)}/週</div>
+      </div>
+      <div style="padding:10px 14px;border-radius:8px;background:#dc262610;border:1px solid #dc262630;">
+        <div style="font-size:10px;color:#dc2626;font-weight:600;">悲観シナリオ</div>
+        <div style="font-size:18px;font-weight:700;color:#dc2626;">${fmtCompact(forecastPessimistic)}</div>
+        <div style="font-size:10px;color:var(--text-secondary);">下位週ペース ${fmtCompact(pessimisticWeekly)}/週</div>
+      </div>
+    </div>` : '';
 
   return `
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
@@ -208,12 +265,14 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
         <span style="font-size:10px;color:var(--text-secondary);">（前年同週累積 ${fmtCurrency(prevAtSameSlot)}）</span>
       </div>
     </div>
+    ${forecastCards}
     <svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">
       ${yAxes}
       ${xLabels}
       ${weekMarker}
       <path d="${prevPath}" fill="none" stroke="#d1d5db" stroke-width="2" stroke-dasharray="6,4" />
       <path d="${currPath}" fill="none" stroke="#0F5B8D" stroke-width="2.5" />
+      ${forecastLines}
       ${gapLine}
       ${latestDot}
       ${prevLabel}
