@@ -73,13 +73,14 @@ function buildKpiCards(data: DailyKpiData): string {
 
 type YtdMode = 'calendar' | 'fiscal'; // 暦年(1-12) / 酒造年度(10-9)
 
-function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoint[], mode: YtdMode = 'calendar'): string {
+function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoint[], mode: YtdMode = 'calendar', prevPrevYear: WeeklyMdPoint[] = []): string {
   const FISCAL_START_WEEK = 40; // 10月≒W40
   const totalWeeks = 52;
+  const FISCAL_JAN_SLOT = 52 - FISCAL_START_WEEK; // slot 12 = 1月の位置
 
   // fiscal モード: データを酒造年度に組み替え
   // 当酒造年度 = 前年10-12月(prevYear W40-52) + 当年1-9月(current W1-39)
-  // 前酒造年度 = 前年1-9月(prevYear W1-39) のみ（前々年10-12月はデータなし）
+  // 前酒造年度 = 前々年10-12月(prevPrevYear W40-52) + 前年1-9月(prevYear W1-39)
   let fiscalCurrMap: Map<number, WeeklyMdPoint>;
   let fiscalPrevMap: Map<number, WeeklyMdPoint>;
 
@@ -95,14 +96,20 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
     }
     for (const p of current) {
       if (p.week < FISCAL_START_WEEK) {
-        const slot = (52 - FISCAL_START_WEEK) + p.week;
+        const slot = FISCAL_JAN_SLOT + p.week;
         fiscalCurrMap.set(slot, { ...p, week: slot });
       }
     }
-    // 前酒造年度: prevYear W1-39 → slot 13-51（10-12月分はデータなし）
+    // 前酒造年度: 前々年W40-52 → slot 0-12, 前年W1-39 → slot 13-51
+    for (const p of prevPrevYear) {
+      if (p.week >= FISCAL_START_WEEK) {
+        const slot = p.week - FISCAL_START_WEEK;
+        fiscalPrevMap.set(slot, { ...p, week: slot });
+      }
+    }
     for (const p of prevYear) {
       if (p.week < FISCAL_START_WEEK) {
-        const slot = (52 - FISCAL_START_WEEK) + p.week;
+        const slot = FISCAL_JAN_SLOT + p.week;
         fiscalPrevMap.set(slot, { ...p, week: slot });
       }
     }
@@ -659,7 +666,7 @@ export function renderDailyKpi(
         <p class="panel-caption">酒造年度ベースの累積推移</p>
       </div>
       <div class="chart-scroll">
-        ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear, 'fiscal')}
+        ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear, 'fiscal', data.weeklyPrevPrevYear)}
       </div>
     </section>
 

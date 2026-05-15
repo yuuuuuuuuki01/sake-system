@@ -3489,6 +3489,7 @@ export interface DailyKpiData {
   prevYearTodayDocCount: number;
   weeklyCurrent: WeeklyMdPoint[];
   weeklyPrevYear: WeeklyMdPoint[];
+  weeklyPrevPrevYear: WeeklyMdPoint[];
 }
 
 export async function fetchDailyKpi(): Promise<DailyKpiData> {
@@ -3508,8 +3509,10 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
   const currentYearTo = `${y}-12-31`;
   const prevYearFrom = `${y - 1}-01-01`;
   const prevYearTo = `${y - 1}-12-31`;
+  const prevPrevYearFrom = `${y - 2}-01-01`;
+  const prevPrevYearTo = `${y - 2}-12-31`;
 
-  const [custRows, dailyCurr, dailyPrev, staffCurr, staffPrev, todayHeaders, prevTodayHeaders, yearHeaders, prevYearHeaders] = await Promise.all([
+  const [custRows, dailyCurr, dailyPrev, staffCurr, staffPrev, todayHeaders, prevTodayHeaders, yearHeaders, prevYearHeaders, prevPrevYearHeaders] = await Promise.all([
     // 得意先別 当月/前年同月
     supabaseQueryAll<LooseRow>("customer_sales_summary", {
       select: "customer_code,customer_name,business_type,area_code,amount_this_month,amount_last_year_same_month,last_order_date",
@@ -3556,6 +3559,12 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     supabaseQueryAll<LooseRow>("sales_document_headers", {
       select: "sales_date,total_amount",
       and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearTo})`,
+      order: "sales_date.asc"
+    }),
+    // 52週MD: 前々年全伝票（酒造年度用）
+    supabaseQueryAll<LooseRow>("sales_document_headers", {
+      select: "sales_date,total_amount",
+      and: `(sales_date.gte.${prevPrevYearFrom},sales_date.lte.${prevPrevYearTo})`,
       order: "sales_date.asc"
     }),
   ]);
@@ -3618,6 +3627,7 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     prevYearTodayDocCount: prevTodayHeaders,
     weeklyCurrent: aggregateWeekly(yearHeaders),
     weeklyPrevYear: aggregateWeekly(prevYearHeaders),
+    weeklyPrevPrevYear: aggregateWeekly(prevPrevYearHeaders),
   };
 
   function aggregateWeekly(rows: LooseRow[]): WeeklyMdPoint[] {
