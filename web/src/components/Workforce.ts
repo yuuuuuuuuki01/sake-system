@@ -622,6 +622,19 @@ export function generateAutoShifts(
 
   const dailyFactMap = mapPrevYearToCurrentMonth(prevYearDailyFacts, y, m, businessDays, metrics);
 
+  // ── 直売比率（配送需要から直売分を除外するため）
+  // metrics の前年同月データから直売比率を算出
+  const pyRouteSales = metrics?.prevYearRouteSalesAmount ?? 0;
+  const pyTotalSales = pyRouteSales + ((() => {
+    // 前年の直売額は metrics に直接ないので、全売上-ルート売上で推定
+    // ただし daily_sales_agg の amount は全売上なので比率で按分
+    const curTotal = (metrics?.routeSalesAmount ?? 0) + (metrics?.directSalesAmount ?? 0);
+    const curDirect = metrics?.directSalesAmount ?? 0;
+    if (curTotal > 0) return curDirect; // 当月の直売額を使う
+    return 0;
+  })());
+  const routeRatio = pyTotalSales > 0 ? pyRouteSales / pyTotalSales : 0.85; // デフォルト85%がルート
+
   // ── 部門×日の必要人数マトリクスを構築
   function calcDeptDemand(d: number): Map<StaffDepartment, { need: number; reasons: string[]; active: boolean }> {
     const fact = dailyFactMap.get(d) ?? { docs: 0, sales: 0, qty: 0, basis: 'データなし' };
@@ -645,15 +658,18 @@ export function generateAutoShifts(
       });
     }
 
-    // 配送: 売上金額ベース
+    // 配送: ルート売上金額ベース（直売分を除外）
     {
-      const vehiclesNeeded = Math.max(1, Math.ceil(fact.sales / DELIVERY_CAPACITY_PER_VEHICLE));
+      const routeSales = Math.round(fact.sales * routeRatio);
+      const vehiclesNeeded = routeSales > 0
+        ? Math.max(1, Math.ceil(routeSales / DELIVERY_CAPACITY_PER_VEHICLE))
+        : 1;
       const need = Math.min(vehiclesNeeded, MAX_DELIVERY_VEHICLES);
       result.set('route_sales', {
         need,
         active: true,
         reasons: [
-          `需要: ${fmtYen(fact.sales)}→${vehiclesNeeded}台（${fact.basis}）`,
+          `需要: ${fmtYen(routeSales)}（ルート${Math.round(routeRatio * 100)}%）→${vehiclesNeeded}台（${fact.basis}）`,
         ],
       });
     }

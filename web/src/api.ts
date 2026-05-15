@@ -7960,8 +7960,9 @@ export async function fetchPrevYearDailyFacts(yearMonth: string): Promise<PrevYe
   const nextY = m === 12 ? pyY + 1 : pyY;
   const pyEnd = `${nextY}-${pad(nextM)}-01`;
 
-  const rows = await supabaseQuery<LooseRow>('daily_sales_fact', {
-    select: 'sales_date,document_count,total_quantity,sales_amount',
+  // daily_sales_agg = 日別集計済みマテビュー（document_count=伝票件数, amount=総売上, bottles=本数）
+  const rows = await supabaseQuery<LooseRow>('daily_sales_agg', {
+    select: 'sales_date,document_count,amount,bottles',
     and:    `(sales_date.gte.${pyStart},sales_date.lt.${pyEnd})`,
     order:  'sales_date.asc',
   });
@@ -7973,8 +7974,8 @@ export async function fetchPrevYearDailyFacts(yearMonth: string): Promise<PrevYe
       salesDate:     dateStr,
       dow:           new Date(ry, rm - 1, rd).getDay(),
       documentCount: getNumber(r, ['document_count'], 0),
-      totalQuantity: Math.round(getNumber(r, ['total_quantity'], 0)),
-      salesAmount:   getNumber(r, ['sales_amount'], 0),
+      totalQuantity: Math.round(getNumber(r, ['bottles'], 0)),
+      salesAmount:   getNumber(r, ['amount'], 0),
     };
   });
 }
