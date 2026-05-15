@@ -3480,6 +3480,14 @@ export interface WeeklyMdPoint {
   docs: number;
 }
 
+export interface YtdCustomerGap {
+  customerCode: string;
+  customerName: string;
+  currAmount: number;
+  prevAmount: number;
+  gap: number;
+}
+
 export interface DailyKpiData {
   customers: DailyKpiCustomerRow[];
   dailyCurrent: DailyKpiDayPoint[];
@@ -3490,6 +3498,7 @@ export interface DailyKpiData {
   weeklyCurrent: WeeklyMdPoint[];
   weeklyPrevYear: WeeklyMdPoint[];
   weeklyPrevPrevYear: WeeklyMdPoint[];
+  ytdCustomerGaps: YtdCustomerGap[];
 }
 
 export async function fetchDailyKpi(): Promise<DailyKpiData> {
@@ -3549,15 +3558,15 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     supabaseQuery<LooseRow>("sales_document_headers", {
       select: "id", sales_date: `eq.${prevYearTodayStr}`, limit: "1000"
     }).then(r => r.length),
-    // 52週MD: 当年全伝票
+    // 52週MD + 得意先別ギャップ: 当年全伝票
     supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "sales_date,total_amount",
+      select: "sales_date,total_amount,legacy_customer_code,customer_name",
       and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${currentYearTo})`,
       order: "sales_date.asc"
     }),
-    // 52週MD: 前年全伝票
+    // 52週MD + 得意先別ギャップ: 前年全伝票
     supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "sales_date,total_amount",
+      select: "sales_date,total_amount,legacy_customer_code,customer_name",
       and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearTo})`,
       order: "sales_date.asc"
     }),
@@ -3618,6 +3627,9 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     .map(sc => ({ staffCode: sc, currentAmount: staffCurrMap.get(sc) ?? 0, prevYearAmount: staffPrevMap.get(sc) ?? 0 }))
     .sort((a, b) => b.prevYearAmount - a.prevYearAmount);
 
+  // 得意先別 年間ギャップ集計
+  const ytdCustomerGaps = aggregateCustomerGap(yearHeaders, prevYearHeaders);
+
   return {
     customers,
     dailyCurrent: aggregateDaily(dailyCurr),
@@ -3628,7 +3640,41 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     weeklyCurrent: aggregateWeekly(yearHeaders),
     weeklyPrevYear: aggregateWeekly(prevYearHeaders),
     weeklyPrevPrevYear: aggregateWeekly(prevPrevYearHeaders),
+    ytdCustomerGaps,
   };
+
+  function aggregateCustomerGap(currRows: LooseRow[], prevRows: LooseRow[]): YtdCustomerGap[] {
+    const currMap = new Map<string, { name: string; amount: number }>();
+    const prevMap = new Map<string, { name: string; amount: number }>();
+    for (const r of currRows) {
+      const code = getString(r, ["legacy_customer_code"], "");
+      if (!code) continue;
+      const entry = currMap.get(code) ?? { name: getString(r, ["customer_name"], ""), amount: 0 };
+      entry.amount += getNumber(r, ["total_amount"], 0);
+      if (!entry.name) entry.name = getString(r, ["customer_name"], "");
+      currMap.set(code, entry);
+    }
+    for (const r of prevRows) {
+      const code = getString(r, ["legacy_customer_code"], "");
+      if (!code) continue;
+      const entry = prevMap.get(code) ?? { name: getString(r, ["customer_name"], ""), amount: 0 };
+      entry.amount += getNumber(r, ["total_amount"], 0);
+      if (!entry.name) entry.name = getString(r, ["customer_name"], "");
+      prevMap.set(code, entry);
+    }
+    const allCodes = new Set([...currMap.keys(), ...prevMap.keys()]);
+    return [...allCodes].map(code => {
+      const curr = currMap.get(code);
+      const prev = prevMap.get(code);
+      return {
+        customerCode: code,
+        customerName: curr?.name || prev?.name || "",
+        currAmount: curr?.amount ?? 0,
+        prevAmount: prev?.amount ?? 0,
+        gap: (curr?.amount ?? 0) - (prev?.amount ?? 0),
+      };
+    }).sort((a, b) => a.gap - b.gap); // 減少が大きい順
+  }
 
   function aggregateWeekly(rows: LooseRow[]): WeeklyMdPoint[] {
     const weekMap = new Map<number, { amount: number; docs: number }>();

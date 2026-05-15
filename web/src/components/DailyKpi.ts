@@ -3,7 +3,7 @@
    前年同月対比で得意先カバー状況を日次追跡
    ───────────────────────────────────────────── */
 
-import type { DailyKpiData, DailyKpiCustomerRow, DailyKpiDayPoint, WeeklyMdPoint } from "../api";
+import type { DailyKpiData, DailyKpiCustomerRow, DailyKpiDayPoint, WeeklyMdPoint, YtdCustomerGap } from "../api";
 import { makeSortableHeader, applySortToRows, type SortState } from "../utils/tableSort";
 
 const COL_MAP: Record<string, keyof DailyKpiCustomerRow> = {
@@ -64,6 +64,110 @@ function buildKpiCards(data: DailyKpiData): string {
         <div style="font-size:12px;color:var(--text-secondary);">本日出荷件数</div>
         <div style="font-size:24px;font-weight:700;">${data.todayDocCount} 件</div>
         <div style="font-size:12px;color:var(--text-secondary);">前年同日 ${data.prevYearTodayDocCount} 件</div>
+      </div>
+    </div>
+  `;
+}
+
+// ── ギャップ分析（なぜ足りない/超えているか）──
+
+function buildGapAnalysis(gaps: YtdCustomerGap[]): string {
+  if (!gaps || gaps.length === 0) return '<p style="font-size:12px;color:var(--text-secondary);">データなし</p>';
+
+  const totalGap = gaps.reduce((s, g) => s + g.gap, 0);
+  const losers = gaps.filter(g => g.gap < 0).sort((a, b) => a.gap - b.gap);
+  const gainers = gaps.filter(g => g.gap > 0).sort((a, b) => b.gap - a.gap);
+  const lost = gaps.filter(g => g.prevAmount > 0 && g.currAmount === 0).sort((a, b) => b.prevAmount - a.prevAmount);
+  const newCusts = gaps.filter(g => g.prevAmount === 0 && g.currAmount > 0).sort((a, b) => b.currAmount - a.currAmount);
+
+  const lostImpact = lost.reduce((s, g) => s + g.prevAmount, 0);
+  const newImpact = newCusts.reduce((s, g) => s + g.currAmount, 0);
+  const declinerImpact = losers.filter(g => g.currAmount > 0).reduce((s, g) => s + g.gap, 0);
+  const growerImpact = gainers.reduce((s, g) => s + g.gap, 0);
+
+  // サマリーカード
+  const gapColor = totalGap >= 0 ? '#059669' : '#dc2626';
+  const summary = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:16px;">
+      <div class="panel" style="padding:12px;">
+        <div style="font-size:10px;color:var(--text-secondary);">年間ギャップ合計</div>
+        <div style="font-size:20px;font-weight:700;color:${gapColor};">${totalGap >= 0 ? '+' : ''}${fmtCompact(totalGap)}</div>
+      </div>
+      <div class="panel" style="padding:12px;">
+        <div style="font-size:10px;color:#dc2626;">離脱先の前年売上</div>
+        <div style="font-size:18px;font-weight:700;color:#dc2626;">-${fmtCompact(lostImpact)}</div>
+        <div style="font-size:10px;color:var(--text-secondary);">${lost.length}件</div>
+      </div>
+      <div class="panel" style="padding:12px;">
+        <div style="font-size:10px;color:#d97706;">減少先の差額</div>
+        <div style="font-size:18px;font-weight:700;color:#d97706;">${fmtCompact(declinerImpact)}</div>
+        <div style="font-size:10px;color:var(--text-secondary);">${losers.filter(g => g.currAmount > 0).length}件</div>
+      </div>
+      <div class="panel" style="padding:12px;">
+        <div style="font-size:10px;color:#059669;">増加先の差額</div>
+        <div style="font-size:18px;font-weight:700;color:#059669;">+${fmtCompact(growerImpact)}</div>
+        <div style="font-size:10px;color:var(--text-secondary);">${gainers.length}件</div>
+      </div>
+      <div class="panel" style="padding:12px;">
+        <div style="font-size:10px;color:#0F5B8D;">新規先の売上</div>
+        <div style="font-size:18px;font-weight:700;color:#0F5B8D;">+${fmtCompact(newImpact)}</div>
+        <div style="font-size:10px;color:var(--text-secondary);">${newCusts.length}件</div>
+      </div>
+    </div>`;
+
+  // 減少上位テーブル
+  const topLosers = losers.slice(0, 10);
+  const loserRows = topLosers.map((g, i) => {
+    const pct = g.prevAmount > 0 ? Math.round((g.currAmount / g.prevAmount) * 100) : 0;
+    const isLost = g.currAmount === 0;
+    return `<tr>
+      <td style="font-size:11px;color:var(--text-secondary);">${i + 1}</td>
+      <td>${g.customerName || g.customerCode}${isLost ? ' <span style="font-size:9px;color:#dc2626;font-weight:600;">離脱</span>' : ''}</td>
+      <td class="numeric">${fmtCurrency(g.prevAmount)}</td>
+      <td class="numeric">${fmtCurrency(g.currAmount)}</td>
+      <td class="numeric" style="color:#dc2626;font-weight:600;">${fmtCurrency(g.gap)}</td>
+      <td><div style="display:flex;align-items:center;gap:4px;">
+        <div style="width:60px;background:var(--border);border-radius:2px;height:4px;">
+          <div style="width:${pct}%;height:100%;background:${pct >= 80 ? '#059669' : pct >= 50 ? '#d97706' : '#dc2626'};border-radius:2px;"></div>
+        </div>
+        <span style="font-size:10px;color:var(--text-secondary);">${pct}%</span>
+      </div></td>
+    </tr>`;
+  }).join('');
+
+  // 増加上位テーブル
+  const topGainers = gainers.slice(0, 5);
+  const gainerRows = topGainers.map((g, i) => {
+    const isNew = g.prevAmount === 0;
+    return `<tr>
+      <td style="font-size:11px;color:var(--text-secondary);">${i + 1}</td>
+      <td>${g.customerName || g.customerCode}${isNew ? ' <span style="font-size:9px;color:#0F5B8D;font-weight:600;">新規</span>' : ''}</td>
+      <td class="numeric">${fmtCurrency(g.prevAmount)}</td>
+      <td class="numeric">${fmtCurrency(g.currAmount)}</td>
+      <td class="numeric" style="color:#059669;font-weight:600;">+${fmtCurrency(g.gap)}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    ${summary}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div>
+        <h3 style="font-size:13px;font-weight:700;margin:0 0 8px;color:#dc2626;">減少上位10</h3>
+        <div class="table-wrap">
+          <table style="font-size:12px;">
+            <thead><tr><th>#</th><th>得意先</th><th class="numeric">前年</th><th class="numeric">当年</th><th class="numeric">差額</th><th>達成率</th></tr></thead>
+            <tbody>${loserRows || '<tr><td colspan="6" class="empty-row">なし</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h3 style="font-size:13px;font-weight:700;margin:0 0 8px;color:#059669;">増加上位5</h3>
+        <div class="table-wrap">
+          <table style="font-size:12px;">
+            <thead><tr><th>#</th><th>得意先</th><th class="numeric">前年</th><th class="numeric">当年</th><th class="numeric">差額</th></tr></thead>
+            <tbody>${gainerRows || '<tr><td colspan="5" class="empty-row">なし</td></tr>'}</tbody>
+          </table>
+        </div>
       </div>
     </div>
   `;
@@ -658,6 +762,16 @@ export function renderDailyKpi(
       <div class="chart-scroll">
         ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear, 'calendar')}
       </div>
+    </section>
+
+    <section class="panel" style="margin-top:0;margin-bottom:16px;">
+      <div class="panel-header">
+        <div>
+          <h2>ギャップ分析 — なぜこの差が生まれたか</h2>
+          <p class="panel-caption">年間累計の得意先別増減内訳</p>
+        </div>
+      </div>
+      ${buildGapAnalysis(data.ytdCustomerGaps)}
     </section>
 
     <section class="panel" style="margin-top:0;margin-bottom:16px;">
