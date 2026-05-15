@@ -188,6 +188,10 @@ function buildBars(dailySales: SalesSummary["dailySales"]): string {
 
 /** 年間売上累積チャート（当年 vs 前年） */
 function buildYtdChart(allDays: SalesDayPoint[]): string {
+  if (!allDays || allDays.length === 0) {
+    return `<p style="font-size:12px;color:var(--text-secondary);padding:16px;">売上データがありません</p>`;
+  }
+
   const now = new Date();
   const thisYear = now.getFullYear();
   const lastYear = thisYear - 1;
