@@ -9279,7 +9279,7 @@ function bindEvents(root: HTMLElement): void {
     state.workforceMetrics     = null;
     state.dailyShiftPlans      = [];
     state.workforceSelectedDay = null;
-    navigate(state.currentPath); // loadRouteData 経由で再フェッチ
+    void loadRouteData(state.route); // データ再フェッチ（ページ遷移なし）
   });
 
   // ── 詰口スケジュールタブ ─────────────────────────────────────────────────
