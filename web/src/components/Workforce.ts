@@ -764,7 +764,7 @@ export function generateAutoShifts(
     const isSunday = dow === 0;
     const result = new Map<StaffDepartment, { need: number; reasons: string[]; active: boolean }>();
 
-    // 総務: 伝票数 + 直売来客 + 送り準備 + 棚卸 + イベント（別枠加算）
+    // 総務: 伝票数 + 直売来客 + 送り準備 + 棚卸（イベントは別枠・別部門で配置）
     {
       // ── 通常業務（日曜は0）
       const baseDocs = isSunday ? 0 : fact.docs;
@@ -782,11 +782,7 @@ export function generateAutoShifts(
       const shippingPrepNeed = nextDayShipping > 0 ? Math.ceil(nextDayShipping / SHIPPING_PREP_PER_PERSON) : 0;
 
       const inventoryAdd = isInventory ? 1 : 0;
-      const normalNeed = docNeed + visitorNeed + shippingPrepNeed + inventoryAdd;
-
-      // ── イベント（通常業務とは別枠: イベント要員は事務所不在）
-      const eventNeed = event ? eventHeadcount(event.expectedCups) : 0;
-      const need = normalNeed + eventNeed; // 加算（別枠）
+      const need = docNeed + visitorNeed + shippingPrepNeed + inventoryAdd;
 
       const reasons: string[] = [];
       if (!isSunday) {
@@ -795,13 +791,9 @@ export function generateAutoShifts(
         if (shippingPrepNeed > 0) reasons.push(`送り準備${nextDayShipping}件→${shippingPrepNeed}名`);
       }
       if (isInventory) reasons.push('棚卸+1名');
-      if (event) {
-        const evLabel = EVENT_TYPE_LABEL[event.eventType];
-        reasons.push(`🎪${evLabel} ${event.expectedCups > 0 ? event.expectedCups + '杯見込' : ''}→${eventNeed}名【別枠】`);
-      }
       result.set('soumu', {
-        need,
-        active: true,
+        need: isSunday && !event ? 0 : need, // 日曜はイベント有無にかかわらず総務は通常業務なし
+        active: !isSunday,
         reasons,
       });
     }
@@ -1139,6 +1131,82 @@ export function generateAutoShifts(
       }
     }
 
+    // ── Phase 5: イベント配置（総務以外の社員を優先、人件費削減）─────────────
+    // イベント要員は事務所を離れるため総務からは出さない
+    // 優先: 詰口→造り→営業の社員（余剰 or 非稼働日の人）→ パート → 委託
+    const eventAssignedIds: string[] = [];
+    const eventReasons: string[] = [];
+    if (event) {
+      const evLabel = EVENT_TYPE_LABEL[event.eventType];
+      const eventNeed = eventHeadcount(event.expectedCups);
+      let eventShortage = eventNeed;
+      eventReasons.push(`🎪${evLabel} ${event.expectedCups > 0 ? event.expectedCups + '杯見込' : ''}→${eventNeed}名`);
+
+      // イベント配置候補部門（総務以外）: 詰口・造り・営業
+      const eventDepts: StaffDepartment[] = ['bottling', 'brewing', 'route_sales'];
+
+      // 5a: 社員を優先（自部門が非稼働 or 余剰の社員）
+      for (const dept of eventDepts) {
+        if (eventShortage <= 0) break;
+        const members = primaryMembers(dept);
+        const available = availableOn(members, d)
+          .filter(s => s.employmentType === 'employee' && !assignedGlobal.has(s.id));
+        for (const s of available) {
+          if (eventShortage <= 0) break;
+          if (!canAssignThisWeek(s, d)) continue;
+          eventAssignedIds.push(s.id);
+          eventShortage--;
+          assignedGlobal.add(s.id);
+          recordAssignment(s.id, d);
+          eventReasons.push(`${s.name}（社員・${DEPT_LABEL[dept]}→イベント）`);
+        }
+      }
+
+      // 5b: 越境可能な社員（他部門で余っている社員）
+      if (eventShortage > 0) {
+        for (const s of staff) {
+          if (eventShortage <= 0) break;
+          if (!s.isActive || assignedGlobal.has(s.id)) continue;
+          if (s.employmentType !== 'employee') continue;
+          if (s.department === 'soumu') continue; // 総務は出さない
+          if (s.availableMonths && !s.availableMonths.includes(m)) continue;
+          const sdow = new Date(y, m - 1, d).getDay();
+          if ((s.fixedDaysOff ?? []).includes(sdow)) continue;
+          if (!canAssignThisWeek(s, d)) continue;
+          eventAssignedIds.push(s.id);
+          eventShortage--;
+          assignedGlobal.add(s.id);
+          recordAssignment(s.id, d);
+          eventReasons.push(`${s.name}（社員・${DEPT_LABEL[s.department as StaffDepartment] ?? s.department}→イベント）`);
+        }
+      }
+
+      // 5c: パート（社員で足りない場合のみ）
+      if (eventShortage > 0) {
+        const ptCandidates = allPartTimers
+          .filter(s => !assignedGlobal.has(s.id) && s.department !== 'soumu')
+          .filter(s => {
+            const sdow = new Date(y, m - 1, d).getDay();
+            return !(s.fixedDaysOff ?? []).includes(sdow);
+          })
+          .filter(s => canAssignThisWeek(s, d))
+          .sort((a, b) => (partTimerDays.get(a.id) ?? 0) - (partTimerDays.get(b.id) ?? 0));
+        for (const s of ptCandidates) {
+          if (eventShortage <= 0) break;
+          eventAssignedIds.push(s.id);
+          eventShortage--;
+          assignedGlobal.add(s.id);
+          recordAssignment(s.id, d);
+          partTimerDays.set(s.id, (partTimerDays.get(s.id) ?? 0) + 1);
+          eventReasons.push(`${s.name}（パート→イベント）`);
+        }
+      }
+
+      if (eventShortage > 0) {
+        eventReasons.push(`⚠ ${eventShortage}名不足`);
+      }
+    }
+
     // ── プラン出力 ────────────────────────────────────────────────────────────
     for (const slot of slots.values()) {
       if (!slot.active && slot.assignedIds.length === 0) continue;
@@ -1155,6 +1223,23 @@ export function generateAutoShifts(
         staffMemberIds: slot.assignedIds,
         notes: [shortageWarning, reasonText].filter(Boolean).join(' | '),
       });
+    }
+
+    // イベントプラン（総務枠として出力、ただし配置元は詰口・造り・営業）
+    if (event && eventAssignedIds.length > 0) {
+      // 総務のプランにイベント要員を追加
+      const soumuPlan = plans.find(p => p.planDate === dateStr && p.department === 'soumu');
+      if (soumuPlan) {
+        soumuPlan.staffMemberIds.push(...eventAssignedIds);
+        soumuPlan.notes += ' | ' + eventReasons.filter(Boolean).join(' | ');
+      } else {
+        plans.push({
+          planDate: dateStr,
+          department: 'soumu',
+          staffMemberIds: eventAssignedIds,
+          notes: eventReasons.filter(Boolean).join(' | '),
+        });
+      }
     }
   }
 
