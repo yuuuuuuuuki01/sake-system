@@ -634,9 +634,32 @@ export function generateAutoShifts(
     });
   }
 
-  // ── 詰口スケジュール
+  // ── 詰口スケジュール（標準曜日確定 + 生産計画で追加稼働日）
   const bottlingSchedule = buildBottlingSchedule(productionPlan, yearMonth);
-  const bottlingActiveDays = deptActiveDays('bottling');
+  const bottlingStandardDays = deptActiveDays('bottling'); // 標準稼働曜日（月火水等）
+
+  // 生産計画の必要稼働日数
+  const totalBottlingDaysNeeded = bottlingSchedule.reduce((s, it) => s + it.daysNeeded, 0);
+
+  // 標準曜日で足りなければ追加日を確保（木金土の順で拡張）
+  let bottlingActiveDays = [...bottlingStandardDays];
+  if (totalBottlingDaysNeeded > bottlingStandardDays.length) {
+    const extraDaysNeeded = totalBottlingDaysNeeded - bottlingStandardDays.length;
+    const standardDowSet = new Set(deptWorkingDays['bottling'] ?? [1, 2, 3]);
+    // 標準曜日以外の営業日を候補にする（棚卸日を除く）
+    const extraCandidates = businessDays.filter(d => {
+      if (bottlingStandardDays.includes(d)) return false;
+      if (inventorySet.has(d)) return false;
+      const ddow = new Date(y, m - 1, d).getDay();
+      return ddow !== 0 && !standardDowSet.has(ddow); // 日曜以外で標準曜日以外
+    });
+    const extraDays = extraCandidates.slice(0, extraDaysNeeded);
+    bottlingActiveDays = [...bottlingStandardDays, ...extraDays].sort((a, b) => a - b);
+  }
+  // 標準稼働日のセット（UIタグ表示用にexport）
+  const bottlingStandardSet = new Set(bottlingStandardDays);
+  const bottlingExtraSet = new Set(bottlingActiveDays.filter(d => !bottlingStandardSet.has(d)));
+
   const bottlingDayMap = new Map<number, { productCode: string; productName: string; dailyQty: number; brewCategory: string; priorityScore: number }>();
   let dayIdx = 0;
   for (const item of bottlingSchedule) {
@@ -835,17 +858,16 @@ export function generateAutoShifts(
       const members = primaryMembers('bottling');
       const hasLeader = leaderAvailableOn(members, d);
       const isBottlingWorkday = (deptWorkingDays['bottling'] ?? []).includes(dow);
+      const isExtraDay = bottlingExtraSet.has(d); // 生産計画による追加稼働日
       const isProductionDay = !!bottlingRun && (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
-      const active = isProductionDay || isBottlingWorkday || (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
+      const active = isProductionDay || isBottlingWorkday || isExtraDay || (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
       const calShift = calDayMap.get(d);
 
       const empCount = availableOn(members.filter(s => s.employmentType === 'employee'), d).length;
-      // 生産日 → ライン定員4名以上
-      // 標準稼働曜日（生産計画なし）→ ライン定員4名（ラインを回す前提）
+      // 生産日 / 標準稼働曜日 / 追加稼働日 → ライン定員4名
       // それ以外 → 社員のみ（メンテ）
-      const need = isProductionDay
+      const need = (isProductionDay || isBottlingWorkday || isExtraDay)
         ? (calShift ? Math.max(BOTTLING_LINE_SIZE, calShift.partTimers + calShift.employees) : BOTTLING_LINE_SIZE)
-        : isBottlingWorkday ? BOTTLING_LINE_SIZE
         : active ? Math.max(1, empCount) : 0;
 
       const productLabel = bottlingRun?.productName
@@ -853,15 +875,20 @@ export function generateAutoShifts(
       const catLabel = bottlingRun ? bottlingRun.brewCategory : '';
       const scoreLabel = bottlingRun ? `優先度${Math.round(bottlingRun.priorityScore)}` : '';
 
-      result.set('bottling', {
-        need: active ? need : 0,
-        active,
-        reasons: isProductionDay
-          ? [`[${catLabel}] ${productLabel}`, scoreLabel, `目標${bottlingRun!.dailyQty.toLocaleString('ja-JP')}本`, `ライン${need}名`]
-          : isBottlingWorkday
-            ? [`ライン稼働${BOTTLING_LINE_SIZE}名`, `社員${empCount}名+パート${BOTTLING_LINE_SIZE - empCount}名`]
-            : active ? [`メンテ・在庫管理`] : ['非稼働'],
-      });
+      const reasons: string[] = [];
+      if (isProductionDay) {
+        reasons.push(`[${catLabel}] ${productLabel}`, scoreLabel, `目標${bottlingRun!.dailyQty.toLocaleString('ja-JP')}本`, `ライン${need}名`);
+      } else if (isBottlingWorkday) {
+        reasons.push(`標準稼働日・ライン${BOTTLING_LINE_SIZE}名`);
+      } else if (isExtraDay) {
+        reasons.push(`追加稼働日（生産計画超過）・ライン${BOTTLING_LINE_SIZE}名`);
+      } else if (active) {
+        reasons.push('メンテ・在庫管理');
+      } else {
+        reasons.push('非稼働');
+      }
+
+      result.set('bottling', { need: active ? need : 0, active, reasons });
     }
 
     // 貼場
@@ -1291,11 +1318,22 @@ function renderShiftTab(
     return `<option value="${ym}" ${ym === yearMonth ? 'selected' : ''}>${ym.replace('-', '年')}月</option>`;
   }).join('');
 
-  // ── カレンダーヘッダ（月〜日）、土曜は通常営業日として表示
+  // ── カレンダーヘッダ（月〜日）+ 部門稼働タグ
   const DOW_LABELS = ['月','火','水','木','金','土','日'];
-  const headerCells = DOW_LABELS.map((label, i) =>
-    `<div style="text-align:center;padding:5px 2px;font-size:11px;font-weight:700;color:${i===6?'#ef4444':'var(--text-secondary)'};background:var(--surface-alt);border-radius:4px;">${label}</div>`
-  ).join('');
+  // getDay変換: DOW_LABELS index 0=月→getDay 1, 1=火→2, ..., 5=土→6, 6=日→0
+  const idxToDow = [1, 2, 3, 4, 5, 6, 0];
+  const bottlingDows = new Set(deptWorkingDays['bottling'] ?? [1, 2, 3]);
+  const labelingDows = new Set(deptWorkingDays['labeling'] ?? [4, 5]);
+  const headerCells = DOW_LABELS.map((label, i) => {
+    const gdow = idxToDow[i];
+    const tags: string[] = [];
+    if (bottlingDows.has(gdow)) tags.push(`<span style="font-size:7px;padding:0 3px;border-radius:3px;background:${DEPT_COLOR['bottling']}20;color:${DEPT_COLOR['bottling']};font-weight:600;">詰</span>`);
+    if (labelingDows.has(gdow)) tags.push(`<span style="font-size:7px;padding:0 3px;border-radius:3px;background:${DEPT_COLOR['labeling']}20;color:${DEPT_COLOR['labeling']};font-weight:600;">貼</span>`);
+    return `<div style="text-align:center;padding:5px 2px;font-size:11px;font-weight:700;color:${i===6?'#ef4444':'var(--text-secondary)'};background:var(--surface-alt);border-radius:4px;">
+      ${label}
+      ${tags.length > 0 ? `<div style="display:flex;justify-content:center;gap:2px;margin-top:2px;">${tags.join('')}</div>` : ''}
+    </div>`;
+  }).join('');
 
   const emptyCells = Array(firstOffset).fill('<div></div>').join('');
 
@@ -1311,6 +1349,7 @@ function renderShiftTab(
     const dayPlans      = planByDate.get(dateStr) ?? [];
     const hasInventory  = dayPlans.some(p => p.notes?.includes('棚卸'));
     const hasWarning    = dayPlans.some(p => p.notes?.includes('⚠'));
+    const hasExtraBottling = dayPlans.some(p => p.department === 'bottling' && p.notes?.includes('追加稼働'));
     const event         = eventMap.get(dateStr);
 
     // 部門バッジ + メンバー名一覧
@@ -1344,6 +1383,7 @@ function renderShiftTab(
       </div>
       ${event ? `<div style="font-size:7px;font-weight:700;color:${EVENT_TYPE_COLOR[event.eventType]};margin:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🎪${EVENT_TYPE_LABEL[event.eventType]}${event.expectedCups > 0 ? ' ' + event.expectedCups + '杯' : ''}</div>` : ''}
       ${deptSections}
+      ${hasExtraBottling ? `<div style="font-size:7px;color:${DEPT_COLOR['bottling']};font-weight:700;margin-top:1px;">+詰追加</div>` : ''}
       ${hasInventory ? '<div style="font-size:7px;color:#7c3aed;font-weight:700;margin-top:1px;">棚卸</div>' : ''}
       ${hasWarning   ? '<div style="font-size:7px;color:#ef4444;font-weight:700;margin-top:1px;">⚠要確認</div>' : ''}
     </div>`;
