@@ -2598,6 +2598,55 @@ export async function deleteRicePurchaseCommitment(id: string): Promise<boolean>
   return resp.ok;
 }
 
+// ─── 米仕入実績価格 ──────────────────────────────────────────────────────────
+
+export interface RiceActualPrice {
+  id: string;
+  fy: number;
+  varietyName: string;
+  actualPricePerKg: number;
+  quantityKg: number;
+  supplier: string;
+  purchaseDate: string;
+  notes: string;
+}
+
+export async function fetchRiceActualPrices(fy: number): Promise<RiceActualPrice[]> {
+  const rows = await supabaseQuery<LooseRow>("rice_actual_prices", { fy: `eq.${fy}`, order: "variety_name.asc,purchase_date.asc" });
+  return (rows ?? []).map(r => ({
+    id: getString(r, ["id"], ""),
+    fy: getNumber(r, ["fy"], fy),
+    varietyName: getString(r, ["variety_name"], ""),
+    actualPricePerKg: getNumber(r, ["actual_price_per_kg"], 0),
+    quantityKg: getNumber(r, ["quantity_kg"], 0),
+    supplier: getString(r, ["supplier"], ""),
+    purchaseDate: getString(r, ["purchase_date"], ""),
+    notes: getString(r, ["notes"], "")
+  }));
+}
+
+export async function saveRiceActualPrice(item: Partial<RiceActualPrice> & { varietyName: string; fy: number; actualPricePerKg: number }): Promise<boolean> {
+  const result = await supabaseInsert("rice_actual_prices", {
+    variety_name: item.varietyName,
+    actual_price_per_kg: item.actualPricePerKg,
+    quantity_kg: item.quantityKg ?? 0,
+    supplier: item.supplier ?? "",
+    purchase_date: item.purchaseDate || null,
+    fy: item.fy,
+    notes: item.notes ?? ""
+  });
+  return result !== null;
+}
+
+export async function deleteRiceActualPrice(id: string): Promise<boolean> {
+  if (!SUPABASE_ANON_KEY) return false;
+  const resp = await fetch(
+    `${SUPABASE_URL}/rest/v1/rice_actual_prices?id=eq.${encodeURIComponent(id)}`,
+    { method: "DELETE", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+  );
+  return resp.ok;
+}
+
 // ─── 米品種マスタ ─────────────────────────────────────────────────────────────
 
 export interface RiceVariety {
@@ -6880,23 +6929,37 @@ export async function fetchRawRecords(
 
 // ── 単価グループ / 特価検索 ─────────────────────────────
 
-export async function fetchCustomerPriceGroup(customerCode: string): Promise<string> {
+export interface CustomerPriceInfo {
+  priceGroup: string;
+  priceType: PriceType;
+}
+
+export async function fetchCustomerPriceInfo(customerCode: string): Promise<CustomerPriceInfo> {
   const rows = await supabaseQuery<LooseRow>("customers", {
     select: "memo",
     or: `legacy_customer_code.eq.${customerCode},customer_code.eq.${customerCode}`,
     limit: "1"
   });
-  if (rows.length === 0) return "";
+  if (rows.length === 0) return { priceGroup: "", priceType: "" };
   const memo = rows[0].memo;
   if (typeof memo === "string" && memo) {
     try {
       const parsed = JSON.parse(memo);
-      return String(parsed.price_group ?? "");
+      return {
+        priceGroup: String(parsed.price_group ?? ""),
+        priceType: (parsed.price_type ?? "") as PriceType,
+      };
     } catch {
-      return "";
+      return { priceGroup: "", priceType: "" };
     }
   }
-  return "";
+  return { priceGroup: "", priceType: "" };
+}
+
+/** @deprecated fetchCustomerPriceInfo を使用してください */
+export async function fetchCustomerPriceGroup(customerCode: string): Promise<string> {
+  const info = await fetchCustomerPriceInfo(customerCode);
+  return info.priceGroup;
 }
 
 interface SpecialPriceRow {
@@ -6905,11 +6968,14 @@ interface SpecialPriceRow {
 
 interface ProductPriceRow {
   default_sale_price?: number | string | null;
+  purchase_price?: number | string | null;
+  list_price?: number | string | null;
 }
 
 export async function fetchProductPrice(
   priceGroup: string,
-  productCode: string
+  productCode: string,
+  priceType: PriceType = ""
 ): Promise<number> {
   // 1. 特価テーブルを優先
   if (priceGroup) {
@@ -6924,14 +6990,34 @@ export async function fetchProductPrice(
     }
   }
 
-  // 2. 商品マスタの標準単価にフォールバック
+  // 2. price_type に応じた価格区分で商品マスタから取得
   const productRows = await supabaseQuery<ProductPriceRow>("products", {
-    select: "default_sale_price",
+    select: "default_sale_price,purchase_price,list_price",
     or: `legacy_product_code.eq.${productCode},product_code.eq.${productCode}`,
     limit: "1"
   });
-  if (productRows.length > 0 && productRows[0].default_sale_price) {
-    return toNumber(productRows[0].default_sale_price);
+  if (productRows.length > 0) {
+    const row = productRows[0];
+    switch (priceType) {
+      case "000": {
+        const v = toNumber(row.purchase_price);
+        if (v > 0) return v;
+        break;
+      }
+      case "001": {
+        const v = toNumber(row.list_price);
+        if (v > 0) return v;
+        break;
+      }
+      case "002": {
+        const v = toNumber(row.default_sale_price);
+        if (v > 0) return v;
+        break;
+      }
+    }
+    // フォールバック: 卸価格
+    const fallback = toNumber(row.default_sale_price);
+    if (fallback > 0) return fallback;
   }
 
   return 0;
@@ -7854,6 +7940,43 @@ export async function fetchWorkforceMetrics(yearMonth: string): Promise<Workforc
     prevYearDocumentCount, prevYearRouteSalesAmount, prevYearRouteDocCount,
     prevYearTotalQuantity, currentTotalQuantity,
   };
+}
+
+/** 前年同月の日別売上データ（シフト最適化の需要シグナル） */
+export interface PrevYearDailyFact {
+  salesDate: string;       // YYYY-MM-DD（前年の日付）
+  dow: number;             // getDay(): 0=日…6=土
+  documentCount: number;
+  totalQuantity: number;
+  salesAmount: number;
+}
+
+export async function fetchPrevYearDailyFacts(yearMonth: string): Promise<PrevYearDailyFact[]> {
+  const [y, m] = yearMonth.split('-').map(Number);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const pyY = y - 1;
+  const pyStart = `${pyY}-${pad(m)}-01`;
+  const nextM = m === 12 ? 1 : m + 1;
+  const nextY = m === 12 ? pyY + 1 : pyY;
+  const pyEnd = `${nextY}-${pad(nextM)}-01`;
+
+  const rows = await supabaseQuery<LooseRow>('daily_sales_fact', {
+    select: 'sales_date,document_count,total_quantity,sales_amount',
+    and:    `(sales_date.gte.${pyStart},sales_date.lt.${pyEnd})`,
+    order:  'sales_date.asc',
+  });
+
+  return rows.map(r => {
+    const dateStr = getString(r, ['sales_date'], '');
+    const [ry, rm, rd] = dateStr.split('-').map(Number);
+    return {
+      salesDate:     dateStr,
+      dow:           new Date(ry, rm - 1, rd).getDay(),
+      documentCount: getNumber(r, ['document_count'], 0),
+      totalQuantity: Math.round(getNumber(r, ['total_quantity'], 0)),
+      salesAmount:   getNumber(r, ['sales_amount'], 0),
+    };
+  });
 }
 
 export async function fetchDailyShiftPlans(yearMonth: string): Promise<DailyShiftPlan[]> {

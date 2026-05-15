@@ -21,6 +21,8 @@ import {
   fetchPayableList,
   fetchPaymentStatus,
   fetchCustomerPriceGroup,
+  fetchCustomerPriceInfo,
+  type CustomerPriceInfo,
   fetchPipelineMeta,
   fetchProductPrice,
   fetchRawRecords,
@@ -513,6 +515,7 @@ interface AppState {
   invoiceSaving: boolean;
   invoiceSavedDocNo: string | null;
   invoicePriceGroup: string;
+  invoicePriceInfo: CustomerPriceInfo;
   staffList: import("./api").StaffMember[];
   frequentCustomers: import("./api").FrequentItem[];
   frequentProducts: import("./api").FrequentItem[];
@@ -718,6 +721,7 @@ interface AppState {
   riceVarieties: import("./api").RiceVariety[];
   ricePurchaseCommitments: import("./api").RicePurchaseCommitment[];
   procurementDecisions: Record<string, number>;
+  riceActualPrices: import("./api").RiceActualPrice[];
   brewingBatches: import("./api").BrewingBatchRow[];
   brewingProcessSteps: import("./api").BrewingProcessStepRow[];
   bpExpandedBatchId: string;
@@ -850,6 +854,7 @@ const state: AppState = {
   invoiceSaving: false,
   invoiceSavedDocNo: null,
   invoicePriceGroup: "",
+  invoicePriceInfo: { priceGroup: "", priceType: "" } as CustomerPriceInfo,
   staffList: [],
   frequentCustomers: [],
   frequentProducts: [],
@@ -1101,6 +1106,7 @@ const state: AppState = {
   riceVarieties: [] as import("./api").RiceVariety[],
   ricePurchaseCommitments: [] as import("./api").RicePurchaseCommitment[],
   procurementDecisions: {} as Record<string, number>,
+  riceActualPrices: [] as import("./api").RiceActualPrice[],
   brewingBatches: [] as import("./api").BrewingBatchRow[],
   brewingProcessSteps: [] as import("./api").BrewingProcessStepRow[],
   bpExpandedBatchId: "",
@@ -1146,6 +1152,7 @@ function clearInvoiceForm(): void {
   state.invoiceForm = makeDefaultInvoiceForm();
   state.invoiceSavedDocNo = null;
   state.invoicePriceGroup = "";
+  state.invoicePriceInfo = { priceGroup: "", priceType: "" };
   state.invoiceErrors = {};
   closePicker();
 }
@@ -1827,11 +1834,11 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
       case "/brewing-plan": {
         // バックグラウンド更新時はデータが既にある場合スキップ（編集中の値を上書きしない）
         if (background && state.brewingPlanData.length > 0) break;
-        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments, fetchBrewingSeasonalPattern, fetchBrewingForecastOverrides, fetchBrewingRiceParams, fetchRiceVarieties, fetchRicePurchaseCommitments, fetchProcurementDecisions } = await import("./api");
+        const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchCategoryTypeLinks, fetchAvailableProductionTypes, fetchBrewingAlcoholSettings, fetchBrewingYearlyShipments, fetchBrewingSeasonalPattern, fetchBrewingForecastOverrides, fetchBrewingRiceParams, fetchRiceVarieties, fetchRicePurchaseCommitments, fetchProcurementDecisions, fetchRiceActualPrices } = await import("./api");
         const fy = state.brewingPlanFY;
         const fyStart = `${fy}-10-01`;
         const fyEnd = `${fy + 1}-09-30`;
-        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal, forecastOvr, riceParams, riceVars, commitments, procDecisions] = await Promise.all([
+        const [summary, trend, schedule, products, customCats, overrides, stockEntries, typeLinks, availTypes, alcSettings, yearlyShipments, seasonal, forecastOvr, riceParams, riceVars, commitments, procDecisions, actualPrices] = await Promise.all([
           fetchBrewingPlanSummary(fyStart, fyEnd).catch(() => []),
           fetchBrewingMonthlyTrend(fyStart, fyEnd).catch(() => []),
           fetchBrewingSchedule(fy).catch(() => []),
@@ -1848,7 +1855,8 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
           fetchBrewingRiceParams().catch(() => ({})),
           fetchRiceVarieties().catch(() => []),
           fetchRicePurchaseCommitments(fy).catch(() => []),
-          fetchProcurementDecisions(fy).catch(() => ({}))
+          fetchProcurementDecisions(fy).catch(() => ({})),
+          fetchRiceActualPrices(fy).catch(() => [])
         ]);
         state.brewingPlanData = summary;
         state.brewingMonthlyTrend = trend;
@@ -1866,6 +1874,7 @@ async function loadRouteData(route: RoutePath, background = false): Promise<void
         state.riceVarieties = riceVars;
         state.ricePurchaseCommitments = commitments;
         state.procurementDecisions = procDecisions;
+        state.riceActualPrices = actualPrices;
         state.brewingAlcoholSettings = alcSettings;
         break;
       }
@@ -2309,7 +2318,7 @@ function renderView(): string {
           needByCategory[cat] = Math.max(0, fc - projOct);
         }
       }
-      return renderProcurement(needByCategory, state.brewingRiceParams, state.brewingCustomCategories, state.brewingSchedule, state.brewingPlanFY, state.riceVarieties, state.ricePurchaseCommitments, state.procurementDecisions);
+      return renderProcurement(needByCategory, state.brewingRiceParams, state.brewingCustomCategories, state.brewingSchedule, state.brewingPlanFY, state.riceVarieties, state.ricePurchaseCommitments, state.procurementDecisions, state.riceActualPrices);
     }
     case "/daily-kpi":
       return renderDailyKpi(state.dailyKpi, state.dailyKpiFilter, state.dailyKpiSort);
@@ -5476,15 +5485,17 @@ function bindEvents(root: HTMLElement): void {
         setCustomerOnForm({ code, name, priceGroup: customer?.priceGroup, staffCode: customer?.staffCode });
         delete state.invoiceErrors.customerCode;
         if (!state.invoicePriceGroup && code) {
-          state.invoicePriceGroup = await fetchCustomerPriceGroup(code);
+          const info = await fetchCustomerPriceInfo(code);
+          state.invoicePriceGroup = info.priceGroup;
+          state.invoicePriceInfo = info;
         }
       } else if (state.pickerMode === "product" && state.pickerTargetLine !== null) {
         const line = state.invoiceForm.lines[state.pickerTargetLine];
         if (line) {
           line.productCode = code;
           line.productName = name;
-          // 単価グループから特価を自動取得
-          const price = await fetchProductPrice(state.invoicePriceGroup, code);
+          // 単価グループ＋price_typeから単価を自動取得
+          const price = await fetchProductPrice(state.invoicePriceGroup, code, state.invoicePriceInfo.priceType);
           if (price > 0) {
             line.unitPrice = price;
           }
@@ -5528,7 +5539,9 @@ function bindEvents(root: HTMLElement): void {
       const customer = state.masterStats?.customers.find((c) => c.code === code);
       setCustomerOnForm({ code, name, priceGroup: customer?.priceGroup, staffCode: customer?.staffCode });
       if (!state.invoicePriceGroup && code) {
-        state.invoicePriceGroup = await fetchCustomerPriceGroup(code);
+        const info = await fetchCustomerPriceInfo(code);
+        state.invoicePriceGroup = info.priceGroup;
+        state.invoicePriceInfo = info;
       }
       delete state.invoiceErrors.customerCode;
       renderApp();
@@ -5550,7 +5563,7 @@ function bindEvents(root: HTMLElement): void {
       const line = state.invoiceForm.lines[targetIdx];
       line.productCode = code;
       line.productName = name;
-      const price = await fetchProductPrice(state.invoicePriceGroup, code);
+      const price = await fetchProductPrice(state.invoicePriceGroup, code, state.invoicePriceInfo.priceType);
       if (price > 0) line.unitPrice = price;
       line.amount = line.quantity * line.unitPrice;
       renderApp();
@@ -5580,7 +5593,9 @@ function bindEvents(root: HTMLElement): void {
       delete state.invoiceErrors.customerCode;
       // priceGroupがローカルになければSupabaseから取得
       if (!state.invoicePriceGroup && state.invoiceForm.customerCode) {
-        state.invoicePriceGroup = await fetchCustomerPriceGroup(state.invoiceForm.customerCode);
+        const info = await fetchCustomerPriceInfo(state.invoiceForm.customerCode);
+        state.invoicePriceGroup = info.priceGroup;
+        state.invoicePriceInfo = info;
       }
       renderApp();
     }
@@ -6176,16 +6191,23 @@ function bindEvents(root: HTMLElement): void {
     });
   });
   root.querySelectorAll<HTMLButtonElement>("[data-mo-add-product]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
       const code = btn.dataset.moAddProduct;
       const p = state.masterStats?.products.find((pp) => pp.code === code);
       if (!p) return;
-      const price = 1800; // デフォルト単価（商品マスタに追加すべき）
+      // 得意先の price_type を考慮して商品マスタから単価を取得
+      const cust = state.mobileOrder.selectedCustomer;
+      let price = 0;
+      if (cust) {
+        const info = await fetchCustomerPriceInfo(cust.code);
+        price = await fetchProductPrice(info.priceGroup, p.code, info.priceType);
+      }
+      if (price <= 0) price = p.salePrice || 0;
       state.mobileOrder.cart.push({
         productCode: p.code,
         productName: p.name,
         quantity: 1,
-        unit: "本",
+        unit: p.unit || "本",
         unitPrice: price,
         amount: price
       });
@@ -7890,6 +7912,54 @@ function bindEvents(root: HTMLElement): void {
     });
   });
 
+  // 調達計画: 年度切り替え
+  root.querySelector<HTMLSelectElement>("#proc-fy-select")?.addEventListener("change", async (e) => {
+    const fy = parseInt((e.target as HTMLSelectElement).value);
+    state.brewingPlanFY = fy;
+    const { fetchBrewingPlanSummary, fetchBrewingMonthlyTrend, fetchBrewingSchedule, fetchBrewingProductDetail, fetchBrewingCustomCategories, fetchBrewingCategoryOverrides, fetchAllBrewingStockEntries, fetchRicePurchaseCommitments, fetchProcurementDecisions, fetchRiceActualPrices, fetchBrewingRiceParams, fetchRiceVarieties } = await import("./api");
+    const [summary, trend, schedule, products, customCats, overrides, stockEntries, commitments, procDecisions, actualPrices, riceParams, riceVars] = await Promise.all([
+      fetchBrewingPlanSummary(`${fy}-10-01`, `${fy + 1}-09-30`).catch(() => []),
+      fetchBrewingMonthlyTrend(`${fy}-10-01`, `${fy + 1}-09-30`).catch(() => []),
+      fetchBrewingSchedule(fy).catch(() => []),
+      fetchBrewingProductDetail(`${fy}-10-01`, `${fy + 1}-09-30`).catch(() => []),
+      fetchBrewingCustomCategories().catch(() => []),
+      fetchBrewingCategoryOverrides().catch(() => ({})),
+      fetchAllBrewingStockEntries().catch(() => []),
+      fetchRicePurchaseCommitments(fy).catch(() => []),
+      fetchProcurementDecisions(fy).catch(() => ({})),
+      fetchRiceActualPrices(fy).catch(() => []),
+      fetchBrewingRiceParams().catch(() => ({})),
+      fetchRiceVarieties().catch(() => [])
+    ]);
+    state.brewingPlanData = summary;
+    state.brewingMonthlyTrend = trend;
+    state.brewingSchedule = schedule;
+    state.brewingProductDetail = products;
+    state.brewingCustomCategories = customCats;
+    state.brewingOverrides = overrides;
+    state.brewingStockEntries = stockEntries;
+    state.ricePurchaseCommitments = commitments;
+    state.procurementDecisions = procDecisions;
+    state.riceActualPrices = actualPrices;
+    state.brewingRiceParams = riceParams;
+    state.riceVarieties = riceVars;
+    renderApp();
+  });
+
+  // 調達計画: 仕入実績追加
+  root.querySelector<HTMLButtonElement>("[data-action='proc-add-actual-price']")?.addEventListener("click", async () => {
+    const variety = (root.querySelector<HTMLSelectElement>("#proc-actual-variety")?.value ?? "").trim();
+    const price = parseFloat((root.querySelector<HTMLInputElement>("#proc-actual-price")?.value ?? "0"));
+    const qty = parseFloat((root.querySelector<HTMLInputElement>("#proc-actual-qty")?.value ?? "0"));
+    const purchaseDate = (root.querySelector<HTMLInputElement>("#proc-actual-date")?.value ?? "");
+    const supplier = (root.querySelector<HTMLInputElement>("#proc-actual-supplier")?.value ?? "").trim();
+    if (!variety || price <= 0) return;
+    const { saveRiceActualPrice, fetchRiceActualPrices } = await import("./api");
+    await saveRiceActualPrice({ varietyName: variety, actualPricePerKg: price, quantityKg: qty, purchaseDate, supplier, fy: state.brewingPlanFY });
+    state.riceActualPrices = await fetchRiceActualPrices(state.brewingPlanFY);
+    renderApp();
+  });
+
   // 調達計画: 作付け予定追加
   root.querySelector<HTMLButtonElement>("[data-action='proc-add-commitment']")?.addEventListener("click", async () => {
     const variety = (root.querySelector<HTMLSelectElement>("#proc-commit-variety")?.value ?? "").trim();
@@ -9284,8 +9354,11 @@ function bindEvents(root: HTMLElement): void {
     if (btn) { btn.disabled = true; btn.textContent = "生成中…"; }
     try {
       // 需要・生産計画を取得（workforce月用）
-      const { fetchProductionPlan } = await import("./api");
-      const wfProdPlan = await fetchProductionPlan(state.workforceYearMonth).catch(() => []);
+      const { fetchProductionPlan, fetchPrevYearDailyFacts } = await import("./api");
+      const [wfProdPlan, prevYearFacts] = await Promise.all([
+        fetchProductionPlan(state.workforceYearMonth).catch(() => []),
+        fetchPrevYearDailyFacts(state.workforceYearMonth).catch(() => []),
+      ]);
 
       // calendarShifts は同月のものだけ渡す（需要計画カレンダーとの連動）
       const wfCalShifts = state.calendarShifts.filter(s => s.date.startsWith(state.workforceYearMonth));
@@ -9298,7 +9371,8 @@ function bindEvents(root: HTMLElement): void {
         state.workforceMetrics,
         wfProdPlan,
         wfCalShifts,
-        state.deptWorkingDays
+        state.deptWorkingDays,
+        prevYearFacts
       );
       const ok = await saveDailyShiftPlans(state.workforceYearMonth, plans);
       if (ok) {
