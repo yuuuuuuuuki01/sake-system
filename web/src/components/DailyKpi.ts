@@ -69,44 +69,63 @@ function buildKpiCards(data: DailyKpiData): string {
   `;
 }
 
-// ── 年間累積折れ線（52週データを累積変換）──
+// ── 年間累積折れ線（52週データを累積変換、1-12月 / 10-9月 切替対応）──
 
-function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoint[]): string {
+type YtdMode = 'calendar' | 'fiscal'; // 暦年(1-12) / 酒造年度(10-9)
+
+function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoint[], mode: YtdMode = 'calendar'): string {
   const currMap = new Map(current.map(p => [p.week, p]));
   const prevMap = new Map(prevYear.map(p => [p.week, p]));
-  const maxWeek = Math.max(...current.map(p => p.week), ...prevYear.map(p => p.week), 52);
-  const weeks = Array.from({ length: maxWeek }, (_, i) => i + 1);
 
-  // 累積
+  // 10月始まりの場合、週番号を10月(W40)起点に回転
+  // W40→位置0, W41→位置1, ..., W52→位置12, W1→位置13, ..., W39→位置51
+  const FISCAL_START_WEEK = 40; // 10月≒W40
+  const rotate = (w: number) => mode === 'fiscal' ? ((w - FISCAL_START_WEEK + 52) % 52) : w - 1;
+
+  const totalWeeks = 52;
+  const slots = Array.from({ length: totalWeeks }, (_, i) => i);
+
+  // 累積（回転後の順序で）
+  const weekOrder = mode === 'fiscal'
+    ? Array.from({ length: totalWeeks }, (_, i) => ((FISCAL_START_WEEK + i - 1) % 52) + 1)
+    : Array.from({ length: totalWeeks }, (_, i) => i + 1);
+
   let cumCurr = 0, cumPrev = 0;
-  const currCum: { week: number; amount: number }[] = [];
-  const prevCum: { week: number; amount: number }[] = [];
-  for (const w of weeks) {
+  const currCum: { slot: number; amount: number }[] = [];
+  const prevCum: { slot: number; amount: number }[] = [];
+  for (let i = 0; i < weekOrder.length; i++) {
+    const w = weekOrder[i];
     cumCurr += currMap.get(w)?.amount ?? 0;
     cumPrev += prevMap.get(w)?.amount ?? 0;
-    if (currMap.has(w)) currCum.push({ week: w, amount: cumCurr });
-    prevCum.push({ week: w, amount: cumPrev });
+    if (currMap.has(w)) currCum.push({ slot: i, amount: cumCurr });
+    prevCum.push({ slot: i, amount: cumPrev });
   }
 
-  const maxVal = Math.max(cumCurr, cumPrev, 1);
+  // 現在週→現在のslot位置
+  const now = new Date();
+  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000) + 1;
+  const weekDay = (now.getDay() + 6) % 7;
+  const currentWeek = Math.max(1, Math.min(53, Math.floor((dayOfYear - weekDay + 10) / 7)));
+  const currentSlot = rotate(currentWeek);
+  const thisYear = now.getFullYear();
+
+  // 同時期の前年累積を取得（差額算出用）
+  const prevAtSameSlot = prevCum.find(p => p.slot === currentSlot)?.amount ?? 0;
+  const gap = cumCurr - prevAtSameSlot;
+  const gapSign = gap >= 0 ? '+' : '';
+
+  // 年間最終の前年累積
+  const prevFinal = prevCum.length > 0 ? prevCum[prevCum.length - 1].amount : 0;
+  const progressPct = prevFinal > 0 ? ((cumCurr / prevFinal) * 100).toFixed(1) : '—';
+
+  const maxVal = Math.max(cumCurr, cumPrev, prevFinal, 1);
   const width = 760, height = 280;
   const padding = { top: 30, right: 30, bottom: 40, left: 70 };
   const plotW = width - padding.left - padding.right;
   const plotH = height - padding.top - padding.bottom;
 
-  const toX = (w: number) => padding.left + ((w - 1) / (maxWeek - 1)) * plotW;
+  const toX = (slot: number) => padding.left + (slot / (totalWeeks - 1)) * plotW;
   const toY = (v: number) => padding.top + plotH - (v / maxVal) * plotH;
-
-  // 現在週
-  const now = new Date();
-  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000) + 1;
-  const weekDay = (now.getDay() + 6) % 7;
-  const currentWeek = Math.max(1, Math.min(53, Math.floor((dayOfYear - weekDay + 10) / 7)));
-  const thisYear = now.getFullYear();
-
-  // 進捗率
-  const prevFinal = prevCum.length > 0 ? prevCum[prevCum.length - 1].amount : 0;
-  const progressPct = prevFinal > 0 ? ((cumCurr / prevFinal) * 100).toFixed(1) : '—';
 
   // Y軸
   const yAxes = [0, 0.25, 0.5, 0.75, 1].map(r => {
@@ -118,50 +137,75 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
   }).join('');
 
   // X軸（月ラベル）
-  const monthStarts = [1, 5, 9, 14, 18, 22, 27, 31, 35, 40, 44, 48];
-  const monthNames = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
-  const xLabels = monthStarts.map((w, i) =>
-    w <= maxWeek ? `<text x="${toX(w)}" y="${height - 10}" text-anchor="middle" style="font-size:10px;fill:var(--text-secondary);">${monthNames[i]}</text>` : ''
-  ).join('');
+  const calMonthWeeks = [1, 5, 9, 14, 18, 22, 27, 31, 35, 40, 44, 48];
+  const calMonthNames = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  const fiscalMonthNames = ['10月','11月','12月','1月','2月','3月','4月','5月','6月','7月','8月','9月'];
+  const monthNames = mode === 'fiscal' ? fiscalMonthNames : calMonthNames;
+  // 12等分で月ラベル配置
+  const xLabels = monthNames.map((name, i) => {
+    const slot = Math.round(i * (totalWeeks / 12));
+    return `<text x="${toX(slot)}" y="${height - 10}" text-anchor="middle" style="font-size:10px;fill:var(--text-secondary);">${name}</text>`;
+  }).join('');
 
-  // 前年折れ線（全52週）
-  const prevPath = prevCum.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.week).toFixed(1)},${toY(p.amount).toFixed(1)}`).join(' ');
-  // 当年折れ線（現在週まで）
-  const currPath = currCum.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.week).toFixed(1)},${toY(p.amount).toFixed(1)}`).join(' ');
+  // 折れ線
+  const prevPath = prevCum.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.slot).toFixed(1)},${toY(p.amount).toFixed(1)}`).join(' ');
+  const currPath = currCum.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.slot).toFixed(1)},${toY(p.amount).toFixed(1)}`).join(' ');
 
   // 当年最新ドット＋ラベル
   const latestCurr = currCum.length > 0 ? currCum[currCum.length - 1] : null;
   const latestDot = latestCurr
-    ? `<circle cx="${toX(latestCurr.week)}" cy="${toY(latestCurr.amount)}" r="5" fill="#0F5B8D" />
-       <text x="${toX(latestCurr.week) + 10}" y="${toY(latestCurr.amount) - 6}" style="font-size:11px;font-weight:700;fill:#0F5B8D;">${fmtCompact(latestCurr.amount)}</text>`
+    ? `<circle cx="${toX(latestCurr.slot)}" cy="${toY(latestCurr.amount)}" r="5" fill="#0F5B8D" />
+       <text x="${toX(latestCurr.slot) + 10}" y="${toY(latestCurr.amount) - 6}" style="font-size:11px;font-weight:700;fill:#0F5B8D;">${fmtCompact(latestCurr.amount)}</text>`
+    : '';
+
+  // 前年同時期ドット＋差額ライン
+  const prevSameSlotPt = prevCum.find(p => p.slot === currentSlot);
+  const gapLine = (latestCurr && prevSameSlotPt)
+    ? `<line x1="${toX(currentSlot)}" y1="${toY(latestCurr.amount)}" x2="${toX(currentSlot)}" y2="${toY(prevSameSlotPt.amount)}"
+        stroke="${gap >= 0 ? '#059669' : '#dc2626'}" stroke-width="2" stroke-dasharray="3,2" />
+       <text x="${toX(currentSlot) + 10}" y="${toY((latestCurr.amount + prevSameSlotPt.amount) / 2) + 4}"
+        style="font-size:10px;font-weight:700;fill:${gap >= 0 ? '#059669' : '#dc2626'};">${gapSign}${fmtCompact(gap)}</text>`
     : '';
 
   // 前年最終ラベル
   const prevFinalPt = prevCum[prevCum.length - 1];
   const prevLabel = prevFinalPt
-    ? `<text x="${toX(prevFinalPt.week) + 6}" y="${toY(prevFinalPt.amount) - 6}" style="font-size:10px;fill:#94a3b8;">${fmtCompact(prevFinalPt.amount)}</text>`
+    ? `<text x="${toX(prevFinalPt.slot) + 6}" y="${toY(prevFinalPt.amount) - 6}" style="font-size:10px;fill:#94a3b8;">${fmtCompact(prevFinalPt.amount)}</text>`
     : '';
 
   // 今週マーカー
-  const weekMarker = `<line x1="${toX(currentWeek)}" y1="${padding.top}" x2="${toX(currentWeek)}" y2="${padding.top + plotH}" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3" opacity="0.5" />`;
+  const weekMarker = `<line x1="${toX(currentSlot)}" y1="${padding.top}" x2="${toX(currentSlot)}" y2="${padding.top + plotH}" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3" opacity="0.5" />`;
 
   const pctColor = Number(progressPct) >= 100 ? '#059669' : Number(progressPct) >= 80 ? '#d97706' : '#dc2626';
+  const gapColor = gap >= 0 ? '#059669' : '#dc2626';
+
+  const fiscalLabel = mode === 'fiscal'
+    ? `${thisYear - 1}年10月〜${thisYear}年9月`
+    : `${thisYear}年1月〜12月`;
+  const prevFiscalLabel = mode === 'fiscal'
+    ? `${thisYear - 2}年10月〜${thisYear - 1}年9月`
+    : `${thisYear - 1}年`;
 
   return `
-    <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
       <div style="display:flex;align-items:center;gap:6px;">
         <span style="display:inline-block;width:20px;height:3px;background:#0F5B8D;border-radius:2px;"></span>
-        <span style="font-size:11px;font-weight:600;">${thisYear}年</span>
+        <span style="font-size:11px;font-weight:600;">${fiscalLabel}</span>
         <span style="font-size:13px;font-weight:700;color:#0F5B8D;">${fmtCurrency(cumCurr)}</span>
       </div>
       <div style="display:flex;align-items:center;gap:6px;">
         <span style="display:inline-block;width:20px;height:3px;background:#d1d5db;border-radius:2px;"></span>
-        <span style="font-size:11px;color:var(--text-secondary);">${thisYear - 1}年</span>
+        <span style="font-size:11px;color:var(--text-secondary);">${prevFiscalLabel}</span>
         <span style="font-size:12px;color:var(--text-secondary);">${fmtCurrency(prevFinal)}</span>
       </div>
-      <div style="margin-left:auto;font-size:12px;">
+    </div>
+    <div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+      <div style="font-size:12px;">
         対前年進捗 <strong style="color:${pctColor};">${progressPct}%</strong>
-        <span style="font-size:10px;color:var(--text-secondary);">（W${currentWeek}時点）</span>
+      </div>
+      <div style="font-size:12px;">
+        同時期比 <strong style="color:${gapColor};">${gapSign}${fmtCurrency(Math.abs(gap))}</strong>
+        <span style="font-size:10px;color:var(--text-secondary);">（前年同週累積 ${fmtCurrency(prevAtSameSlot)}）</span>
       </div>
     </div>
     <svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">
@@ -170,6 +214,7 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
       ${weekMarker}
       <path d="${prevPath}" fill="none" stroke="#d1d5db" stroke-width="2" stroke-dasharray="6,4" />
       <path d="${currPath}" fill="none" stroke="#0F5B8D" stroke-width="2.5" />
+      ${gapLine}
       ${latestDot}
       ${prevLabel}
     </svg>
@@ -510,11 +555,21 @@ export function renderDailyKpi(
 
     <section class="panel" style="margin-top:0;margin-bottom:16px;">
       <div class="panel-header">
-        <h2>年間売上累積</h2>
+        <h2>年間売上累積（暦年 1〜12月）</h2>
         <p class="panel-caption">週次累積の推移 — 当年 vs 前年</p>
       </div>
       <div class="chart-scroll">
-        ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear)}
+        ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear, 'calendar')}
+      </div>
+    </section>
+
+    <section class="panel" style="margin-top:0;margin-bottom:16px;">
+      <div class="panel-header">
+        <h2>年間売上累積（酒造年度 10〜9月）</h2>
+        <p class="panel-caption">酒造年度ベースの累積推移</p>
+      </div>
+      <div class="chart-scroll">
+        ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear, 'fiscal')}
       </div>
     </section>
 
