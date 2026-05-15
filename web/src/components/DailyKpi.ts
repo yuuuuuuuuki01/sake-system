@@ -74,48 +74,79 @@ function buildKpiCards(data: DailyKpiData): string {
 type YtdMode = 'calendar' | 'fiscal'; // 暦年(1-12) / 酒造年度(10-9)
 
 function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoint[], mode: YtdMode = 'calendar'): string {
-  const currMap = new Map(current.map(p => [p.week, p]));
-  const prevMap = new Map(prevYear.map(p => [p.week, p]));
-
-  // 10月始まりの場合、週番号を10月(W40)起点に回転
-  // W40→位置0, W41→位置1, ..., W52→位置12, W1→位置13, ..., W39→位置51
   const FISCAL_START_WEEK = 40; // 10月≒W40
-  const rotate = (w: number) => mode === 'fiscal' ? ((w - FISCAL_START_WEEK + 52) % 52) : w - 1;
-
   const totalWeeks = 52;
-  const slots = Array.from({ length: totalWeeks }, (_, i) => i);
 
-  // 累積（回転後の順序で）
-  const weekOrder = mode === 'fiscal'
-    ? Array.from({ length: totalWeeks }, (_, i) => ((FISCAL_START_WEEK + i - 1) % 52) + 1)
-    : Array.from({ length: totalWeeks }, (_, i) => i + 1);
+  // fiscal モード: データを酒造年度に組み替え
+  // 当酒造年度 = 前年10-12月(prevYear W40-52) + 当年1-9月(current W1-39)
+  // 前酒造年度 = 前年1-9月(prevYear W1-39) のみ（前々年10-12月はデータなし）
+  let fiscalCurrMap: Map<number, WeeklyMdPoint>;
+  let fiscalPrevMap: Map<number, WeeklyMdPoint>;
 
+  if (mode === 'fiscal') {
+    fiscalCurrMap = new Map<number, WeeklyMdPoint>();
+    fiscalPrevMap = new Map<number, WeeklyMdPoint>();
+    // 当酒造年度: 前年W40-52 → slot 0-12, 当年W1-39 → slot 13-51
+    for (const p of prevYear) {
+      if (p.week >= FISCAL_START_WEEK) {
+        const slot = p.week - FISCAL_START_WEEK;
+        fiscalCurrMap.set(slot, { ...p, week: slot });
+      }
+    }
+    for (const p of current) {
+      if (p.week < FISCAL_START_WEEK) {
+        const slot = (52 - FISCAL_START_WEEK) + p.week;
+        fiscalCurrMap.set(slot, { ...p, week: slot });
+      }
+    }
+    // 前酒造年度: prevYear W1-39 → slot 13-51（10-12月分はデータなし）
+    for (const p of prevYear) {
+      if (p.week < FISCAL_START_WEEK) {
+        const slot = (52 - FISCAL_START_WEEK) + p.week;
+        fiscalPrevMap.set(slot, { ...p, week: slot });
+      }
+    }
+  } else {
+    fiscalCurrMap = new Map(current.map(p => [p.week - 1, p]));
+    fiscalPrevMap = new Map(prevYear.map(p => [p.week - 1, p]));
+  }
+
+  // 累積
   let cumCurr = 0, cumPrev = 0;
   const currCum: { slot: number; amount: number }[] = [];
   const prevCum: { slot: number; amount: number }[] = [];
-  for (let i = 0; i < weekOrder.length; i++) {
-    const w = weekOrder[i];
-    cumCurr += currMap.get(w)?.amount ?? 0;
-    cumPrev += prevMap.get(w)?.amount ?? 0;
-    if (currMap.has(w)) currCum.push({ slot: i, amount: cumCurr });
-    prevCum.push({ slot: i, amount: cumPrev });
+  for (let i = 0; i < totalWeeks; i++) {
+    const cPt = fiscalCurrMap.get(i);
+    const pPt = fiscalPrevMap.get(i);
+    cumCurr += cPt?.amount ?? 0;
+    cumPrev += pPt?.amount ?? 0;
+    if (cPt) currCum.push({ slot: i, amount: cumCurr });
+    if (pPt || (mode === 'calendar' && i < totalWeeks)) prevCum.push({ slot: i, amount: cumPrev });
   }
+  // prevCum: データがあるslotだけ
+  const prevCumFiltered = mode === 'fiscal'
+    ? prevCum.filter(p => fiscalPrevMap.has(p.slot) || p.amount > 0)
+    : prevCum;
 
   // 現在週→現在のslot位置
   const now = new Date();
   const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000) + 1;
   const weekDay = (now.getDay() + 6) % 7;
   const currentWeek = Math.max(1, Math.min(53, Math.floor((dayOfYear - weekDay + 10) / 7)));
-  const currentSlot = rotate(currentWeek);
+  const currentSlot = mode === 'fiscal'
+    ? (52 - FISCAL_START_WEEK) + currentWeek  // 1月=slot13, 5月≒slot30
+    : currentWeek - 1;
   const thisYear = now.getFullYear();
 
   // 同時期の前年累積を取得（差額算出用）
-  const prevAtSameSlot = prevCum.find(p => p.slot === currentSlot)?.amount ?? 0;
+  const prevAtSameSlot = prevCumFiltered.find(p => p.slot <= currentSlot)
+    ? prevCumFiltered.filter(p => p.slot <= currentSlot).pop()?.amount ?? 0
+    : 0;
   const gap = cumCurr - prevAtSameSlot;
   const gapSign = gap >= 0 ? '+' : '';
 
   // 年間最終の前年累積
-  const prevFinal = prevCum.length > 0 ? prevCum[prevCum.length - 1].amount : 0;
+  const prevFinal = prevCumFiltered.length > 0 ? prevCumFiltered[prevCumFiltered.length - 1].amount : 0;
   const progressPct = prevFinal > 0 ? ((cumCurr / prevFinal) * 100).toFixed(1) : '—';
 
   // ── 着地予測（前年の季節パターンベース）──
@@ -168,7 +199,7 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
   }).join('');
 
   // 折れ線
-  const prevPath = prevCum.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.slot).toFixed(1)},${toY(p.amount).toFixed(1)}`).join(' ');
+  const prevPath = prevCumFiltered.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.slot).toFixed(1)},${toY(p.amount).toFixed(1)}`).join(' ');
   const currPath = currCum.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.slot).toFixed(1)},${toY(p.amount).toFixed(1)}`).join(' ');
 
   // 当年最新ドット＋ラベル
@@ -179,7 +210,7 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
     : '';
 
   // 前年同時期ドット＋差額ライン
-  const prevSameSlotPt = prevCum.find(p => p.slot === currentSlot);
+  const prevSameSlotPt = prevCumFiltered.filter(p => p.slot <= currentSlot).pop();
   const gapLine = (latestCurr && prevSameSlotPt)
     ? `<line x1="${toX(currentSlot)}" y1="${toY(latestCurr.amount)}" x2="${toX(currentSlot)}" y2="${toY(prevSameSlotPt.amount)}"
         stroke="${gap >= 0 ? '#059669' : '#dc2626'}" stroke-width="2" stroke-dasharray="3,2" />
@@ -188,7 +219,7 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
     : '';
 
   // 前年最終ラベル
-  const prevFinalPt = prevCum[prevCum.length - 1];
+  const prevFinalPt = prevCumFiltered[prevCumFiltered.length - 1];
   const prevLabel = prevFinalPt
     ? `<text x="${toX(prevFinalPt.slot) + 6}" y="${toY(prevFinalPt.amount) - 6}" style="font-size:10px;fill:#94a3b8;">${fmtCompact(prevFinalPt.amount)}</text>`
     : '';
