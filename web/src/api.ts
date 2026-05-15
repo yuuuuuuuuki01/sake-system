@@ -3558,15 +3558,15 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     supabaseQuery<LooseRow>("sales_document_headers", {
       select: "id", sales_date: `eq.${prevYearTodayStr}`, limit: "1000"
     }).then(r => r.length),
-    // 52週MD + 得意先別ギャップ: 当年全伝票
+    // 52週MD: 当年全伝票
     supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "sales_date,total_amount,legacy_customer_code,customer_name",
+      select: "sales_date,total_amount",
       and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${currentYearTo})`,
       order: "sales_date.asc"
     }),
-    // 52週MD + 得意先別ギャップ: 前年全伝票
+    // 52週MD: 前年全伝票
     supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "sales_date,total_amount,legacy_customer_code,customer_name",
+      select: "sales_date,total_amount",
       and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearTo})`,
       order: "sales_date.asc"
     }),
@@ -3627,8 +3627,25 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     .map(sc => ({ staffCode: sc, currentAmount: staffCurrMap.get(sc) ?? 0, prevYearAmount: staffPrevMap.get(sc) ?? 0 }))
     .sort((a, b) => b.prevYearAmount - a.prevYearAmount);
 
-  // 得意先別 年間ギャップ集計
-  const ytdCustomerGaps = aggregateCustomerGap(yearHeaders, prevYearHeaders);
+  // 得意先別 年間ギャップ集計（daily_sales_factベース = 戻入/値引き反映済みの正確な売上）
+  const [factCurrYear, factPrevYear] = await Promise.all([
+    supabaseQueryAll<LooseRow>("daily_sales_fact", {
+      select: "legacy_customer_code,sales_amount",
+      and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${currentYearTo})`,
+    }),
+    supabaseQueryAll<LooseRow>("daily_sales_fact", {
+      select: "legacy_customer_code,sales_amount",
+      and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearTo})`,
+    }),
+  ]);
+  // 得意先名マスタ（staffMapと同じcustMasterを再利用）
+  const custNameMap = new Map<string, string>();
+  for (const c of custMaster) {
+    const code = getString(c, ["legacy_customer_code"], "");
+    const name = getString(c, ["name"], "");
+    if (code) custNameMap.set(code, name);
+  }
+  const ytdCustomerGaps = aggregateCustomerGap(factCurrYear, factPrevYear, custNameMap);
 
   return {
     customers,
@@ -3643,37 +3660,26 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     ytdCustomerGaps,
   };
 
-  function aggregateCustomerGap(currRows: LooseRow[], prevRows: LooseRow[]): YtdCustomerGap[] {
-    const currMap = new Map<string, { name: string; amount: number }>();
-    const prevMap = new Map<string, { name: string; amount: number }>();
-    for (const r of currRows) {
-      const code = getString(r, ["legacy_customer_code"], "");
-      if (!code) continue;
-      const entry = currMap.get(code) ?? { name: getString(r, ["customer_name"], ""), amount: 0 };
-      entry.amount += getNumber(r, ["total_amount"], 0);
-      if (!entry.name) entry.name = getString(r, ["customer_name"], "");
-      currMap.set(code, entry);
-    }
-    for (const r of prevRows) {
-      const code = getString(r, ["legacy_customer_code"], "");
-      if (!code) continue;
-      const entry = prevMap.get(code) ?? { name: getString(r, ["customer_name"], ""), amount: 0 };
-      entry.amount += getNumber(r, ["total_amount"], 0);
-      if (!entry.name) entry.name = getString(r, ["customer_name"], "");
-      prevMap.set(code, entry);
-    }
+  function aggregateCustomerGap(currRows: LooseRow[], prevRows: LooseRow[], nameMap: Map<string, string>): YtdCustomerGap[] {
+    const agg = (rows: LooseRow[]) => {
+      const m = new Map<string, number>();
+      for (const r of rows) {
+        const code = getString(r, ["legacy_customer_code"], "");
+        if (!code) continue;
+        m.set(code, (m.get(code) ?? 0) + getNumber(r, ["sales_amount"], 0));
+      }
+      return m;
+    };
+    const currMap = agg(currRows);
+    const prevMap = agg(prevRows);
     const allCodes = new Set([...currMap.keys(), ...prevMap.keys()]);
-    return [...allCodes].map(code => {
-      const curr = currMap.get(code);
-      const prev = prevMap.get(code);
-      return {
-        customerCode: code,
-        customerName: curr?.name || prev?.name || "",
-        currAmount: curr?.amount ?? 0,
-        prevAmount: prev?.amount ?? 0,
-        gap: (curr?.amount ?? 0) - (prev?.amount ?? 0),
-      };
-    }).sort((a, b) => a.gap - b.gap); // 減少が大きい順
+    return [...allCodes].map(code => ({
+      customerCode: code,
+      customerName: nameMap.get(code) ?? code,
+      currAmount: currMap.get(code) ?? 0,
+      prevAmount: prevMap.get(code) ?? 0,
+      gap: (currMap.get(code) ?? 0) - (prevMap.get(code) ?? 0),
+    })).sort((a, b) => a.gap - b.gap);
   }
 
   function aggregateWeekly(rows: LooseRow[]): WeeklyMdPoint[] {
