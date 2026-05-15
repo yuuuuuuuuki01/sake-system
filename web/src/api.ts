@@ -3570,17 +3570,13 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
       and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearTo})`,
       order: "sales_date.asc"
     }),
-    // 52週MD: 前々年全伝票（酒造年度用）
-    supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "sales_date,total_amount",
-      and: `(sales_date.gte.${prevPrevYearFrom},sales_date.lte.${prevPrevYearTo})`,
-      order: "sales_date.asc"
-    }),
+    // (前々年headersは不要 — factベースで取得済み)
+    Promise.resolve([] as LooseRow[]),
   ]);
 
-  // 得意先マスタから担当コードを取得
+  // 得意先マスタから担当コード+名前を取得
   const custMaster = await supabaseQueryAll<LooseRow>("customers", {
-    select: "legacy_customer_code,staff_code"
+    select: "legacy_customer_code,staff_code,name"
   });
   const staffMap = new Map<string, string>();
   for (const c of custMaster) {
@@ -3627,19 +3623,26 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     .map(sc => ({ staffCode: sc, currentAmount: staffCurrMap.get(sc) ?? 0, prevYearAmount: staffPrevMap.get(sc) ?? 0 }))
     .sort((a, b) => b.prevYearAmount - a.prevYearAmount);
 
-  // 得意先別 年間ギャップ集計（daily_sales_factベース = 戻入/値引き反映済みの正確な売上）
-  // 前年も「今日と同じ日付まで」に揃えて比較（5ヶ月 vs 12ヶ月にならないよう）
+  // 年間データ（daily_sales_factベース = 戻入/値引き反映済み）
+  // ギャップ分析: 今日まで同日比較、52週チャート: 年間全体
   const prevYearSameDay = `${y - 1}-${pad(m)}-${pad(d)}`;
-  const [factCurrYear, factPrevYear] = await Promise.all([
+  const [factCurrYearFull, factPrevYearFull, factPrevPrevYearFull] = await Promise.all([
     supabaseQueryAll<LooseRow>("daily_sales_fact", {
-      select: "legacy_customer_code,sales_amount",
-      and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${todayStr})`,
+      select: "sales_date,legacy_customer_code,sales_amount",
+      and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${currentYearTo})`,
     }),
     supabaseQueryAll<LooseRow>("daily_sales_fact", {
-      select: "legacy_customer_code,sales_amount",
-      and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearSameDay})`,
+      select: "sales_date,legacy_customer_code,sales_amount",
+      and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearTo})`,
+    }),
+    supabaseQueryAll<LooseRow>("daily_sales_fact", {
+      select: "sales_date,legacy_customer_code,sales_amount",
+      and: `(sales_date.gte.${prevPrevYearFrom},sales_date.lte.${prevPrevYearTo})`,
     }),
   ]);
+  // ギャップ分析用: 今日までにフィルタ
+  const factCurrYear = factCurrYearFull.filter(r => getString(r, ["sales_date"], "") <= todayStr);
+  const factPrevYear = factPrevYearFull.filter(r => getString(r, ["sales_date"], "") <= prevYearSameDay);
   // 得意先名マスタ（staffMapと同じcustMasterを再利用）
   const custNameMap = new Map<string, string>();
   for (const c of custMaster) {
@@ -3656,9 +3659,9 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     staffComparison,
     todayDocCount: todayHeaders,
     prevYearTodayDocCount: prevTodayHeaders,
-    weeklyCurrent: aggregateWeekly(yearHeaders),
-    weeklyPrevYear: aggregateWeekly(prevYearHeaders),
-    weeklyPrevPrevYear: aggregateWeekly(prevPrevYearHeaders),
+    weeklyCurrent: aggregateWeekly(factCurrYearFull),
+    weeklyPrevYear: aggregateWeekly(factPrevYearFull),
+    weeklyPrevPrevYear: aggregateWeekly(factPrevPrevYearFull),
     ytdCustomerGaps,
   };
 
@@ -3697,7 +3700,7 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
       const week = Math.floor((dayOfYear - weekDay + 10) / 7);
       const w = Math.max(1, Math.min(53, week));
       const entry = weekMap.get(w) ?? { amount: 0, docs: 0 };
-      entry.amount += getNumber(r, ["total_amount"], 0);
+      entry.amount += getNumber(r, ["total_amount", "sales_amount"], 0);
       entry.docs += 1;
       weekMap.set(w, entry);
     }
