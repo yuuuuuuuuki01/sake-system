@@ -3126,6 +3126,14 @@ function bindStaffModal(existing: StaffMember | null): void {
       crossDepartments,
       fixedDaysOff,
       isDeptLeader:     form.querySelector<HTMLInputElement>("#sf-leader")?.checked ?? false,
+      weeklyDayLimits:  (() => {
+        const limits: Record<string, number> = {};
+        form.querySelectorAll<HTMLInputElement>("input[name='sf-wdl']").forEach(el => {
+          const v = parseInt(el.value);
+          if (v > 0 && v <= 6) limits[el.dataset.month ?? ''] = v;
+        });
+        return Object.keys(limits).length > 0 ? limits : null;
+      })(),
       notes:            form.querySelector<HTMLInputElement>("#sf-notes")?.value.trim() || "",
       isActive:         form.querySelector<HTMLInputElement>("#sf-active")?.checked ?? true,
     };

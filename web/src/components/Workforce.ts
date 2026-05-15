@@ -291,6 +291,21 @@ export function renderStaffModal(s?: StaffMember): string {
             </div>
 
             <div class="form-row" style="grid-column:1/-1;">
+              <label>出勤日数制限（月別・週あたり上限。空欄=制限なし）</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap;padding:4px 0;">
+                ${[1,2,3,4,5,6,7,8,9,10,11,12].map(mo => {
+                  const limit = s?.weeklyDayLimits?.[String(mo)] ?? '';
+                  return `<div style="display:flex;align-items:center;gap:2px;">
+                    <span style="font-size:11px;width:24px;text-align:right;">${mo}月</span>
+                    <input type="number" name="sf-wdl" data-month="${mo}" style="width:40px;font-size:11px;padding:2px 4px;text-align:center;"
+                      value="${limit}" min="1" max="6" placeholder="—" />
+                  </div>`;
+                }).join('')}
+              </div>
+              <span style="font-size:10px;color:var(--text-secondary);">例: 6月に「3」→ 週3日まで（冬季繁忙期の代休調整用）</span>
+            </div>
+
+            <div class="form-row" style="grid-column:1/-1;">
               <label>兼務可能部門（越境）</label>
               <div style="padding:4px 0;display:flex;flex-wrap:wrap;">${crossChecks}</div>
             </div>
@@ -423,6 +438,8 @@ function renderCostTab(staff: StaffMember[], yearMonth: string): string {
 const DOCS_PER_PERSON_DAY = 25;
 /** 1人が午前中に対応できる来客・電話件数（目安） */
 const VISITORS_PER_PERSON_AM = 15;
+/** 送り準備: 1人が前日に準備できる出荷件数 */
+const SHIPPING_PREP_PER_PERSON = 15;
 /** 貼場: 1人1日あたりの貼付本数 (80本/h × 8h) */
 const LABELING_CAPACITY_PER_PERSON_DAY = 640;
 
@@ -634,20 +651,68 @@ export function generateAutoShifts(
     }
   }
 
-  // ── 貼場スケジュール
+  // ── 貼場スケジュール（productionType別に優先度分け）
+  // make_to_order: 最優先（月前半に集中配置）
+  // monthly:       当月出荷分（月前半〜中盤）
+  // november:      11月品（季節品、中盤）
+  // annual:        年間在庫積み（余った稼働日に配置）
   const labelingPrimaryCount = primaryMembers('labeling').length || 1;
   const labelingHeadcount = Math.max(LABELING_MIN, Math.min(labelingPrimaryCount, 3));
-  const labelingPersonDaysNeeded = labelingTotal > 0
-    ? Math.ceil(labelingTotal / (LABELING_CAPACITY_PER_PERSON_DAY * labelingHeadcount)) : 0;
   const labelingActiveDays = deptActiveDays('labeling');
+
+  // productionType別に貼場必要本数を集計
+  const labelingByType = { make_to_order: 0, monthly: 0, november: 0, annual: 0 };
+  for (const row of productionPlan) {
+    const qty = row.plannedQty > 0 ? row.plannedQty
+      : Math.max(0, row.demandForecast + row.safetyStockTarget - row.openingStock);
+    if (qty <= 0) continue;
+    const pt = row.productionType as keyof typeof labelingByType;
+    if (pt in labelingByType) labelingByType[pt] += qty;
+  }
+
+  // フォールバック（計画なし→従来ロジック）
+  const planLabelingTotal = labelingByType.make_to_order + labelingByType.monthly + labelingByType.november + labelingByType.annual;
+  const effectiveLabelingTotal = planLabelingTotal > 0 ? planLabelingTotal : labelingTotal;
+
+  // 全体の必要稼働日数
+  const labelingPersonDaysNeeded = effectiveLabelingTotal > 0
+    ? Math.ceil(effectiveLabelingTotal / (LABELING_CAPACITY_PER_PERSON_DAY * labelingHeadcount)) : 0;
+
+  // 稼働日を優先度順に割り当て: 受注→月次→季節→年間
   const labelingDaySet = new Set<number>();
+  const labelingDayInfo = new Map<number, { types: string[]; qty: number }>();
+
   if (labelingPersonDaysNeeded > 0 && labelingActiveDays.length > 0) {
-    const step = labelingActiveDays.length / Math.min(labelingPersonDaysNeeded, labelingActiveDays.length);
-    for (let i = 0; i < labelingPersonDaysNeeded && i < labelingActiveDays.length; i++) {
-      labelingDaySet.add(labelingActiveDays[Math.min(Math.round(i * step), labelingActiveDays.length - 1)]);
+    const dailyCap = LABELING_CAPACITY_PER_PERSON_DAY * labelingHeadcount;
+    let dayPtr = 0;
+    const typeOrder: { type: string; qty: number }[] = [
+      { type: '受注品', qty: labelingByType.make_to_order },
+      { type: '月次品', qty: labelingByType.monthly },
+      { type: '季節品', qty: labelingByType.november },
+      { type: '年間在庫', qty: labelingByType.annual },
+    ].filter(t => t.qty > 0);
+
+    for (const { type, qty } of typeOrder) {
+      let remaining = qty;
+      while (remaining > 0 && dayPtr < labelingActiveDays.length) {
+        const d = labelingActiveDays[dayPtr];
+        const existing = labelingDayInfo.get(d);
+        const usedQty = existing?.qty ?? 0;
+        const available = dailyCap - usedQty;
+        if (available <= 0) { dayPtr++; continue; }
+        const alloc = Math.min(remaining, available);
+        labelingDaySet.add(d);
+        labelingDayInfo.set(d, {
+          types: [...(existing?.types ?? []), type],
+          qty: usedQty + alloc,
+        });
+        remaining -= alloc;
+        if (usedQty + alloc >= dailyCap) dayPtr++;
+      }
     }
   }
-  const dailyLabelingQty = labelingDaySet.size > 0 ? Math.ceil(labelingTotal / labelingDaySet.size) : 0;
+
+  const dailyLabelingQty = labelingDaySet.size > 0 ? Math.ceil(effectiveLabelingTotal / labelingDaySet.size) : 0;
   const dailyLabelingHeadcount = Math.max(LABELING_MIN, Math.min(
     labelingPrimaryCount, Math.ceil(dailyLabelingQty / LABELING_CAPACITY_PER_PERSON_DAY)
   ));
@@ -675,6 +740,16 @@ export function generateAutoShifts(
   })());
   const routeRatio = pyTotalSales > 0 ? pyRouteSales / pyTotalSales : 0.85; // デフォルト85%がルート
 
+  // ── 直売来客比率（伝票数に対する直売件数の割合）
+  const pyDirectCount = metrics?.prevYearDirectSalesCount ?? metrics?.directSalesCount ?? 0;
+  const pyDocCount = metrics?.prevYearDocumentCount ?? metrics?.monthlyDocumentCount ?? 1;
+  const directSalesRatio = pyDocCount > 0 ? pyDirectCount / pyDocCount : 0.05;
+
+  // ── 送り業務比率（伝票のうち発送を伴う割合）
+  // 酒造の場合、ルート配送以外の伝票の多くが宅配送り
+  // 直売+ルート以外 ≒ 送り業務と推定（デフォルト20%）
+  const shippingRatio = Math.max(0.05, 1 - routeRatio - directSalesRatio);
+
   // ── 部門×日の必要人数マトリクスを構築
   function calcDeptDemand(d: number): Map<StaffDepartment, { need: number; reasons: string[]; active: boolean }> {
     const fact = dailyFactMap.get(d) ?? { docs: 0, sales: 0, qty: 0, basis: 'データなし' };
@@ -686,23 +761,40 @@ export function generateAutoShifts(
     const isSunday = dow === 0;
     const result = new Map<StaffDepartment, { need: number; reasons: string[]; active: boolean }>();
 
-    // 総務: 伝票数ベース + 棚卸補正 + イベント対応
+    // 総務: 伝票数ベース + 直売来客 + 送り準備 + 棚卸補正 + イベント対応
     // 日曜イベントの場合は通常業務なし → イベント人員のみ
     {
       const baseDocs = isSunday ? 0 : fact.docs;
       const docNeed = baseDocs > 0 ? Math.max(1, Math.ceil(baseDocs / DOCS_PER_PERSON_DAY)) : (isSunday ? 0 : 1);
+
+      // 直売来客: 前年直売比率 × 日別伝票数で推定
+      const dailyVisitors = isSunday ? 0 : Math.round(baseDocs * directSalesRatio);
+      const visitorNeed = dailyVisitors > 0 ? Math.ceil(dailyVisitors / VISITORS_PER_PERSON_AM) : 0;
+
+      // 送り準備: 翌営業日の送り件数分を前日に準備
+      const nextDayIdx = businessDays.indexOf(d);
+      const nextBizDay = nextDayIdx >= 0 && nextDayIdx < businessDays.length - 1 ? businessDays[nextDayIdx + 1] : 0;
+      const nextFact = nextBizDay > 0 ? (dailyFactMap.get(nextBizDay) ?? null) : null;
+      const nextDayShipping = nextFact ? Math.round(nextFact.docs * shippingRatio) : 0;
+      const shippingPrepNeed = nextDayShipping > 0 ? Math.ceil(nextDayShipping / SHIPPING_PREP_PER_PERSON) : 0;
+
       const inventoryAdd = isInventory ? 1 : 0;
       const eventNeed = event ? eventHeadcount(event.expectedCups) : 0;
-      const need = Math.max(docNeed + inventoryAdd, eventNeed);
+      const baseNeed = docNeed + visitorNeed + shippingPrepNeed + inventoryAdd;
+      const need = Math.max(baseNeed, eventNeed);
       const reasons: string[] = [];
-      if (!isSunday) reasons.push(`需要: 伝票${baseDocs}件→${docNeed}名（${fact.basis}）`);
+      if (!isSunday) {
+        reasons.push(`伝票${baseDocs}件→${docNeed}名（${fact.basis}）`);
+        if (visitorNeed > 0) reasons.push(`直売${dailyVisitors}件→${visitorNeed}名`);
+        if (shippingPrepNeed > 0) reasons.push(`送り準備${nextDayShipping}件→${shippingPrepNeed}名`);
+      }
       if (isInventory) reasons.push('棚卸週+1名');
       if (event) {
         const evLabel = EVENT_TYPE_LABEL[event.eventType];
         reasons.push(`🎪${evLabel} ${event.expectedCups > 0 ? event.expectedCups + '杯見込' : ''}→${eventNeed}名`);
       }
       result.set('soumu', {
-        need: Math.max(need, event ? eventNeed : 0),
+        need,
         active: true,
         reasons,
       });
@@ -777,22 +869,27 @@ export function generateAutoShifts(
       const isLabelingWorkday = (deptWorkingDays['labeling'] ?? []).includes(dow);
       const isLabelingDay = labelingDaySet.has(d) && (hasLeader || members.filter(s => s.isDeptLeader).length === 0);
       const active = isLabelingDay || isLabelingWorkday;
+      const dayInfo = labelingDayInfo.get(d);
       const need = isLabelingDay
         ? dailyLabelingHeadcount
         : isLabelingWorkday ? Math.max(1, LABELING_MIN) : 0;
 
-      result.set('labeling', {
-        need,
-        active,
-        reasons: isLabelingDay
-          ? [
-              labelingBasisSrc,
-              `目標${dailyLabelingQty.toLocaleString('ja-JP')}本`,
-              `${dailyLabelingHeadcount}名×${LABELING_CAPACITY_PER_PERSON_DAY}本/人日`,
-              !isLabelingWorkday ? '※標準曜日外・計画あり' : '',
-            ].filter(Boolean)
-          : isLabelingWorkday ? ['検品・準備'] : ['非稼働'],
-      });
+      const reasons: string[] = [];
+      if (isLabelingDay && dayInfo) {
+        const typeLabels = [...new Set(dayInfo.types)].join('・');
+        reasons.push(`${typeLabels}（${dayInfo.qty.toLocaleString('ja-JP')}本）`);
+        reasons.push(`${dailyLabelingHeadcount}名×${LABELING_CAPACITY_PER_PERSON_DAY}本/人日`);
+        if (!isLabelingWorkday) reasons.push('※標準曜日外・計画あり');
+      } else if (isLabelingDay) {
+        reasons.push(labelingBasisSrc);
+        reasons.push(`目標${dailyLabelingQty.toLocaleString('ja-JP')}本`);
+      } else if (isLabelingWorkday) {
+        reasons.push('検品・準備');
+      } else {
+        reasons.push('非稼働');
+      }
+
+      result.set('labeling', { need, active, reasons });
     }
 
     return result;
@@ -811,6 +908,28 @@ export function generateAutoShifts(
     (!s.availableMonths || s.availableMonths.includes(m))
   );
   for (const pt of allPartTimers) partTimerDays.set(pt.id, 0);
+
+  // 週あたり出勤制限トラッカー: staffId → Map<weekNum, count>
+  const weeklyAssigned = new Map<string, Map<number, number>>();
+  function getWeekNum(dayNum: number): number {
+    // 月内の週番号（1日〜7日=週0, 8日〜14日=週1, ...）
+    return Math.floor((dayNum - 1) / 7);
+  }
+  function canAssignThisWeek(s: StaffMember, dayNum: number): boolean {
+    if (!s.weeklyDayLimits) return true;
+    const limit = s.weeklyDayLimits[String(m)];
+    if (!limit) return true; // この月は制限なし
+    const wn = getWeekNum(dayNum);
+    const counts = weeklyAssigned.get(s.id);
+    const thisWeek = counts?.get(wn) ?? 0;
+    return thisWeek < limit;
+  }
+  function recordAssignment(staffId: string, dayNum: number): void {
+    const wn = getWeekNum(dayNum);
+    let counts = weeklyAssigned.get(staffId);
+    if (!counts) { counts = new Map(); weeklyAssigned.set(staffId, counts); }
+    counts.set(wn, (counts.get(wn) ?? 0) + 1);
+  }
 
   for (const d of businessDays) {
     const dateStr = `${y}-${pad(m)}-${pad(d)}`;
@@ -856,14 +975,19 @@ export function generateAutoShifts(
       for (const s of available) {
         if (assignedGlobal.has(s.id)) continue;
         if (assigned < slot.need) {
+          // 週制限チェック（部門長は制限無視）
+          if (!s.isDeptLeader && !canAssignThisWeek(s, d)) {
+            surplusEmployees.push(s); // 制限超過 → 越境プールに回す代わりにスキップ
+            continue;
+          }
           slot.assignedIds.push(s.id);
           slot.shortage--;
           assignedGlobal.add(s.id);
+          recordAssignment(s.id, d);
           assigned++;
           const role = s.isDeptLeader ? '部門長' : '社員';
           slot.reasons.push(`${s.name}（${role}・主部門）`);
         } else if (s.employmentType === 'employee') {
-          // 余剰社員 → 越境プールへ
           surplusEmployees.push(s);
         }
       }
@@ -898,9 +1022,11 @@ export function generateAutoShifts(
         if (slot.shortage <= 0) break;
         if (assignedGlobal.has(s.id)) continue;
         if (!s.crossDepartments.includes(slot.dept)) continue;
+        if (!canAssignThisWeek(s, d)) continue;
         slot.assignedIds.push(s.id);
         slot.shortage--;
         assignedGlobal.add(s.id);
+        recordAssignment(s.id, d);
         const fromDept = DEPT_LABEL[s.department as StaffDepartment] ?? s.department;
         const ownSlot = slots.get(s.department as StaffDepartment);
         const reason = ownSlot && ownSlot.active
@@ -913,14 +1039,13 @@ export function generateAutoShifts(
     // 2c: まだ余る社員は最も稼働率の高い部門に追加配置（遊ばせない）
     for (const s of surplusEmployees) {
       if (assignedGlobal.has(s.id)) continue;
-      // 越境可能な稼働中部門のうち、配置数/必要数が最も高い部門を選ぶ
+      if (!canAssignThisWeek(s, d)) continue;
       let bestSlot: DeptSlot | null = null;
       let bestUtil = -1;
       for (const slot of slots.values()) {
         if (!slot.active || slot.need <= 0) continue;
         if (slot.dept === s.department || s.crossDepartments.includes(slot.dept)) {
           const util = slot.need > 0 ? slot.assignedIds.length / slot.need : 0;
-          // 人手が足りていない部門を優先（utilが低いほど人手不足）
           if (bestSlot === null || util < bestUtil) {
             bestSlot = slot;
             bestUtil = util;
@@ -929,8 +1054,8 @@ export function generateAutoShifts(
       }
       if (bestSlot) {
         bestSlot.assignedIds.push(s.id);
-        // shortage は既に0以下かもしれないが、追加人員なので更新しない
         assignedGlobal.add(s.id);
+        recordAssignment(s.id, d);
         bestSlot.reasons.push(`${s.name}（社員・余剰配置）`);
       }
     }
@@ -977,9 +1102,11 @@ export function generateAutoShifts(
         for (const s of candidates) {
           if (slot.shortage <= 0) break;
           if (assignedGlobal.has(s.id)) continue;
+          if (!canAssignThisWeek(s, d)) continue;
           slot.assignedIds.push(s.id);
           slot.shortage--;
           assignedGlobal.add(s.id);
+          recordAssignment(s.id, d);
           partTimerDays.set(s.id, (partTimerDays.get(s.id) ?? 0) + 1);
           const isCross = s.department !== slot.dept;
           slot.reasons.push(
