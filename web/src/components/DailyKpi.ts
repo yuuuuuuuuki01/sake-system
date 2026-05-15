@@ -69,6 +69,113 @@ function buildKpiCards(data: DailyKpiData): string {
   `;
 }
 
+// ── 年間累積折れ線（52週データを累積変換）──
+
+function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoint[]): string {
+  const currMap = new Map(current.map(p => [p.week, p]));
+  const prevMap = new Map(prevYear.map(p => [p.week, p]));
+  const maxWeek = Math.max(...current.map(p => p.week), ...prevYear.map(p => p.week), 52);
+  const weeks = Array.from({ length: maxWeek }, (_, i) => i + 1);
+
+  // 累積
+  let cumCurr = 0, cumPrev = 0;
+  const currCum: { week: number; amount: number }[] = [];
+  const prevCum: { week: number; amount: number }[] = [];
+  for (const w of weeks) {
+    cumCurr += currMap.get(w)?.amount ?? 0;
+    cumPrev += prevMap.get(w)?.amount ?? 0;
+    if (currMap.has(w)) currCum.push({ week: w, amount: cumCurr });
+    prevCum.push({ week: w, amount: cumPrev });
+  }
+
+  const maxVal = Math.max(cumCurr, cumPrev, 1);
+  const width = 760, height = 280;
+  const padding = { top: 30, right: 30, bottom: 40, left: 70 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  const toX = (w: number) => padding.left + ((w - 1) / (maxWeek - 1)) * plotW;
+  const toY = (v: number) => padding.top + plotH - (v / maxVal) * plotH;
+
+  // 現在週
+  const now = new Date();
+  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000) + 1;
+  const weekDay = (now.getDay() + 6) % 7;
+  const currentWeek = Math.max(1, Math.min(53, Math.floor((dayOfYear - weekDay + 10) / 7)));
+  const thisYear = now.getFullYear();
+
+  // 進捗率
+  const prevFinal = prevCum.length > 0 ? prevCum[prevCum.length - 1].amount : 0;
+  const progressPct = prevFinal > 0 ? ((cumCurr / prevFinal) * 100).toFixed(1) : '—';
+
+  // Y軸
+  const yAxes = [0, 0.25, 0.5, 0.75, 1].map(r => {
+    const y = padding.top + plotH - plotH * r;
+    const v = maxVal * r;
+    const label = v >= 10_000_000 ? `${(v / 10_000_000).toFixed(1)}千万` : v >= 10_000 ? `${Math.round(v / 10_000)}万` : `${Math.round(v)}`;
+    return `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="var(--border)" stroke-dasharray="3,3" />
+      <text x="${padding.left - 8}" y="${y + 4}" text-anchor="end" style="font-size:10px;fill:var(--text-secondary);">${label}</text>`;
+  }).join('');
+
+  // X軸（月ラベル）
+  const monthStarts = [1, 5, 9, 14, 18, 22, 27, 31, 35, 40, 44, 48];
+  const monthNames = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+  const xLabels = monthStarts.map((w, i) =>
+    w <= maxWeek ? `<text x="${toX(w)}" y="${height - 10}" text-anchor="middle" style="font-size:10px;fill:var(--text-secondary);">${monthNames[i]}</text>` : ''
+  ).join('');
+
+  // 前年折れ線（全52週）
+  const prevPath = prevCum.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.week).toFixed(1)},${toY(p.amount).toFixed(1)}`).join(' ');
+  // 当年折れ線（現在週まで）
+  const currPath = currCum.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.week).toFixed(1)},${toY(p.amount).toFixed(1)}`).join(' ');
+
+  // 当年最新ドット＋ラベル
+  const latestCurr = currCum.length > 0 ? currCum[currCum.length - 1] : null;
+  const latestDot = latestCurr
+    ? `<circle cx="${toX(latestCurr.week)}" cy="${toY(latestCurr.amount)}" r="5" fill="#0F5B8D" />
+       <text x="${toX(latestCurr.week) + 10}" y="${toY(latestCurr.amount) - 6}" style="font-size:11px;font-weight:700;fill:#0F5B8D;">${fmtCompact(latestCurr.amount)}</text>`
+    : '';
+
+  // 前年最終ラベル
+  const prevFinalPt = prevCum[prevCum.length - 1];
+  const prevLabel = prevFinalPt
+    ? `<text x="${toX(prevFinalPt.week) + 6}" y="${toY(prevFinalPt.amount) - 6}" style="font-size:10px;fill:#94a3b8;">${fmtCompact(prevFinalPt.amount)}</text>`
+    : '';
+
+  // 今週マーカー
+  const weekMarker = `<line x1="${toX(currentWeek)}" y1="${padding.top}" x2="${toX(currentWeek)}" y2="${padding.top + plotH}" stroke="#dc2626" stroke-width="1" stroke-dasharray="4 3" opacity="0.5" />`;
+
+  const pctColor = Number(progressPct) >= 100 ? '#059669' : Number(progressPct) >= 80 ? '#d97706' : '#dc2626';
+
+  return `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="display:inline-block;width:20px;height:3px;background:#0F5B8D;border-radius:2px;"></span>
+        <span style="font-size:11px;font-weight:600;">${thisYear}年</span>
+        <span style="font-size:13px;font-weight:700;color:#0F5B8D;">${fmtCurrency(cumCurr)}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="display:inline-block;width:20px;height:3px;background:#d1d5db;border-radius:2px;"></span>
+        <span style="font-size:11px;color:var(--text-secondary);">${thisYear - 1}年</span>
+        <span style="font-size:12px;color:var(--text-secondary);">${fmtCurrency(prevFinal)}</span>
+      </div>
+      <div style="margin-left:auto;font-size:12px;">
+        対前年進捗 <strong style="color:${pctColor};">${progressPct}%</strong>
+        <span style="font-size:10px;color:var(--text-secondary);">（W${currentWeek}時点）</span>
+      </div>
+    </div>
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%;height:auto;">
+      ${yAxes}
+      ${xLabels}
+      ${weekMarker}
+      <path d="${prevPath}" fill="none" stroke="#d1d5db" stroke-width="2" stroke-dasharray="6,4" />
+      <path d="${currPath}" fill="none" stroke="#0F5B8D" stroke-width="2.5" />
+      ${latestDot}
+      ${prevLabel}
+    </svg>
+  `;
+}
+
 // ── 日次累積折れ線 ──
 
 function buildCumulativeChart(current: DailyKpiDayPoint[], prevYear: DailyKpiDayPoint[]): string {
@@ -399,6 +506,16 @@ export function renderDailyKpi(
           ${buildStaffBars(data.staffComparison)}
         </div>
       </article>
+    </section>
+
+    <section class="panel" style="margin-top:0;margin-bottom:16px;">
+      <div class="panel-header">
+        <h2>年間売上累積</h2>
+        <p class="panel-caption">週次累積の推移 — 当年 vs 前年</p>
+      </div>
+      <div class="chart-scroll">
+        ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear)}
+      </div>
     </section>
 
     <section class="analytics-grid" style="margin-top:0;">
