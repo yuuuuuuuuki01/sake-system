@@ -3628,14 +3628,16 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     .sort((a, b) => b.prevYearAmount - a.prevYearAmount);
 
   // 得意先別 年間ギャップ集計（daily_sales_factベース = 戻入/値引き反映済みの正確な売上）
+  // 前年も「今日と同じ日付まで」に揃えて比較（5ヶ月 vs 12ヶ月にならないよう）
+  const prevYearSameDay = `${y - 1}-${pad(m)}-${pad(d)}`;
   const [factCurrYear, factPrevYear] = await Promise.all([
     supabaseQueryAll<LooseRow>("daily_sales_fact", {
       select: "legacy_customer_code,sales_amount",
-      and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${currentYearTo})`,
+      and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${todayStr})`,
     }),
     supabaseQueryAll<LooseRow>("daily_sales_fact", {
       select: "legacy_customer_code,sales_amount",
-      and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearTo})`,
+      and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearSameDay})`,
     }),
   ]);
   // 得意先名マスタ（staffMapと同じcustMasterを再利用）
