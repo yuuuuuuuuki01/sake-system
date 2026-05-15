@@ -840,8 +840,12 @@ export function generateAutoShifts(
       const calShift = calDayMap.get(d);
 
       const empCount = availableOn(members.filter(s => s.employmentType === 'employee'), d).length;
+      // 生産日 → ライン定員4名以上
+      // 標準稼働曜日（生産計画なし）→ ライン定員4名（ラインを回す前提）
+      // それ以外 → 社員のみ（メンテ）
       const need = isProductionDay
         ? (calShift ? Math.max(BOTTLING_LINE_SIZE, calShift.partTimers + calShift.employees) : BOTTLING_LINE_SIZE)
+        : isBottlingWorkday ? BOTTLING_LINE_SIZE
         : active ? Math.max(1, empCount) : 0;
 
       const productLabel = bottlingRun?.productName
@@ -855,7 +859,7 @@ export function generateAutoShifts(
         reasons: isProductionDay
           ? [`[${catLabel}] ${productLabel}`, scoreLabel, `目標${bottlingRun!.dailyQty.toLocaleString('ja-JP')}本`, `ライン${need}名`]
           : isBottlingWorkday
-            ? ['準備・洗浄・メンテ', `社員${empCount}名`]
+            ? [`ライン稼働${BOTTLING_LINE_SIZE}名`, `社員${empCount}名+パート${BOTTLING_LINE_SIZE - empCount}名`]
             : active ? [`メンテ・在庫管理`] : ['非稼働'],
       });
     }
