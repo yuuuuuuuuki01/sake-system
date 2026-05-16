@@ -6489,6 +6489,19 @@ function bindEvents(root: HTMLElement): void {
   }
 
   // ── 日次KPI フィルタ ────────────────────────────────
+  // 年間累積タブ切替（1-12 / 10-9）
+  root.querySelectorAll<HTMLButtonElement>("[data-ytd-tab]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const tab = btn.dataset.ytdTab ?? "calendar";
+      const calPanel = document.getElementById("ytd-tab-calendar");
+      const fiscalPanel = document.getElementById("ytd-tab-fiscal");
+      if (calPanel) calPanel.style.display = tab === "calendar" ? "" : "none";
+      if (fiscalPanel) fiscalPanel.style.display = tab === "fiscal" ? "" : "none";
+      root.querySelectorAll<HTMLButtonElement>("[data-ytd-tab]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    });
+  });
+
   root.querySelector<HTMLSelectElement>("#kpi-staff-filter")?.addEventListener("change", (e) => {
     state.dailyKpiFilter.staffCode = (e.target as HTMLSelectElement).value;
     renderApp();

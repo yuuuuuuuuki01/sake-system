@@ -90,7 +90,7 @@ function buildGapAnalysis(gaps: YtdCustomerGap[]): string {
   const summary = `
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:16px;">
       <div class="panel" style="padding:12px;">
-        <div style="font-size:10px;color:var(--text-secondary);">年間ギャップ合計</div>
+        <div style="font-size:10px;color:var(--text-secondary);">前年同時期との差額</div>
         <div style="font-size:20px;font-weight:700;color:${gapColor};">${totalGap >= 0 ? '+' : ''}${fmtCompact(totalGap)}</div>
       </div>
       <div class="panel" style="padding:12px;">
@@ -755,33 +755,36 @@ export function renderDailyKpi(
     </section>
 
     <section class="panel" style="margin-top:0;margin-bottom:16px;">
-      <div class="panel-header">
-        <h2>年間売上累積（暦年 1〜12月）</h2>
-        <p class="panel-caption">週次累積の推移 — 当年 vs 前年</p>
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <h2>売上累積と前年差額</h2>
+          <p class="panel-caption">同時期比較 — 前年同日までとの差</p>
+        </div>
+        <div class="tab-group" style="display:flex;gap:4px;">
+          <button class="tab-button active" data-ytd-tab="calendar" style="font-size:12px;padding:4px 12px;">1〜12月</button>
+          <button class="tab-button" data-ytd-tab="fiscal" style="font-size:12px;padding:4px 12px;">10〜9月</button>
+        </div>
       </div>
-      <div class="chart-scroll">
-        ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear, 'calendar')}
+      <div id="ytd-tab-calendar">
+        <div class="chart-scroll">
+          ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear, 'calendar')}
+        </div>
+      </div>
+      <div id="ytd-tab-fiscal" style="display:none;">
+        <div class="chart-scroll">
+          ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear, 'fiscal', data.weeklyPrevPrevYear)}
+        </div>
       </div>
     </section>
 
     <section class="panel" style="margin-top:0;margin-bottom:16px;">
       <div class="panel-header">
         <div>
-          <h2>ギャップ分析 — なぜこの差が生まれたか</h2>
-          <p class="panel-caption">年間累計の得意先別増減内訳</p>
+          <h2>前年差額の内訳 — どの得意先が原因か</h2>
+          <p class="panel-caption">同時期（1/1〜本日）の得意先別増減</p>
         </div>
       </div>
       ${buildGapAnalysis(data.ytdCustomerGaps)}
-    </section>
-
-    <section class="panel" style="margin-top:0;margin-bottom:16px;">
-      <div class="panel-header">
-        <h2>年間売上累積（酒造年度 10〜9月）</h2>
-        <p class="panel-caption">酒造年度ベースの累積推移</p>
-      </div>
-      <div class="chart-scroll">
-        ${buildYtdCumulativeChart(data.weeklyCurrent, data.weeklyPrevYear, 'fiscal', data.weeklyPrevPrevYear)}
-      </div>
     </section>
 
     <section class="analytics-grid" style="margin-top:0;">
