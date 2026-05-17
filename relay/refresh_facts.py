@@ -59,7 +59,11 @@ def _session(config: dict[str, Any]) -> requests.Session:
 
 def fetch_and_aggregate(config: dict[str, Any],
                         logger: logging.Logger) -> list[dict[str, Any]]:
-    """REST API でページング取得し、daily_sales_fact 相当の集計を行う。"""
+    """REST API でページング取得し、daily_sales_fact 相当の集計を行う。
+
+    データソース: diff（バイナリ SHTOR.DAT由来）のみ。
+    バイナリデコーダが売上計算式を適用済みのため、diffが正確。
+    """
     base = config["supabase_url"].rstrip("/")
     sess = _session(config)
 
