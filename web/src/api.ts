@@ -629,16 +629,15 @@ export async function upsertSystemSetting<T>(key: string, value: T): Promise<voi
 export async function fetchSalesSummary(): Promise<SalesSummary> {
   // daily_sales_fact + daily_sales_agg を併用
   // fact: 金額・伝票数（常に最新）、agg: 本数・液量（MV、FK紐付け済み）
-  // 年間累積チャート用に2年分取得
+  // 年間累積チャート用に2年分を全件取得（factは得意先×商品で複数行/日あるため件数が多い）
   const since = new Date();
   since.setFullYear(since.getFullYear() - 2);
   const sinceStr = since.toISOString().slice(0, 10);
   const [factRows, aggRows] = await Promise.all([
-    supabaseQuery<Record<string, unknown>>("daily_sales_fact", {
+    supabaseQueryAll<Record<string, unknown>>("daily_sales_fact", {
       select: "sales_date,sales_amount,total_quantity,document_count",
       order: "sales_date.desc",
       sales_date: `gte.${sinceStr}`,
-      limit: "800"
     }),
     supabaseQuery<Record<string, unknown>>("daily_sales_agg", {
       select: "sales_date,bottles,volume_ml",
