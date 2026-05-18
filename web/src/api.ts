@@ -3688,20 +3688,27 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
   }
 
   function aggregateWeekly(rows: LooseRow[]): WeeklyMdPoint[] {
-    const weekMap = new Map<number, { amount: number; docs: number }>();
+    // Step 1: 日別に集約（factは得意先×商品で複数行あるため）
+    const dayMap = new Map<string, { amount: number; docs: number }>();
     for (const r of rows) {
       const dateStr = getString(r, ["sales_date"], "");
       if (!dateStr) continue;
+      const entry = dayMap.get(dateStr) ?? { amount: 0, docs: 0 };
+      entry.amount += getNumber(r, ["total_amount", "sales_amount"], 0);
+      entry.docs += 1;
+      dayMap.set(dateStr, entry);
+    }
+    // Step 2: 日→週に集約
+    const weekMap = new Map<number, { amount: number; docs: number }>();
+    for (const [dateStr, day] of dayMap) {
       const dt = new Date(dateStr + "T00:00:00");
-      // ISO week calculation
-      const jan4 = new Date(dt.getFullYear(), 0, 4);
       const dayOfYear = Math.floor((dt.getTime() - new Date(dt.getFullYear(), 0, 1).getTime()) / 86400000) + 1;
       const weekDay = (dt.getDay() + 6) % 7; // Mon=0
       const week = Math.floor((dayOfYear - weekDay + 10) / 7);
       const w = Math.max(1, Math.min(53, week));
       const entry = weekMap.get(w) ?? { amount: 0, docs: 0 };
-      entry.amount += getNumber(r, ["total_amount", "sales_amount"], 0);
-      entry.docs += 1;
+      entry.amount += day.amount;
+      entry.docs += day.docs;
       weekMap.set(w, entry);
     }
     return [...weekMap.entries()]
