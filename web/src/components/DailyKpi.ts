@@ -404,7 +404,7 @@ function buildYtdCumulativeChart(current: WeeklyMdPoint[], prevYear: WeeklyMdPoi
       </div>
       <div style="font-size:12px;">
         同時期比 <strong style="color:${gapColor};">${gapSign}${fmtCurrency(Math.abs(gap))}</strong>
-        <span style="font-size:10px;color:var(--text-secondary);">（当年累積 ${fmtCurrency(cumCurr)} / 前年同週累積 ${fmtCurrency(prevAtSameSlot)} / slot:${currentSlot}）</span>
+        <span style="font-size:10px;color:var(--text-secondary);">（前年同週累積 ${fmtCurrency(prevAtSameSlot)}）</span>
       </div>
     </div>
     ${forecastCards}
