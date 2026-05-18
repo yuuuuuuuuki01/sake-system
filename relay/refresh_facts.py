@@ -61,17 +61,91 @@ def fetch_and_aggregate(config: dict[str, Any],
                         logger: logging.Logger) -> list[dict[str, Any]]:
     """REST API でページング取得し、daily_sales_fact 相当の集計を行う。
 
-    データソース: diff（バイナリ SHTOR.DAT由来）のみ。
-    バイナリデコーダが売上計算式を適用済みのため、diffが正確。
+    データソース優先順位:
+    - CSV（売掛金元帳）: 正のデータソース。CSV最終日まではCSVを使用。
+    - diff（バイナリ）: CSV最終日より後の日付のみ使用。
+
+    CSV売上計算式: type500+560を加算、type580+600+650を減算。
+    type700(消費税), type800/810/820(入金), typeNoneは除外。
     """
     base = config["supabase_url"].rstrip("/")
     sess = _session(config)
 
-    agg: dict[tuple[str, str, str], dict] = {}  # (date, cust, prod) -> {amt, qty, cnt}
-    offset = 0
-    page_size = 1000
-    total_rows = 0
+    # 売上に含めるtypeタグ
+    SALES_ADD_TYPES = {"500", "560"}     # 加算
+    SALES_SUB_TYPES = {"580", "600", "650"}  # 減算
+    NOTE_TYPE_RE = re.compile(r"type:(\d+)")
 
+    agg: dict[tuple[str, str, str], dict] = {}  # (date, cust, prod) -> {amt, qty, cnt}
+    csv_max_date: str | None = None
+    page_size = 1000
+
+    # --- Phase 1: CSV由来データを集計 ---
+    logger.info("Fetching CSV-sourced lines (primary source)...")
+    csv_rows = 0
+    offset = 0
+    while True:
+        url = (f"{base}/rest/v1/sales_document_lines"
+               f"?select=note,amount,quantity,legacy_product_code"
+               f"&note=like.*src:csv*"
+               f"&order=id"
+               f"&limit={page_size}&offset={offset}")
+        resp = sess.get(url, timeout=60)
+        if not resp.ok:
+            logger.error("CSV fetch error at offset %d: %s", offset, resp.text[:200])
+            break
+        rows = resp.json()
+        if not rows:
+            break
+
+        for r in rows:
+            note = r.get("note") or ""
+            dm = NOTE_DATE_RE.search(note)
+            cm = NOTE_CUST_RE.search(note)
+            if not dm or not cm:
+                continue
+
+            # typeタグで売上計算式に含めるか判定
+            tm = NOTE_TYPE_RE.search(note)
+            type_code = tm.group(1) if tm else None
+            if type_code is None:
+                continue  # typeNone → 除外
+            if type_code not in SALES_ADD_TYPES and type_code not in SALES_SUB_TYPES:
+                continue  # 消費税・入金 → 除外
+
+            sd = dm.group(1)
+            cc = cm.group(1)
+            prod = r.get("legacy_product_code") or "unknown"
+            amt = r.get("amount") or 0
+            qty = r.get("quantity") or 0
+
+            # 戻入・容器戻り・値引きは減算
+            if type_code in SALES_SUB_TYPES:
+                amt = -abs(amt)
+
+            key = (sd, cc, prod)
+            if key not in agg:
+                agg[key] = {"amt": 0, "qty": 0, "cnt": 0}
+            agg[key]["amt"] += amt
+            agg[key]["qty"] += qty
+            agg[key]["cnt"] += 1
+
+            if csv_max_date is None or sd > csv_max_date:
+                csv_max_date = sd
+
+        csv_rows += len(rows)
+        offset += page_size
+        if len(rows) < page_size:
+            break
+
+    logger.info("CSV: %d rows, max date: %s, %d fact keys",
+                csv_rows, csv_max_date or "none", len(agg))
+
+    # --- Phase 2: diff由来データ（CSV最終日より後のみ） ---
+    logger.info("Fetching diff-sourced lines (after %s)...", csv_max_date or "all")
+    diff_rows = 0
+    diff_used = 0
+    offset = 0
     while True:
         url = (f"{base}/rest/v1/sales_document_lines"
                f"?select=note,amount,quantity,legacy_product_code"
@@ -80,7 +154,7 @@ def fetch_and_aggregate(config: dict[str, Any],
                f"&limit={page_size}&offset={offset}")
         resp = sess.get(url, timeout=60)
         if not resp.ok:
-            logger.error("Fetch error at offset %d: %s", offset, resp.text[:200])
+            logger.error("Diff fetch error at offset %d: %s", offset, resp.text[:200])
             break
         rows = resp.json()
         if not rows:
@@ -93,6 +167,11 @@ def fetch_and_aggregate(config: dict[str, Any],
             if not dm or not cm:
                 continue
             sd = dm.group(1)
+
+            # CSV最終日以前はスキップ（CSVが正）
+            if csv_max_date and sd <= csv_max_date:
+                continue
+
             cc = cm.group(1)
             prod = r.get("legacy_product_code") or "unknown"
             amt = r.get("amount") or 0
@@ -104,13 +183,15 @@ def fetch_and_aggregate(config: dict[str, Any],
             agg[key]["amt"] += amt
             agg[key]["qty"] += qty
             agg[key]["cnt"] += 1
+            diff_used += 1
 
-        total_rows += len(rows)
+        diff_rows += len(rows)
         offset += page_size
         if len(rows) < page_size:
             break
 
-    logger.info("Fetched %d rows, aggregated into %d fact rows", total_rows, len(agg))
+    logger.info("Diff: %d rows fetched, %d used (after CSV cutoff)", diff_rows, diff_used)
+    logger.info("Total aggregated: %d fact rows", len(agg))
 
     facts = []
     for (sd, cc, prod), v in agg.items():
