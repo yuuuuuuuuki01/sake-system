@@ -3455,6 +3455,8 @@ export interface YtdCustomerGap {
   currAmount: number;
   prevAmount: number;
   gap: number;
+  /** 月別内訳: { "01": { curr, prev, gap }, "02": ... } */
+  monthlyBreakdown: Record<string, { curr: number; prev: number; gap: number }>;
 }
 
 export interface DailyKpiData {
@@ -3605,11 +3607,11 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     }),
     // ギャップ分析: headers直接集計（今日まで）
     supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "legacy_customer_code,total_amount",
+      select: "sales_date,legacy_customer_code,total_amount",
       and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${todayStr})`,
     }),
     supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "legacy_customer_code,total_amount",
+      select: "sales_date,legacy_customer_code,total_amount",
       and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearSameDay})`,
     }),
   ]);
@@ -3636,25 +3638,47 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
   };
 
   function aggregateCustomerGap(currRows: LooseRow[], prevRows: LooseRow[], nameMap: Map<string, string>): YtdCustomerGap[] {
-    const agg = (rows: LooseRow[]) => {
-      const m = new Map<string, number>();
+    // 得意先×月別に集計
+    type MonthlyMap = Map<string, Map<string, number>>; // code -> { "01": amount, "02": ... }
+    const aggMonthly = (rows: LooseRow[]): { total: Map<string, number>; monthly: MonthlyMap } => {
+      const total = new Map<string, number>();
+      const monthly: MonthlyMap = new Map();
       for (const r of rows) {
         const code = getString(r, ["legacy_customer_code"], "");
         if (!code) continue;
-        m.set(code, (m.get(code) ?? 0) + getNumber(r, ["total_amount", "sales_amount"], 0));
+        const amt = getNumber(r, ["total_amount", "sales_amount"], 0);
+        total.set(code, (total.get(code) ?? 0) + amt);
+        const mm = getString(r, ["sales_date"], "").slice(5, 7); // "01"-"12"
+        if (mm) {
+          let cm = monthly.get(code);
+          if (!cm) { cm = new Map(); monthly.set(code, cm); }
+          cm.set(mm, (cm.get(mm) ?? 0) + amt);
+        }
       }
-      return m;
+      return { total, monthly };
     };
-    const currMap = agg(currRows);
-    const prevMap = agg(prevRows);
-    const allCodes = new Set([...currMap.keys(), ...prevMap.keys()]);
-    return [...allCodes].map(code => ({
-      customerCode: code,
-      customerName: nameMap.get(code) ?? code,
-      currAmount: currMap.get(code) ?? 0,
-      prevAmount: prevMap.get(code) ?? 0,
-      gap: (currMap.get(code) ?? 0) - (prevMap.get(code) ?? 0),
-    })).sort((a, b) => a.gap - b.gap);
+    const curr = aggMonthly(currRows);
+    const prev = aggMonthly(prevRows);
+    const allCodes = new Set([...curr.total.keys(), ...prev.total.keys()]);
+    // 対象月リスト（1月〜現在月）
+    const months = Array.from({ length: m }, (_, i) => String(i + 1).padStart(2, '0'));
+
+    return [...allCodes].map(code => {
+      const monthlyBreakdown: Record<string, { curr: number; prev: number; gap: number }> = {};
+      for (const mm of months) {
+        const c = curr.monthly.get(code)?.get(mm) ?? 0;
+        const p = prev.monthly.get(code)?.get(mm) ?? 0;
+        monthlyBreakdown[mm] = { curr: c, prev: p, gap: c - p };
+      }
+      return {
+        customerCode: code,
+        customerName: nameMap.get(code) ?? code,
+        currAmount: curr.total.get(code) ?? 0,
+        prevAmount: prev.total.get(code) ?? 0,
+        gap: (curr.total.get(code) ?? 0) - (prev.total.get(code) ?? 0),
+        monthlyBreakdown,
+      };
+    }).sort((a, b) => a.gap - b.gap);
   }
 
   function aggregateWeekly(rows: LooseRow[]): WeeklyMdPoint[] {

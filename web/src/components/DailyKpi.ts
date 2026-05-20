@@ -115,59 +115,63 @@ function buildGapAnalysis(gaps: YtdCustomerGap[]): string {
       </div>
     </div>`;
 
-  // 減少上位テーブル
-  const topLosers = losers.slice(0, 10);
-  const loserRows = topLosers.map((g, i) => {
-    const pct = g.prevAmount > 0 ? Math.round((g.currAmount / g.prevAmount) * 100) : 0;
-    const isLost = g.currAmount === 0;
-    return `<tr>
-      <td style="font-size:11px;color:var(--text-secondary);">${i + 1}</td>
-      <td>${g.customerName || g.customerCode}${isLost ? ' <span style="font-size:9px;color:#dc2626;font-weight:600;">離脱</span>' : ''}</td>
-      <td class="numeric">${fmtCurrency(g.prevAmount)}</td>
-      <td class="numeric">${fmtCurrency(g.currAmount)}</td>
-      <td class="numeric" style="color:#dc2626;font-weight:600;">${fmtCurrency(g.gap)}</td>
-      <td><div style="display:flex;align-items:center;gap:4px;">
-        <div style="width:60px;background:var(--border);border-radius:2px;height:4px;">
-          <div style="width:${pct}%;height:100%;background:${pct >= 80 ? '#059669' : pct >= 50 ? '#d97706' : '#dc2626'};border-radius:2px;"></div>
-        </div>
-        <span style="font-size:10px;color:var(--text-secondary);">${pct}%</span>
-      </div></td>
-    </tr>`;
-  }).join('');
+  // 月名リスト
+  const now = new Date();
+  const currMonth = now.getMonth() + 1;
+  const months = Array.from({ length: currMonth }, (_, i) => String(i + 1).padStart(2, '0'));
+  const monthLabels = months.map(mm => `${parseInt(mm)}月`);
 
-  // 増加上位テーブル
-  const topGainers = gainers.slice(0, 5);
-  const gainerRows = topGainers.map((g, i) => {
-    const isNew = g.prevAmount === 0;
+  // 月別ミニバー（得意先ごとの累積差額推移）
+  function monthlyBar(g: YtdCustomerGap): string {
+    const mb = g.monthlyBreakdown;
+    if (!mb) return '';
+    let cumGap = 0;
+    const maxAbs = Math.max(...months.map(mm => Math.abs(cumGap += (mb[mm]?.gap ?? 0))));
+    cumGap = 0; // リセット
+    return months.map(mm => {
+      cumGap += mb[mm]?.gap ?? 0;
+      const pct = maxAbs > 0 ? Math.round((Math.abs(cumGap) / maxAbs) * 100) : 0;
+      const color = cumGap >= 0 ? '#059669' : '#dc2626';
+      const label = Math.abs(cumGap) >= 10000 ? `${Math.round(cumGap / 10000)}万` : '';
+      return `<div style="display:flex;align-items:center;gap:1px;min-width:24px;" title="${parseInt(mm)}月累積: ${fmtCurrency(cumGap)}">
+        <div style="width:${pct}%;min-width:2px;height:6px;background:${color};border-radius:1px;"></div>
+        <span style="font-size:7px;color:${color};white-space:nowrap;">${label}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // 統合テーブル（差額の絶対値が大きい順、上位20件）
+  const sorted = [...gaps].sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap)).slice(0, 20);
+  const tableRows = sorted.map((g, i) => {
+    const pct = g.prevAmount > 0 ? Math.round((g.currAmount / g.prevAmount) * 100) : (g.currAmount > 0 ? 999 : 0);
+    const isLost = g.prevAmount > 0 && g.currAmount === 0;
+    const isNew = g.prevAmount === 0 && g.currAmount > 0;
+    const gapColor = g.gap >= 0 ? '#059669' : '#dc2626';
+    const tag = isLost ? '<span style="font-size:9px;color:#dc2626;font-weight:600;margin-left:4px;">離脱</span>'
+      : isNew ? '<span style="font-size:9px;color:#0F5B8D;font-weight:600;margin-left:4px;">新規</span>' : '';
     return `<tr>
       <td style="font-size:11px;color:var(--text-secondary);">${i + 1}</td>
-      <td>${g.customerName || g.customerCode}${isNew ? ' <span style="font-size:9px;color:#0F5B8D;font-weight:600;">新規</span>' : ''}</td>
+      <td style="white-space:nowrap;">${g.customerName || g.customerCode}${tag}</td>
       <td class="numeric">${fmtCurrency(g.prevAmount)}</td>
       <td class="numeric">${fmtCurrency(g.currAmount)}</td>
-      <td class="numeric" style="color:#059669;font-weight:600;">+${fmtCurrency(g.gap)}</td>
+      <td class="numeric" style="color:${gapColor};font-weight:600;">${g.gap >= 0 ? '+' : ''}${fmtCurrency(g.gap)}</td>
+      <td style="width:40px;text-align:center;"><span style="font-size:10px;color:${pct >= 80 ? '#059669' : pct >= 50 ? '#d97706' : '#dc2626'};">${pct > 200 ? '—' : pct + '%'}</span></td>
+      <td style="min-width:${currMonth * 26}px;"><div style="display:flex;gap:1px;align-items:center;">${monthlyBar(g)}</div></td>
     </tr>`;
   }).join('');
 
   return `
     ${summary}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-      <div>
-        <h3 style="font-size:13px;font-weight:700;margin:0 0 8px;color:#dc2626;">減少上位10</h3>
-        <div class="table-wrap">
-          <table style="font-size:12px;">
-            <thead><tr><th>#</th><th>得意先</th><th class="numeric">前年</th><th class="numeric">当年</th><th class="numeric">差額</th><th>達成率</th></tr></thead>
-            <tbody>${loserRows || '<tr><td colspan="6" class="empty-row">なし</td></tr>'}</tbody>
-          </table>
-        </div>
-      </div>
-      <div>
-        <h3 style="font-size:13px;font-weight:700;margin:0 0 8px;color:#059669;">増加上位5</h3>
-        <div class="table-wrap">
-          <table style="font-size:12px;">
-            <thead><tr><th>#</th><th>得意先</th><th class="numeric">前年</th><th class="numeric">当年</th><th class="numeric">差額</th></tr></thead>
-            <tbody>${gainerRows || '<tr><td colspan="5" class="empty-row">なし</td></tr>'}</tbody>
-          </table>
-        </div>
+    <div>
+      <h3 style="font-size:13px;font-weight:700;margin:0 0 8px;">得意先別 前年差額（インパクト順・上位20）</h3>
+      <div class="table-wrap">
+        <table style="font-size:12px;">
+          <thead><tr>
+            <th>#</th><th>得意先</th><th class="numeric">前年同時期</th><th class="numeric">当年</th><th class="numeric">差額</th><th>達成</th>
+            <th style="min-width:${currMonth * 26}px;">${monthLabels.map(l => `<span style="font-size:8px;margin:0 1px;">${l}</span>`).join('')} 累積</th>
+          </tr></thead>
+          <tbody>${tableRows || '<tr><td colspan="7" class="empty-row">データなし</td></tr>'}</tbody>
+        </table>
       </div>
     </div>
   `;
