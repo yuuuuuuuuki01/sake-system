@@ -627,65 +627,35 @@ export async function upsertSystemSetting<T>(key: string, value: T): Promise<voi
 }
 
 export async function fetchSalesSummary(): Promise<SalesSummary> {
-  // daily_sales_fact + daily_sales_agg を併用
-  // fact: 金額・伝票数（常に最新）、agg: 本数・液量（MV、FK紐付け済み）
-  // 年間累積チャート用に2年分を全件取得（factは得意先×商品で複数行/日あるため件数が多い）
+  // daily_sales_agg（sales_document_headersベースのマテビュー）を唯一の集計ソースに使用
+  // 出荷伝票一覧と同じデータから集計されるため金額が一致する
   const since = new Date();
   since.setFullYear(since.getFullYear() - 2);
   const sinceStr = since.toISOString().slice(0, 10);
-  const [factRows, aggRows] = await Promise.all([
-    supabaseQueryAll<Record<string, unknown>>("daily_sales_fact", {
-      select: "sales_date,sales_amount,total_quantity,document_count",
-      order: "sales_date.desc",
-      sales_date: `gte.${sinceStr}`,
-    }),
-    supabaseQuery<Record<string, unknown>>("daily_sales_agg", {
-      select: "sales_date,bottles,volume_ml",
-      order: "sales_date.desc",
-      sales_date: `gte.${sinceStr}`,
-      limit: "800"
-    }),
-  ]);
+  const aggRows = await supabaseQueryAll<Record<string, unknown>>("daily_sales_agg", {
+    select: "sales_date,document_count,amount,bottles,volume_ml,price_per_bottle,price_per_liter",
+    order: "sales_date.desc",
+    sales_date: `gte.${sinceStr}`,
+  });
 
-  // agg の本数/液量をマップ化
-  const aggMap = new Map<string, { bottles: number; volumeMl: number }>();
-  for (const row of aggRows) {
-    const sd = String(row.sales_date ?? "");
-    if (!sd) continue;
-    aggMap.set(sd, {
-      bottles: toNumber(row.bottles),
-      volumeMl: toNumber(row.volume_ml),
-    });
-  }
-
-  // 日別に集計
-  const dailyMap = new Map<string, { amount: number; qty: number; docs: number }>();
-  for (const row of factRows) {
-    const sd = String(row.sales_date ?? "");
-    if (!sd) continue;
-    const entry = dailyMap.get(sd) ?? { amount: 0, qty: 0, docs: 0 };
-    entry.amount += toNumber(row.sales_amount);
-    entry.qty += toNumber(row.total_quantity);
-    entry.docs += toNumber(row.document_count);
-    dailyMap.set(sd, entry);
-  }
-
-  const salesRows: DailySalesFactRow[] = Array.from(dailyMap.entries())
-    .map(([sd, v]) => {
-      const agg = aggMap.get(sd);
-      const bottles = agg?.bottles ?? v.qty;
-      const volumeMl = agg?.volumeMl ?? 0;
+  const salesRows: DailySalesFactRow[] = aggRows
+    .map(row => {
+      const sd = String(row.sales_date ?? "");
+      const amount = toNumber(row.amount);
+      const bottles = toNumber(row.bottles);
+      const volumeMl = toNumber(row.volume_ml);
       return {
         sales_date: sd,
-        sales_amount: v.amount,
-        amount: v.amount,
-        document_count: v.docs,
+        sales_amount: amount,
+        amount,
+        document_count: toNumber(row.document_count),
         bottles,
         volume_ml: volumeMl,
-        price_per_bottle: bottles > 0 ? Math.round(v.amount / bottles) : 0,
-        price_per_liter: volumeMl > 0 ? Math.round(v.amount / (volumeMl / 1000)) : 0,
+        price_per_bottle: toNumber(row.price_per_bottle),
+        price_per_liter: toNumber(row.price_per_liter),
       } as unknown as DailySalesFactRow;
     })
+    .filter(r => r.sales_date)
     .sort((a, b) => b.sales_date.localeCompare(a.sales_date));
 
   if (salesRows.length > 0) {
@@ -3622,34 +3592,40 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     .map(sc => ({ staffCode: sc, currentAmount: staffCurrMap.get(sc) ?? 0, prevYearAmount: staffPrevMap.get(sc) ?? 0 }))
     .sort((a, b) => b.prevYearAmount - a.prevYearAmount);
 
-  // 年間データ（daily_sales_factベース = 戻入/値引き反映済み）
-  // ギャップ分析: 今日まで同日比較、52週チャート: 年間全体
+  // 年間データ: daily_sales_agg（headersベースMV）で52週チャート/累積チャート
+  // ギャップ分析: sales_document_headers（得意先別が必要）
   const prevYearSameDay = `${y - 1}-${pad(m)}-${pad(d)}`;
-  const [factCurrYearFull, factPrevYearFull, factPrevPrevYearFull] = await Promise.all([
-    supabaseQueryAll<LooseRow>("daily_sales_fact", {
-      select: "sales_date,legacy_customer_code,sales_amount",
+  const [aggCurrYear, aggPrevYear, aggPrevPrevYear, gapCurrHeaders, gapPrevHeaders] = await Promise.all([
+    supabaseQueryAll<LooseRow>("daily_sales_agg", {
+      select: "sales_date,amount,document_count",
       and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${currentYearTo})`,
     }),
-    supabaseQueryAll<LooseRow>("daily_sales_fact", {
-      select: "sales_date,legacy_customer_code,sales_amount",
+    supabaseQueryAll<LooseRow>("daily_sales_agg", {
+      select: "sales_date,amount,document_count",
       and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearTo})`,
     }),
-    supabaseQueryAll<LooseRow>("daily_sales_fact", {
-      select: "sales_date,legacy_customer_code,sales_amount",
+    supabaseQueryAll<LooseRow>("daily_sales_agg", {
+      select: "sales_date,amount,document_count",
       and: `(sales_date.gte.${prevPrevYearFrom},sales_date.lte.${prevPrevYearTo})`,
     }),
+    // ギャップ分析: headers直接集計（今日まで）
+    supabaseQueryAll<LooseRow>("sales_document_headers", {
+      select: "legacy_customer_code,total_amount",
+      and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${todayStr})`,
+    }),
+    supabaseQueryAll<LooseRow>("sales_document_headers", {
+      select: "legacy_customer_code,total_amount",
+      and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearSameDay})`,
+    }),
   ]);
-  // ギャップ分析用: 今日までにフィルタ
-  const factCurrYear = factCurrYearFull.filter(r => getString(r, ["sales_date"], "") <= todayStr);
-  const factPrevYear = factPrevYearFull.filter(r => getString(r, ["sales_date"], "") <= prevYearSameDay);
-  // 得意先名マスタ（staffMapと同じcustMasterを再利用）
+  // 得意先名マスタ
   const custNameMap = new Map<string, string>();
   for (const c of custMaster) {
     const code = getString(c, ["legacy_customer_code"], "");
     const name = getString(c, ["name"], "");
     if (code) custNameMap.set(code, name);
   }
-  const ytdCustomerGaps = aggregateCustomerGap(factCurrYear, factPrevYear, custNameMap);
+  const ytdCustomerGaps = aggregateCustomerGap(gapCurrHeaders, gapPrevHeaders, custNameMap);
 
   return {
     customers,
@@ -3658,9 +3634,9 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     staffComparison,
     todayDocCount: todayHeaders,
     prevYearTodayDocCount: prevTodayHeaders,
-    weeklyCurrent: aggregateWeekly(factCurrYearFull),
-    weeklyPrevYear: aggregateWeekly(factPrevYearFull),
-    weeklyPrevPrevYear: aggregateWeekly(factPrevPrevYearFull),
+    weeklyCurrent: aggregateWeekly(aggCurrYear),
+    weeklyPrevYear: aggregateWeekly(aggPrevYear),
+    weeklyPrevPrevYear: aggregateWeekly(aggPrevPrevYear),
     ytdCustomerGaps,
   };
 
@@ -3670,7 +3646,7 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
       for (const r of rows) {
         const code = getString(r, ["legacy_customer_code"], "");
         if (!code) continue;
-        m.set(code, (m.get(code) ?? 0) + getNumber(r, ["sales_amount"], 0));
+        m.set(code, (m.get(code) ?? 0) + getNumber(r, ["total_amount", "sales_amount"], 0));
       }
       return m;
     };
@@ -3687,27 +3663,19 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
   }
 
   function aggregateWeekly(rows: LooseRow[]): WeeklyMdPoint[] {
-    // Step 1: 日別に集約（factは得意先×商品で複数行あるため）
-    const dayMap = new Map<string, { amount: number; docs: number }>();
+    // daily_sales_agg は日別1行なので直接週集約
+    const weekMap = new Map<number, { amount: number; docs: number }>();
     for (const r of rows) {
       const dateStr = getString(r, ["sales_date"], "");
       if (!dateStr) continue;
-      const entry = dayMap.get(dateStr) ?? { amount: 0, docs: 0 };
-      entry.amount += getNumber(r, ["total_amount", "sales_amount"], 0);
-      entry.docs += 1;
-      dayMap.set(dateStr, entry);
-    }
-    // Step 2: 日→週に集約
-    const weekMap = new Map<number, { amount: number; docs: number }>();
-    for (const [dateStr, day] of dayMap) {
       const dt = new Date(dateStr + "T00:00:00");
       const dayOfYear = Math.floor((dt.getTime() - new Date(dt.getFullYear(), 0, 1).getTime()) / 86400000) + 1;
       const weekDay = (dt.getDay() + 6) % 7; // Mon=0
       const week = Math.floor((dayOfYear - weekDay + 10) / 7);
       const w = Math.max(1, Math.min(53, week));
       const entry = weekMap.get(w) ?? { amount: 0, docs: 0 };
-      entry.amount += day.amount;
-      entry.docs += day.docs;
+      entry.amount += getNumber(r, ["amount", "total_amount"], 0);
+      entry.docs += getNumber(r, ["document_count"], 1);
       weekMap.set(w, entry);
     }
     return [...weekMap.entries()]
