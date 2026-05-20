@@ -3490,34 +3490,19 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
   const prevPrevYearFrom = `${y - 2}-01-01`;
   const prevPrevYearTo = `${y - 2}-12-31`;
 
-  const [custRows, dailyCurr, dailyPrev, staffCurr, staffPrev, todayHeaders, prevTodayHeaders, yearHeaders, prevYearHeaders, prevPrevYearHeaders] = await Promise.all([
-    // 得意先別 当月/前年同月
-    supabaseQueryAll<LooseRow>("customer_sales_summary", {
-      select: "customer_code,customer_name,business_type,area_code,amount_this_month,amount_last_year_same_month,last_order_date",
-      or: "(amount_this_month.gt.0,amount_last_year_same_month.gt.0)",
-      order: "amount_last_year_same_month.desc"
-    }),
-    // 日次: 当月
-    supabaseQueryAll<LooseRow>("daily_sales_fact", {
-      select: "sales_date,sales_amount",
+  // 全データソースを sales_document_headers に統一
+  const [monthHeaders, prevMonthHeaders, todayHeaders, prevTodayHeaders] = await Promise.all([
+    // 当月全伝票（得意先別集計 + 担当別集計 + 日次集計に兼用）
+    supabaseQueryAll<LooseRow>("sales_document_headers", {
+      select: "sales_date,legacy_customer_code,customer_name,staff_code,total_amount",
       and: `(sales_date.gte.${currentMonthFrom},sales_date.lte.${currentMonthTo})`,
       order: "sales_date.asc"
     }),
-    // 日次: 前年同月
-    supabaseQueryAll<LooseRow>("daily_sales_fact", {
-      select: "sales_date,sales_amount",
+    // 前年同月全伝票
+    supabaseQueryAll<LooseRow>("sales_document_headers", {
+      select: "sales_date,legacy_customer_code,customer_name,staff_code,total_amount",
       and: `(sales_date.gte.${prevYearMonthFrom},sales_date.lte.${prevYearMonthTo})`,
       order: "sales_date.asc"
-    }),
-    // 担当別: 当月
-    supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "staff_code,total_amount",
-      and: `(sales_date.gte.${currentMonthFrom},sales_date.lte.${currentMonthTo})`
-    }),
-    // 担当別: 前年同月
-    supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "staff_code,total_amount",
-      and: `(sales_date.gte.${prevYearMonthFrom},sales_date.lte.${prevYearMonthTo})`
     }),
     // 本日ヘッダー数
     supabaseQuery<LooseRow>("sales_document_headers", {
@@ -3527,56 +3512,66 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     supabaseQuery<LooseRow>("sales_document_headers", {
       select: "id", sales_date: `eq.${prevYearTodayStr}`, limit: "1000"
     }).then(r => r.length),
-    // 52週MD: 当年全伝票
-    supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "sales_date,total_amount",
-      and: `(sales_date.gte.${currentYearFrom},sales_date.lte.${currentYearTo})`,
-      order: "sales_date.asc"
-    }),
-    // 52週MD: 前年全伝票
-    supabaseQueryAll<LooseRow>("sales_document_headers", {
-      select: "sales_date,total_amount",
-      and: `(sales_date.gte.${prevYearFrom},sales_date.lte.${prevYearTo})`,
-      order: "sales_date.asc"
-    }),
-    // (前々年headersは不要 — factベースで取得済み)
-    Promise.resolve([] as LooseRow[]),
   ]);
 
-  // 得意先マスタから担当コード+名前を取得
+  // 得意先マスタ（名前補完用）
   const custMaster = await supabaseQueryAll<LooseRow>("customers", {
     select: "legacy_customer_code,staff_code,name"
   });
-  const staffMap = new Map<string, string>();
+  const custNameMap2 = new Map<string, string>();
+  const custStaffMap = new Map<string, string>();
   for (const c of custMaster) {
     const code = getString(c, ["legacy_customer_code"], "");
-    const sc = getString(c, ["staff_code"], "");
-    if (code && sc) staffMap.set(code, sc);
+    if (code) {
+      custNameMap2.set(code, getString(c, ["name"], ""));
+      const sc = getString(c, ["staff_code"], "");
+      if (sc) custStaffMap.set(code, sc);
+    }
   }
 
-  const customers: DailyKpiCustomerRow[] = custRows.map(r => ({
-    customerCode: getString(r, ["customer_code"], ""),
-    customerName: getString(r, ["customer_name"], ""),
-    staffCode: staffMap.get(getString(r, ["customer_code"], "")) ?? "",
-    businessType: getString(r, ["business_type"], ""),
-    areaCode: getString(r, ["area_code"], ""),
-    amountThisMonth: getNumber(r, ["amount_this_month"], 0),
-    amountLastYearSameMonth: getNumber(r, ["amount_last_year_same_month"], 0),
-    lastOrderDate: getString(r, ["last_order_date"], ""),
-  }));
+  // 得意先別集計（headersから直接）
+  const aggByCustomer = (rows: LooseRow[]) => {
+    const m = new Map<string, { amount: number; name: string; lastDate: string }>();
+    for (const r of rows) {
+      const code = getString(r, ["legacy_customer_code"], "");
+      if (!code) continue;
+      const entry = m.get(code) ?? { amount: 0, name: getString(r, ["customer_name"], "") || custNameMap2.get(code) || "", lastDate: "" };
+      entry.amount += getNumber(r, ["total_amount"], 0);
+      const sd = getString(r, ["sales_date"], "");
+      if (sd > entry.lastDate) entry.lastDate = sd;
+      m.set(code, entry);
+    }
+    return m;
+  };
+  const currCustMap = aggByCustomer(monthHeaders);
+  const prevCustMap = aggByCustomer(prevMonthHeaders);
+  const allCustCodes = new Set([...currCustMap.keys(), ...prevCustMap.keys()]);
+  const customers: DailyKpiCustomerRow[] = [...allCustCodes]
+    .map(code => ({
+      customerCode: code,
+      customerName: currCustMap.get(code)?.name || prevCustMap.get(code)?.name || custNameMap2.get(code) || code,
+      staffCode: custStaffMap.get(code) ?? "",
+      businessType: "",
+      areaCode: "",
+      amountThisMonth: currCustMap.get(code)?.amount ?? 0,
+      amountLastYearSameMonth: prevCustMap.get(code)?.amount ?? 0,
+      lastOrderDate: currCustMap.get(code)?.lastDate ?? "",
+    }))
+    .filter(c => c.amountThisMonth > 0 || c.amountLastYearSameMonth > 0)
+    .sort((a, b) => b.amountLastYearSameMonth - a.amountLastYearSameMonth);
 
-  // 日別集計
+  // 日別集計（headersから）
   const aggregateDaily = (rows: LooseRow[]): DailyKpiDayPoint[] => {
     const dayMap = new Map<number, number>();
     for (const r of rows) {
       const dateStr = getString(r, ["sales_date"], "");
       const day = parseInt(dateStr.slice(8));
-      if (day > 0) dayMap.set(day, (dayMap.get(day) ?? 0) + getNumber(r, ["sales_amount"], 0));
+      if (day > 0) dayMap.set(day, (dayMap.get(day) ?? 0) + getNumber(r, ["total_amount"], 0));
     }
     return [...dayMap.entries()].sort((a, b) => a[0] - b[0]).map(([day, amount]) => ({ day, amount }));
   };
 
-  // 担当別集計
+  // 担当別集計（headersから）
   const aggregateStaff = (rows: LooseRow[]): Map<string, number> => {
     const m = new Map<string, number>();
     for (const r of rows) {
@@ -3585,8 +3580,8 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     }
     return m;
   };
-  const staffCurrMap = aggregateStaff(staffCurr);
-  const staffPrevMap = aggregateStaff(staffPrev);
+  const staffCurrMap = aggregateStaff(monthHeaders);
+  const staffPrevMap = aggregateStaff(prevMonthHeaders);
   const allStaffCodes = new Set([...staffCurrMap.keys(), ...staffPrevMap.keys()]);
   const staffComparison: DailyKpiStaffRow[] = [...allStaffCodes]
     .map(sc => ({ staffCode: sc, currentAmount: staffCurrMap.get(sc) ?? 0, prevYearAmount: staffPrevMap.get(sc) ?? 0 }))
@@ -3629,8 +3624,8 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
 
   return {
     customers,
-    dailyCurrent: aggregateDaily(dailyCurr),
-    dailyPrevYear: aggregateDaily(dailyPrev),
+    dailyCurrent: aggregateDaily(monthHeaders),
+    dailyPrevYear: aggregateDaily(prevMonthHeaders),
     staffComparison,
     todayDocCount: todayHeaders,
     prevYearTodayDocCount: prevTodayHeaders,
