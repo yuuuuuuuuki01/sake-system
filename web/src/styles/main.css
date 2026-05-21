@@ -5023,11 +5023,15 @@ table {
   width: 100%;
 }
 
-/* -- チャート用スクロールコンテナ -- */
+/* -- チャート用スクロールコンテナ（ピンチズーム対応） -- */
 .chart-scroll {
   width: 100%;
-  overflow-x: auto;
+  overflow: auto;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+.chart-scroll svg {
+  min-width: 600px;
 }
 
 /* -- SVGチャートのレスポンシブ -- */
