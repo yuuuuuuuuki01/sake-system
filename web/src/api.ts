@@ -3545,8 +3545,11 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     }
     return m;
   };
-  const currCustMap = aggByCustomer(monthHeaders);
-  const prevCustMap = aggByCustomer(prevMonthHeaders);
+  // KPIカード用: 同日比較（当年=今日まで、前年=前年同日まで）
+  const currHeadersToday = monthHeaders.filter(r => getString(r, ["sales_date"], "") <= todayStr);
+  const prevHeadersToday = prevMonthHeaders.filter(r => getString(r, ["sales_date"], "") <= prevYearTodayStr);
+  const currCustMap = aggByCustomer(currHeadersToday);
+  const prevCustMap = aggByCustomer(prevHeadersToday);
   const allCustCodes = new Set([...currCustMap.keys(), ...prevCustMap.keys()]);
   const customers: DailyKpiCustomerRow[] = [...allCustCodes]
     .map(code => ({
@@ -3582,8 +3585,8 @@ export async function fetchDailyKpi(): Promise<DailyKpiData> {
     }
     return m;
   };
-  const staffCurrMap = aggregateStaff(monthHeaders);
-  const staffPrevMap = aggregateStaff(prevMonthHeaders);
+  const staffCurrMap = aggregateStaff(currHeadersToday);
+  const staffPrevMap = aggregateStaff(prevHeadersToday);
   const allStaffCodes = new Set([...staffCurrMap.keys(), ...staffPrevMap.keys()]);
   const staffComparison: DailyKpiStaffRow[] = [...allStaffCodes]
     .map(sc => ({ staffCode: sc, currentAmount: staffCurrMap.get(sc) ?? 0, prevYearAmount: staffPrevMap.get(sc) ?? 0 }))
