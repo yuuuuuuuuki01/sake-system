@@ -291,7 +291,16 @@ def sync_headers_from_lines(config: dict[str, Any],
                     if inv not in inv_data:
                         inv_data[inv] = {"date": dm.group(1), "cust": cm.group(1),
                                          "total": 0}
-                    inv_data[inv]["total"] += r.get("amount") or 0
+                    # diff由来はtypeタグなし → 全行が売上明細（そのまま加算）
+                    # CSV由来はtype付き → 500,560,700を加算、580を減算、他は除外
+                    amt = r.get("amount") or 0
+                    if "type:" not in note:
+                        # diff由来: typeタグなし = 売上計算式適用済み
+                        inv_data[inv]["total"] += amt
+                    elif "type:500" in note or "type:560" in note or "type:700" in note:
+                        inv_data[inv]["total"] += amt
+                    elif "type:580" in note:
+                        inv_data[inv]["total"] -= abs(amt)
             offset += 1000
             if len(resp.json()) < 1000:
                 break
