@@ -575,9 +575,8 @@ def main() -> int:
     logger = setup_logging()
     config = load_config()
 
-    # decoder_sales_diff.py が変更を検出した場合のみ実行
-    # --force フラグで強制実行も可能
     import argparse
+    from datetime import date
     parser = argparse.ArgumentParser()
     parser.add_argument("--force", action="store_true",
                         help="差分フラグに関係なく強制リフレッシュ")
@@ -591,22 +590,27 @@ def main() -> int:
     if REFRESH_FLAG_PATH.exists():
         REFRESH_FLAG_PATH.unlink()
 
-    # Step 1: Aggregate
-    facts = fetch_and_aggregate(config, logger)
-    if not facts:
-        logger.warning("No facts to upsert")
-        return 1
+    # ── 重い処理（fact全件再構築）は日曜のみ or --force ──
+    # daily_sales_fact は画面表示に使わない（分析用）ため頻度を下げる
+    is_sunday = date.today().weekday() == 6  # 0=月, 6=日
+    if args.force or is_sunday:
+        logger.info("Sunday or --force: running full fact rebuild...")
+        facts = fetch_and_aggregate(config, logger)
+        if facts:
+            upsert_facts(config, facts, logger)
+        else:
+            logger.warning("No facts to upsert")
+    else:
+        logger.info("Skipping fact rebuild (not Sunday). Headers/MV only.")
 
-    # Step 2: Upsert
-    upsert_facts(config, facts, logger)
-
-    # Step 3: Sync headers from lines (for dashboard recent transactions)
+    # ── 軽い処理（差分があれば毎回実行）──
+    # headersの金額更新 — 画面表示に直結
     sync_headers_from_lines(config, logger)
 
-    # Step 3.5: FK補完 — lines の sales_document_header_id を伝票番号で紐付け
+    # FK補完 — daily_sales_agg のbottles/volume_mlに必要
     link_lines_to_headers(config, logger)
 
-    # Step 4: Downstream refreshes
+    # マテビュー・下流テーブルのリフレッシュ — 画面表示に直結
     refresh_downstream(config, logger)
 
     logger.info("Done")
